@@ -8,7 +8,7 @@ let package = Package(
     platforms: [
         // Deployment target per PLAN.md §2. String form so the manifest parses even
         // if this toolchain's `SupportedPlatform.MacOSVersion` lacks a `.v27` case.
-        .macOS("27.0")
+        .macOS("26.0")
     ],
     products: [
         .library(name: "DesignSystem", targets: ["DesignSystem"])

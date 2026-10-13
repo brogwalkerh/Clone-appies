@@ -56,7 +56,7 @@ cd Packages/Modules/Cleanup && swift build && swift test
 cd Packages/SpaceLens && swift build && swift test
 cd CLI && swift build && swift test
 ```
-macOS app (needs Xcode 27 on macOS 27, Apple Silicon):
+macOS app (Xcode 26.6+ on Apple Silicon; minimum deployment macOS 26, see docs/adr/0005):
 ```sh
 brew install xcodegen
 xcodegen generate
