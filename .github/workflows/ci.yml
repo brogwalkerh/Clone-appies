@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Foundation-only packages must build and pass tests on Linux (CONTRACTS.md).
+  # The official swift:6.2 Docker image is used instead of swift-actions/setup-swift
+  # because the image pins the exact toolchain and does not depend on the
+  # action's version-resolution tables keeping up with new Swift releases.
+  # ---------------------------------------------------------------------------
+  linux-packages:
+    name: Linux ${{ matrix.package }}
+    runs-on: ubuntu-24.04
+    container:
+      image: swift:6.2-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - Packages/Core
+          - Packages/HelperProtocol
+          - Packages/SpaceLens
+          - Packages/Modules/Cleanup
+          - Packages/Modules/Clutter
+          - Packages/Modules/Applications
+          - Packages/Modules/Performance
+          - Packages/Modules/Protection
+          - CLI
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.package }}/.build
+            ~/.cache/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ matrix.package }}-${{ hashFiles(format('{0}/Package.swift', matrix.package), format('{0}/Package.resolved', matrix.package)) }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ matrix.package }}-
+
+      - name: Build
+        working-directory: ${{ matrix.package }}
+        run: |
+          if [ -f Package.swift ]; then
+            swift build -v
+          else
+            echo "::notice::No Package.swift in ${{ matrix.package }} yet; skipping build."
+          fi
+
+      - name: Test
+        working-directory: ${{ matrix.package }}
+        run: |
+          if [ -f Package.swift ]; then
+            swift test --parallel
+          else
+            echo "::notice::No Package.swift in ${{ matrix.package }} yet; skipping tests."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Shell scripts: syntax check and shellcheck if available.
+  # ---------------------------------------------------------------------------
+  scripts:
+    name: Scripts lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n
+        run: |
+          for f in Scripts/*.sh; do bash -n "$f"; done
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning Scripts/*.sh
+      - name: Validate plists and project.yml
+        run: |
+          python3 -c "import yaml,sys; yaml.safe_load(open('project.yml'))"
+          for p in App/Resources/Info.plist App/Resources/App.entitlements \
+                   MenuAgent/Resources/Info.plist \
+                   PrivilegedHelper/Resources/com.example.maccleaner.helper.plist \
+                   PrivilegedHelper/Resources/Info.plist; do
+            python3 -c "import plistlib,sys; plistlib.load(open(sys.argv[1],'rb'))" "$p"
+          done
+
+  # ---------------------------------------------------------------------------
+  # macOS app build + unit tests.
+  # TODO: pin to the macOS 27 / Xcode 27 runner image (e.g. `macos-27` or
+  # `macos-27-arm64`) once GitHub publishes it. `macos-latest` may lag behind and
+  # lack the macOS 27 SDK required by the deployment target.
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS build and test
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          # Prefer the newest installed Xcode so the macOS 27 SDK is available.
+          newest=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+          echo "Using $newest"
+          sudo xcode-select -s "$newest"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Install XcodeGen and xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+
+      - name: Cache SwiftPM (Xcode)
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: xcode-spm-${{ runner.os }}-${{ hashFiles('project.yml', 'Packages/**/Package.swift') }}
+          restore-keys: |
+            xcode-spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project App.xcodeproj -scheme App \
+            -derivedDataPath build
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project App.xcodeproj -scheme App \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build | tee build.log | xcbeautify --renderer github-actions
+
+      - name: Unit tests (AppTests)
+        run: |
+          set -o pipefail
+          xcodebuild test -project App.xcodeproj -scheme App \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build \
+            -only-testing AppTests \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | tee test.log | xcbeautify --renderer github-actions
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: |
+            build.log
+            test.log
+          if-no-files-found: ignore
