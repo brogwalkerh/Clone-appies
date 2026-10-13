@@ -324,3 +324,169 @@ App Store and Homebrew update sources are macOS-only and live in UIKitBridge
 `HomebrewUpdateSource: UpdateSource` (runs `brew outdated --cask --json=v2` via Process),
 `AppStoreUpdateSource: UpdateSource` (iTunes lookup API by bundle id),
 `PowerState.isOnBattery` via IOKit.
+
+## M3 — HelperProtocol (Packages/HelperProtocol, Foundation-only)
+
+The privileged helper exposes a **closed** set of operations (CLAUDE.md rule 5).
+Every request is a `Codable` enum case with typed, validated arguments. The
+package is Foundation-only so validation is unit-tested on Linux; the XPC
+transport lives in `PrivilegedHelper/` and `App/Services/HelperClient.swift`.
+
+```swift
+public enum HelperOperation: Codable, Sendable, Hashable {
+    case ping
+    case freePurgeableSpace                       // runs /usr/sbin/purge-equivalent: `tmutil thinlocalsnapshots / 9999999999 4` + `purge`
+    case flushDNSCache                            // dscacheutil -flushcache; killall -HUP mDNSResponder
+    case runPeriodicScripts(PeriodicInterval)     // periodic daily|weekly|monthly
+    case reindexSpotlight(volume: String)         // mdutil -E <volume>; volume must be "/" or under /Volumes/
+    case rebuildLaunchServices                    // lsregister -kill -r -domain local -domain system -domain user
+    case thinLocalSnapshots(bytesToFree: Int64)   // tmutil thinlocalsnapshots / <bytes> 4
+    case removeSystemCache(path: String)          // path must be under /Library/Caches or /private/var/folders, no "..", not a symlink
+    case setLaunchDaemonEnabled(label: String, enabled: Bool)   // label must match ^[A-Za-z0-9_.-]+$ and not start with com.apple.
+    case resetBluetoothModule                     // kills bluetoothd (launchd restarts it)
+    case speedUpMail                              // sqlite3 VACUUM on ~/Library/Mail/V*/MailData/Envelope\ Index for the calling user's home (path passed, validated)
+}
+public enum PeriodicInterval: String, Codable, Sendable { case daily, weekly, monthly }
+
+public struct HelperRequest: Codable, Sendable, Hashable {
+    public let id: UUID
+    public let operation: HelperOperation
+    public let callerHome: String        // validated: absolute, under /Users/ or /var/root
+    public init(operation: HelperOperation, callerHome: String)
+}
+public struct HelperResponse: Codable, Sendable, Hashable {
+    public let requestID: UUID
+    public let succeeded: Bool
+    public let message: String
+    public let bytesReclaimed: Int64?
+    public let durationSeconds: Double
+}
+public enum HelperValidationError: Error, Sendable, Hashable, CustomStringConvertible {
+    case invalidPath(String), outsideAllowedRoot(String), invalidLabel(String), invalidVolume(String), invalidHome(String)
+}
+/// Pure validation, no I/O except an injected symlink check. Used by BOTH sides.
+public struct HelperRequestValidator: Sendable {
+    public init(isSymlink: @Sendable (String) -> Bool = { _ in false })
+    public func validate(_ request: HelperRequest) throws   // throws HelperValidationError
+}
+/// The fixed argv for each operation, so the helper never builds command lines from strings it did not author.
+public struct HelperCommandPlan: Sendable, Hashable {
+    public let steps: [(executable: String, arguments: [String])]   // represent as [CommandStep]
+    public static func plan(for operation: HelperOperation, callerHome: String) -> HelperCommandPlan
+}
+public struct CommandStep: Sendable, Hashable, Codable { public let executable: String; public let arguments: [String] }
+
+/// XPC wire protocol (ObjC-visible). Lives in the same package behind #if canImport(ObjectiveC).
+@objc public protocol HelperXPCProtocol {
+    func perform(_ requestData: Data, reply: @escaping (Data) -> Void)   // JSON HelperRequest -> JSON HelperResponse
+    func version(reply: @escaping (String) -> Void)
+}
+public enum HelperConstants { public static let machServiceName = "com.example.maccleaner.helper"; public static let version = "1" }
+```
+
+## M3 — App side of the helper (App/Services/HelperClient.swift, macOS only)
+```swift
+@MainActor @Observable public final class HelperClient {
+    public static let shared: HelperClient
+    public private(set) var isAvailable: Bool
+    public func perform(_ operation: HelperOperation) async throws -> HelperResponse   // validates locally first, then XPC
+    public func checkAvailability() async
+}
+```
+Code-signing: the helper verifies the connecting process with
+`SecCodeCheckValidity` against a requirement string naming our Team ID and
+bundle id (`HelperConstants.clientRequirement`), and the client sets the same
+on the `NSXPCConnection` via `setCodeSigningRequirement(_:)` (macOS 13+).
+
+## M3 — PerformanceModule (Packages/Modules/Performance, Foundation-only)
+
+```swift
+public struct MaintenanceTask: Sendable, Hashable, Codable, Identifiable {
+    public let id: String                 // "maintenance.freeRAM"
+    public let name: String
+    public let summary: String            // one line
+    public let detail: String             // Smart Insights style explanation
+    public let requiresHelper: Bool
+    public let helperOperation: HelperOperation?
+    public let risk: RiskLevel
+    public let estimatedSeconds: Int
+}
+public enum MaintenanceCatalog {
+    public static let all: [MaintenanceTask]   // freeRAM, freePurgeable, runPeriodic (daily+weekly+monthly), flushDNS, reindexSpotlight,
+                                               // rebuildLaunchServices, thinSnapshots, speedUpMail, resetBluetooth, clearFontCaches (user-level), 
+                                               // repairUserPermissions (user-level: `diskutil resetUserPermissions / $(id -u)`)
+}
+public struct MaintenanceResult: Sendable, Hashable, Codable { public let taskID: String; public let succeeded: Bool; public let message: String; public let bytesReclaimed: Int64?; public let duration: TimeInterval }
+
+/// Executes tasks. User-level tasks run via the injected `CommandRunner`; helper tasks via the injected `HelperPerformer`.
+public protocol CommandRunner: Sendable { func run(_ step: CommandStep) async throws -> (exitCode: Int32, stdout: String, stderr: String) }
+public protocol HelperPerformer: Sendable { func perform(_ operation: HelperOperation) async throws -> HelperResponse }
+public actor MaintenanceRunner {
+    public init(commands: any CommandRunner, helper: (any HelperPerformer)?, home: URL)
+    public func run(_ task: MaintenanceTask) async -> MaintenanceResult
+    public func run(_ tasks: [MaintenanceTask]) -> AsyncStream<MaintenanceResult>
+}
+public struct ProcessCommandRunner: CommandRunner { public init() }   // Foundation.Process; on Linux fine for tests with /bin/echo
+
+/// Login & background items from launchd plists. Pure parsing; `enabledState` is nil when unknown (Linux).
+public struct BackgroundItem: Sendable, Hashable, Codable, Identifiable {
+    public var id: URL { plistURL }
+    public let plistURL: URL
+    public let label: String
+    public let domain: BackgroundItemDomain       // userAgent, systemAgent, systemDaemon, loginItemApp
+    public let program: String?                   // Program or ProgramArguments[0]
+    public let runAtLoad: Bool
+    public let keepAlive: Bool
+    public let isBroken: Bool                     // program path does not exist
+    public let isApple: Bool                      // label starts with com.apple.
+    public let ownerAppName: String?              // best-effort from path / label
+    public let enabledState: Bool?
+}
+public enum BackgroundItemDomain: String, Codable, Sendable { case userAgent, systemAgent, systemDaemon, loginItemApp }
+public struct BackgroundItemsInventory: Sendable {
+    public init(fileSystem: any FileSystem, enabledStateProvider: (any LaunchdStateProvider)? = nil)
+    public func discover(home: URL) async throws -> [BackgroundItem]
+}
+public protocol LaunchdStateProvider: Sendable { func isEnabled(label: String, domain: BackgroundItemDomain) async -> Bool? }
+/// id "performance.brokenLoginItems": emits each broken BackgroundItem's plist as a Finding, category "performance.brokenLoginItems", risk .safe.
+public struct BrokenLoginItemsScanner: CleanerScanner { public init() }
+public enum PerformanceScanners { public static func all() -> [any CleanerScanner] }
+
+/// Heavy consumers: sampling is platform-specific (UIKitBridge); ranking is here.
+public struct ProcessSample: Sendable, Hashable, Codable, Identifiable {
+    public let id: Int32            // pid
+    public let name: String
+    public let bundleIdentifier: String?
+    public let cpuPercent: Double   // 0...100*cores
+    public let residentBytes: Int64
+    public let energyImpact: Double?   // nil when unavailable
+    public let isResponsive: Bool?     // nil when unknown
+    public let isSystem: Bool
+}
+public protocol ProcessSampler: Sendable { func sample() async throws -> [ProcessSample] }
+public struct HeavyConsumersRanker: Sendable {
+    public init(cpuThreshold: Double = 20, memoryThreshold: Int64 = 1_000_000_000)
+    public func rank(_ samples: [ProcessSample]) -> [ProcessSample]   // heavy first; excludes system procs below thresholds; stable
+    public func hung(_ samples: [ProcessSample]) -> [ProcessSample]
+}
+```
+
+## M3 — UIKitBridge additions (macOS only)
+```swift
+public struct DarwinProcessSampler: ProcessSampler { public init() }           // proc_listallpids + proc_pid_rusage + NSRunningApplication; isResponsive via AXUIElement with 1s messaging timeout
+public struct LaunchctlStateProvider: LaunchdStateProvider { public init() }   // `launchctl print gui/<uid>/<label>` / system/<label>
+public struct SystemStats: Sendable, Hashable { cpuPercent, memoryUsedBytes, memoryTotalBytes, memoryPressure (normal|warn|critical), diskUsedBytes, diskTotalBytes, purgeableBytes, batteryPercent?, batteryCycleCount?, batteryHealth?, isCharging?, networkInBytesPerSec, networkOutBytesPerSec }
+public actor SystemStatsSampler { public init(interval: Duration = .seconds(2)); public func stream() -> AsyncStream<SystemStats> }   // host_statistics64, host_processor_info deltas, getifaddrs deltas, IOKit power sources
+@MainActor public final class ScreenCleaningController { public static let shared; public func begin(duration: Duration = .seconds(120)); public func end(); public var isActive: Bool }
+    // Black borderless windows at .screenSaver level on every NSScreen, CGEventTap (needs Accessibility) swallowing keyboard/mouse,
+    // countdown label, "hold ⌘ for 2 s to exit", auto-ends; ends cleanly if Accessibility is missing (shows an explanation instead).
+```
+
+## M3 — MenuAgent (MenuAgent/, macOS only, LSUIElement)
+`MenuBarExtra` with `.window` style; popover shows SystemStats pills (CPU, RAM
+with "Free Up", disk with purgeable, battery, network), Trash size, "Run Smart
+Care" (opens the main app via `maccleaner://smart-care`), Protection Monitor
+row (placeholder until M4), "Screen Cleaning Mode", "Open Mac Cleaner", Quit.
+Registered as `SMAppService.loginItem(identifier: "com.example.maccleaner.MenuAgent")`.
+Main app declares the `maccleaner` URL scheme (CFBundleURLTypes) and handles
+`smart-care`, `cleanup`, `performance` routes.
