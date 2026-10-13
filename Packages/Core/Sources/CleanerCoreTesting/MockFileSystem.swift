@@ -6,16 +6,21 @@ import CleanerCore
 /// ```swift
 /// let fs: MockFileSystem = [
 ///     "/Users/test/Library/Caches/app/a.bin": .file(size: 1_000),
+///     "/Users/test/Library/Caches/app/b.bin": .file(size: 1_000, allocatedSize: 4_096),
 ///     "/Users/test/Library/Caches/empty": .directory,
 ///     "/Users/test/link": .symlink(to: "/Users/test/Library"),
 ///     "/Applications/Foo.app": .package,
 /// ]
 /// ```
 /// Intermediate directories are created implicitly.
+///
+/// A file node's `size` (or its data's count) is the logical size. The
+/// allocated size reported by `attributes(of:)` is the same unless
+/// `allocatedSize` is given, which models APFS compression or cloning.
 public struct MockFileSystem: FileSystem, ExpressibleByDictionaryLiteral {
     public enum Node: Sendable, Hashable {
-        case file(size: Int64, modified: Date? = nil)
-        case data(Data, modified: Date? = nil)
+        case file(size: Int64, allocatedSize: Int64? = nil, modified: Date? = nil)
+        case data(Data, allocatedSize: Int64? = nil, modified: Date? = nil)
         case directory(modified: Date? = nil)
         case package(modified: Date? = nil)
         case symlink(to: String)
@@ -79,10 +84,13 @@ public struct MockFileSystem: FileSystem, ExpressibleByDictionaryLiteral {
         let path = Self.normalize(url.path)
         guard let node = nodes[path] else { throw FileSystemError.notFound(url) }
         switch node {
-        case .file(let size, let modified):
-            return FileAttributes(sizeBytes: size, modifiedAt: modified)
-        case .data(let data, let modified):
-            return FileAttributes(sizeBytes: Int64(data.count), modifiedAt: modified)
+        case .file(let size, let allocated, let modified):
+            return FileAttributes(sizeBytes: allocated ?? size, logicalSizeBytes: size,
+                                  modifiedAt: modified)
+        case .data(let data, let allocated, let modified):
+            let size = Int64(data.count)
+            return FileAttributes(sizeBytes: allocated ?? size, logicalSizeBytes: size,
+                                  modifiedAt: modified)
         case .directory(let modified):
             return FileAttributes(sizeBytes: 0, modifiedAt: modified, isDirectory: true)
         case .package(let modified):
@@ -107,8 +115,8 @@ public struct MockFileSystem: FileSystem, ExpressibleByDictionaryLiteral {
         let path = Self.normalize(url.path)
         guard let node = nodes[path] else { throw FileSystemError.notFound(url) }
         switch node {
-        case .data(let data, _): return data
-        case .file(let size, _): return Data(count: Int(min(size, 1 << 20)))
+        case .data(let data, _, _): return data
+        case .file(let size, _, _): return Data(count: Int(min(size, 1 << 20)))
         default: throw FileSystemError.notAFile(url)
         }
     }

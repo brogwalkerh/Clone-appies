@@ -28,6 +28,42 @@ struct ModelTests {
         #expect(!context.isOnBattery)
     }
 
+    @Test func fileAttributesLogicalSizeDefaultsToAllocatedSize() {
+        let plain = FileAttributes(sizeBytes: 1_000)
+        #expect(plain.logicalSizeBytes == 1_000)
+
+        // APFS compression: fewer blocks on disk than bytes of content.
+        let compressed = FileAttributes(sizeBytes: 4_096, logicalSizeBytes: 20_000)
+        #expect(compressed.sizeBytes == 4_096)
+        #expect(compressed.logicalSizeBytes == 20_000)
+        #expect(compressed != FileAttributes(sizeBytes: 4_096))
+
+        // Existing labeled call sites keep compiling and get the default.
+        let directory = FileAttributes(sizeBytes: 0, modifiedAt: nil, isDirectory: true,
+                                       isSymlink: false, isPackage: false)
+        #expect(directory.logicalSizeBytes == 0)
+    }
+
+    @Test func mockFileSystemReportsBothSizes() throws {
+        let blob = Data(repeating: 0xAB, count: 20_000)
+        let fs: MockFileSystem = [
+            "/Users/test/plain.bin": .file(size: 1_000),
+            "/Users/test/compressed.bin": .file(size: 20_000, allocatedSize: 4_096),
+            "/Users/test/data.bin": .data(blob),
+            "/Users/test/cloned.bin": .data(blob, allocatedSize: 0, modified: Date(timeIntervalSince1970: 5)),
+        ]
+        let plain = try fs.attributes(of: URL(fileURLWithPath: "/Users/test/plain.bin"))
+        #expect(plain.sizeBytes == 1_000 && plain.logicalSizeBytes == 1_000)
+        let compressed = try fs.attributes(of: URL(fileURLWithPath: "/Users/test/compressed.bin"))
+        #expect(compressed.sizeBytes == 4_096 && compressed.logicalSizeBytes == 20_000)
+        let data = try fs.attributes(of: URL(fileURLWithPath: "/Users/test/data.bin"))
+        #expect(data.sizeBytes == 20_000 && data.logicalSizeBytes == 20_000)
+        let cloned = try fs.attributes(of: URL(fileURLWithPath: "/Users/test/cloned.bin"))
+        #expect(cloned.sizeBytes == 0 && cloned.logicalSizeBytes == 20_000)
+        #expect(cloned.modifiedAt == Date(timeIntervalSince1970: 5))
+        #expect(try fs.contents(of: URL(fileURLWithPath: "/Users/test/cloned.bin")) == blob)
+    }
+
     @Test func mockFileSystemBasics() throws {
         let fs: MockFileSystem = [
             "/Users/test/Library/Caches/app/a.bin": .file(size: 1_000),
@@ -58,9 +94,10 @@ struct ModelTests {
         let fa = try fs.attributes(of: file)
         #expect(!fa.isDirectory && !fa.isSymlink)
         #expect(fa.sizeBytes >= 1234)
+        #expect(fa.logicalSizeBytes == 1234)
         #expect(fa.modifiedAt.map { abs($0.timeIntervalSince1970 - 1_600_000_000) < 2 } == true)
         let da = try fs.attributes(of: dir)
-        #expect(da.isDirectory && da.sizeBytes == 0)
+        #expect(da.isDirectory && da.sizeBytes == 0 && da.logicalSizeBytes == 0)
         let la = try fs.attributes(of: link)
         #expect(la.isSymlink && !la.isDirectory)
         #expect(try fs.children(of: fixture.root).map(\.lastPathComponent) == ["d", "f.bin", "l"])

@@ -11,15 +11,18 @@ public protocol FileSystem: Sendable {
 }
 
 public struct FileAttributes: Sendable, Hashable {
-    public let sizeBytes: Int64         // allocated size for files, 0 for directories
+    public let sizeBytes: Int64         // allocated (on-disk) size for files, 0 for directories
+    public let logicalSizeBytes: Int64  // byte length of the contents; equals sizeBytes on Linux
     public let modifiedAt: Date?
     public let isDirectory: Bool
     public let isSymlink: Bool
     public let isPackage: Bool          // macOS bundle; always false on Linux
 
-    public init(sizeBytes: Int64, modifiedAt: Date? = nil, isDirectory: Bool = false,
-                isSymlink: Bool = false, isPackage: Bool = false) {
+    /// `logicalSizeBytes` defaults to `sizeBytes` when omitted.
+    public init(sizeBytes: Int64, logicalSizeBytes: Int64? = nil, modifiedAt: Date? = nil,
+                isDirectory: Bool = false, isSymlink: Bool = false, isPackage: Bool = false) {
         self.sizeBytes = sizeBytes
+        self.logicalSizeBytes = logicalSizeBytes ?? sizeBytes
         self.modifiedAt = modifiedAt
         self.isDirectory = isDirectory
         self.isSymlink = isSymlink
@@ -59,27 +62,38 @@ public struct LocalFileSystem: FileSystem {
         let isDirectory = type == .typeDirectory
         let modified = attrs[.modificationDate] as? Date
 
-        var size: Int64 = 0
+        // `.size` is st_size: the logical length of the contents. On Linux that
+        // is also what we report as the allocated size.
+        var logicalSize: Int64 = 0
         if !isDirectory {
-            size = Self.int64(attrs[.size])
+            logicalSize = Self.int64(attrs[.size])
         }
+        var allocatedSize = logicalSize
         var isPackage = false
         #if canImport(Darwin)
         if !isSymlink {
             let keys: Set<URLResourceKey> = [
-                .isPackageKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey,
+                .isPackageKey, .fileSizeKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey,
             ]
             if let values = try? url.resourceValues(forKeys: keys) {
                 isPackage = values.isPackage ?? false
                 if !isDirectory {
+                    if let logical = values.fileSize {
+                        logicalSize = Int64(logical)
+                    }
+                    // APFS compression and clonefile make this differ from the
+                    // logical size, in either direction.
                     if let allocated = values.totalFileAllocatedSize ?? values.fileAllocatedSize {
-                        size = Int64(allocated)
+                        allocatedSize = Int64(allocated)
+                    } else {
+                        allocatedSize = logicalSize
                     }
                 }
             }
         }
         #endif
-        return FileAttributes(sizeBytes: size, modifiedAt: modified, isDirectory: isDirectory,
+        return FileAttributes(sizeBytes: allocatedSize, logicalSizeBytes: logicalSize,
+                              modifiedAt: modified, isDirectory: isDirectory,
                               isSymlink: isSymlink, isPackage: isPackage)
     }
 
