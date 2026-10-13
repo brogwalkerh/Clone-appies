@@ -5,6 +5,7 @@ import CleanupModule
 import ClutterModule
 import ApplicationsModule
 import PerformanceModule
+import ProtectionModule
 import UIKitBridge
 
 /// An in-app message shown in the toolbar bell popover (Notification Center, PLAN.md §3.12).
@@ -83,6 +84,12 @@ final class AppState {
     /// Performance › Maintenance selection, run state and streamed results.
     let maintenance: MaintenanceState
 
+    /// Protection › Malware: signature database, scope, threats, quarantine (PLAN.md §3.3).
+    let malware: MalwareScanModel
+
+    /// Protection › Privacy: browser history/cookies/caches, recent items, chat caches (`PrivacyScanners.all()`).
+    let privacyModel: ScanViewModel
+
     /// Installed apps, leftovers and available updates for Applications › Uninstaller / Updater.
     let appInventory: AppInventoryStore
 
@@ -118,6 +125,12 @@ final class AppState {
             context: SettingsStore.scanContext()
         )
         maintenance = MaintenanceState()
+        malware = MalwareScanModel()
+        privacyModel = ScanViewModel(
+            module: .protection,
+            scanners: PrivacyScanners.all(),
+            context: SettingsStore.scanContext()
+        )
         appInventory = AppInventoryStore()
     }
 
@@ -165,6 +178,17 @@ final class AppState {
         }
         cleanup.context = SettingsStore.scanContext()
         cleanup.run()
+    }
+
+    /// Starts a malware scan, optionally switching scope first (deep link
+    /// `maccleaner://protection?scope=`). `ProtectionView` consumes `pendingFocus`
+    /// to show the Malware tab. A scan already running keeps its scope.
+    func runMalwareScan(scope: ScanScope? = nil) {
+        if let scope, !malware.isScanning {
+            malware.scope = scope
+        }
+        malware.pendingFocus = true
+        malware.run()
     }
 
     func isPinned(_ item: SidebarItem) -> Bool {

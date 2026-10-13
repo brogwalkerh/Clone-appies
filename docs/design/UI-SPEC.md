@@ -19,10 +19,11 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | My Activity | `Modules/MyActivity/MyActivityView.swift` | Swift Charts, sample data until M5 |
 | Performance | `Modules/Performance/PerformanceView.swift` (+ `MaintenanceTab`, `BackgroundItemsTab`, `HeavyConsumersTab`) | Segmented Maintenance · Login Items · Heavy Consumers · Hung Apps (§3.3) |
 | Menu | `Modules/MenuApp/MenuAppView.swift` | Menu bar agent settings: enable, launch, pills, Screen Cleaning Mode (§3.4) |
-| Protection, Cloud, Email | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
+| Protection | `Modules/Protection/ProtectionView.swift` (+ `MalwareTab`, `PrivacyTab`, `PermissionsTab`, `MonitorTab`) | Segmented Malware · Privacy · Permissions · Monitor (§3.6); Quarantine sheet |
+| Cloud, Email | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
 | Helper install sheet | `RootView` + `OnboardingView(initialStep: .helper)` | Shown while `AppState.helperInstallRequested`; opened by Performance and `maccleaner://performance?task=` |
 | Onboarding | `Onboarding/OnboardingView.swift` | Sheet, 680×560, three steps |
-| Settings | `Settings/SettingsView.swift` | `TabView`: General, Ignore List, Scheduler, Advanced |
+| Settings | `Settings/SettingsView.swift` | `TabView`: General, Protection, Ignore List, Scheduler, Advanced (§3.7) |
 | Notification popover | `RootView.NotificationListView` | 340 pt wide, mark read / clear |
 | Permission banner | `RootView.permissionBanner` | Top inset when Full Disk Access is denied |
 
@@ -130,9 +131,52 @@ enable/disable action.
 ### 3.5 URL scheme
 
 `CFBundleURLTypes` registers `maccleaner`. `DeepLink(url:)` (pure, tested in `Tests/AppTests/DeepLinkRouterTests.swift`)
-parses `maccleaner://smart-care`, `maccleaner://cleanup[?scanner=<id>]` and `maccleaner://performance[?task=<id>]`;
-`DeepLinkRouter` selects the sidebar item, starts a Cleanup scan restricted to the named scanner (unknown ids scan
-everything; the next plain Scan restores the full set), or hands the task to the Performance screen as above.
+parses `maccleaner://smart-care`, `maccleaner://cleanup[?scanner=<id>]`, `maccleaner://performance[?task=<id>]` and
+`maccleaner://protection[?scope=quick|normal|deep]`; `DeepLinkRouter` selects the sidebar item, starts a Cleanup scan
+restricted to the named scanner (unknown ids scan everything; the next plain Scan restores the full set), hands the task
+to the Performance screen as above, or switches the malware scope (unknown or missing scope keeps the current one) and
+starts the scan so Protection opens on live progress.
+
+### 3.6 Protection (M4)
+
+`ModuleTabBar` selects the tab; the bottom bar changes with it. Malware drives `AppState.malware` (`MalwareScanModel`,
+`MalwareScanner.scanThreats` for the chosen `ScanScope`) and Privacy drives `AppState.privacyModel` (a `ScanViewModel`
+over `PrivacyScanners.all()`), so both keep running while the user navigates away. Permissions reads TCC on demand
+(`PermissionsStore`); Monitor polls the shared suite every 2 s only while visible (`.task(id:)`). Opening the module
+loads the signature database once (bundled starter + `~/Library/Application Support/com.example.maccleaner/signatures`),
+purges quarantine past the retention period, and, if Settings › Protection allows, checks the feed at most once a day.
+
+| Tab | State | Trigger | Presentation | Primary button |
+|---|---|---|---|---|
+| Malware | any | — | Scope strip under the tab bar: segmented Quick · Normal · Deep (disabled while scanning) with a one-line explanation of what the scope covers | — |
+| Malware | Idle | no run yet | `EmptyState` "Ready to Scan" + `SignatureFooter`: "Signatures: n hash • m pattern • k allowlisted", version or "Bundled starter set…", "Update Signatures" (`.glass`; status line shows "Checking…", "Updated to <version> • n files", "Up to date", or the error) | "Scan" |
+| Malware | Scanning | `phase == .scanning`, no threats | `ScanProgressView`: large spinner, "Scanning N locations…", elapsed `mm:ss` (`TimelineView`), `GlassCard` listing up to 10 resolved roots (`ScanScopeResolver`) with "and n more", Cancel | "Scanning…" (loading) + leading "Stop" |
+| Malware | Scanning with results | threats arriving | Strip "Scanning… n threats so far in N locations" + `ThreatList` | "Scanning…" |
+| Malware | Results | finished or cancelled, threats | `List` sections per severity (critical → low), header: tri-state `SelectionCheckbox`, `SeverityBadge`, "n threats", bytes. `ThreatRow`: checkbox, shield symbol in the severity color, name, `SeverityBadge` (Low grey · Medium orange · High red · Critical purple), kind badge Signature (blue) / Heuristic (grey), full path (middle-truncated), detail line, size; context menu Reveal in Finder. Subtitle "n threats • m selected"; toolbar "Select All" | "Quarantine n threats" (disabled at 0 selected) → confirmation ("Items move to the app's quarantine folder with all permissions removed…") → `ThreatQuarantine.quarantine`; button reads "Quarantining…" |
+| Malware | Quarantined | `lastQuarantineManifest` | Leading "Show Quarantine" + "Quarantined n items"; quarantined rows leave the list; notification posted | "Scan Again" |
+| Malware | No threats | finished, 0 threats | `EmptyState.nothingFound("No Threats Found")` with "<Scope> scan checked N locations in 42 s against n signatures. Signatures <version>." + `SignatureFooter` | "Scan Again" |
+| Malware | Cancelled | user stopped | Partial results, or "Scan Stopped" | "Scan Again" |
+| Malware | Failed | scanner threw / database missing | `EmptyState` "Scan Failed" with the message + "Try Again"; `messageAlert("Protection")` | "Scan Again" |
+| Malware | Quarantine sheet | toolbar "Quarantine (n)" / leading "Show Quarantine" | 680×500 sheet: header with item count and retention note; `List` with one section per `QuarantineManifest` (date • n items, "Restore" per manifest) and rows name, `SeverityBadge`, original path, size, per-record error; footer "Delete All Permanently" (destructive confirmation → `purge(olderThan: 0)`), notice text, "Done". Empty: "Quarantine is empty" |
+| Privacy | any | — | Banner under the tab bar: green "No browsers are running." or orange "<Safari and Chrome> are running." + "Quit Browsers" (`.glass`, confirmation, graceful `NSRunningApplication.terminate`), re-checked every 3 s. Supported: Safari, Chrome, Firefox, Arc, Edge | — |
+| Privacy | Idle / Needs permission / Scanning / Results / Nothing / Cancelled / Done | `privacyModel` phases | §3 rows verbatim through `FindingsList` (categories `privacy.<kind>`; Wi-Fi networks and Firefox places are `.risky`) | "Scan" → "Remove X" → "Scan Again"; leading "Stop" / "Undo Last Removal" |
+| Permissions | Reading | first visit | `EmptyState.scanning("Reading app permissions…")` | "Refresh" (loading) |
+| Permissions | Needs permission | `TCCPermissionsReader.grants()` threw | `EmptyState` "Full Disk Access Required" with the reader's message + "Open Full Disk Access Settings" (`Privacy_AllFiles`) | "Refresh" |
+| Permissions | Empty | no grants | `EmptyState.nothingFound("No Permission Grants")` + "Refresh" | "Refresh" |
+| Permissions | List | grants | One section per `PrivacyService` in enum order (Camera, Microphone, Full Disk Access, Accessibility, Screen Recording, Location Services, Contacts, Calendars, Photos, Input Monitoring, Automation): header `Label` + "n of m granted" + "Manage in System Settings" (`x-apple.systempreferences:com.apple.preference.security?Privacy_<Camera|Microphone|AllFiles|Accessibility|ScreenCapture|LocationServices|Contacts|Calendars|Photos|ListenEvent|Automation>`), footer explains the service. `PermissionGrantRow`: 28 pt app icon (`AppIconProvider` via bundle id or path, `app.dashed` fallback), name, bundle id, relative last-modified, green "Allowed" / grey "Denied". Granted rows first | "Refresh"; leading "Read n minutes ago" |
+| Monitor | any | shared suite `monitor.enabled`, `monitor.lastEvent`, `monitor.threatCount` + `SMAppService.loginItem` status | Three `GlassCard`s in a 760 pt column. Status card: symbol + line — grey "Menu bar agent is off" / "Monitor is off", orange "Waiting for the agent to start the monitor", green "Running • last activity 2 minutes ago", red "n threats found • last …" with a large count. Settings card: `.switch` "Watch for threats in real time" bound to `monitor.enabled`, watched locations (~/Downloads, /Applications, ~/Library/LaunchAgents, /Library/LaunchAgents, /Library/LaunchDaemons). Orange hint card "Requires the menu bar agent to be enabled" + "Open Menu" when the agent is not registered | "Enable Monitor" / "Disable Monitor"; leading "Open Menu Settings" |
+
+Errors from quarantine, restore, purge and privacy removal surface through `messageAlert("Protection")`. Smart Care's
+Protection card reads `lastScanSummaries[.protection]` (threat count or "Nothing to clean"); the hero "Threats" pill shows the
+same count. `RunMalwareScanIntent` (Siri / Shortcuts, `ScanScopeAppEnum`) runs a fresh scanner to completion and reports the count.
+
+### 3.7 Settings › Protection (M4)
+
+| Section | Control | Storage |
+|---|---|---|
+| Signatures | "Feed URL" text field (prompt and "Reset to Default" = `https://github.com/brogwalkerh/Clone-appies/releases/latest/download/`; orange caption while not an http(s) URL — the default is used meanwhile), "Update signatures automatically" toggle (default on; once a day when Protection opens) | `protection.signatureFeedURL`, `protection.autoUpdateSignatures` |
+| Quarantine | Stepper "Keep quarantined items for n days" (1–365, default 30); older manifests are purged when Protection opens | `protection.quarantineRetentionDays` |
+| Protection Monitor | "Watch Downloads, Applications and launch agents in real time" toggle, mirrored by Protection › Monitor | `monitor.enabled` in suite `com.example.maccleaner.shared` |
 
 Space Lens: empty → measuring → bubbles; hover tooltip; right-click Reveal / Zoom In / Move to Trash (confirmation).
 Removal always goes through `GuardedRemover(wrapping: TrashRemover())`; permanent delete only when
@@ -141,12 +185,14 @@ Settings › General says so, with a destructive confirmation.
 ## 3.3 Menu popover (MenuAgent, M3)
 
 `MenuBarExtra` in `.window` style, 320 pt wide, built from `StatPill` rows inside one
-`GlassEffectContainer`. Data comes from `SystemStatsSampler` (2 s) and a 60 s Trash measurement.
+`GlassEffectContainer`. Data comes from `SystemStatsSampler` (2 s), a 60 s Trash measurement and,
+since M4, the FSEvents `ProtectionMonitor` that `AgentState` owns for the life of the agent process.
 
 | Row / control | State | Presentation |
 |---|---|---|
 | Status item | normal pressure | `sparkles` symbol only |
 | Status item | warn / critical | symbol + 6 pt amber / red dot |
+| Status item | threats found (M4) | symbol + 6 pt red dot; wins over the pressure dot; accessibility "Mac Cleaner, threats found" |
 | Header | measuring | "Mac Cleaner" + "Measuring…" (`.updatesFrequently`) until the first sample |
 | CPU, Memory, Disk, Network | no sample yet | pills show "–" |
 | Memory | any | "used / total", `PressureBadge` (Normal / Warn / Critical), small glass "Free Up" → `maccleaner://performance?task=maintenance.freeRAM` |
@@ -154,7 +200,10 @@ Settings › General says so, with a destructive confirmation.
 | Battery | laptop | "N %", caption "Charging • 312 cycles • 91 % health"; row hidden on desktops |
 | Network | any | "↓ 1.2 MB/s  ↑ 120 KB/s" |
 | Trash | any | size, small glass "Empty" (disabled at 0 B) → `maccleaner://cleanup?scanner=cleanup.trash` |
-| Protection Monitor | M3 | grey dot, "Available in M4" (placeholder) |
+| Protection Monitor | off (M4) | grey dot, caption "Off" (or "Off — <reason>" when FSEvents failed), secondary text; `.switch` toggle off |
+| Protection Monitor | running | green dot, caption "Watching N files" (N = files hashed since start); toggle on |
+| Protection Monitor | threats | red dot, red caption "N threats found — <latest name>"; toggle on; a "Threat detected" user notification (body "<name> — <file>") is posted per new threat, authorization requested once on first start |
+| Protection Monitor | any | dot + text are a plain button → `maccleaner://protection`; the toggle writes `monitor.enabled` (default true) in suite `com.example.maccleaner.shared` and starts / stops the monitor in place. Watched: `~/Downloads`, `/Applications`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` |
 | Run Smart Care | always | `.glassProminent`, full width, ⏎ → `maccleaner://smart-care` |
 | Screen Cleaning Mode | idle / active | `.glass`; disabled while a session is running |
 | Open Mac Cleaner · Quit | always | `.glass`; ⌘Q quits the agent |

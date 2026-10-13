@@ -168,6 +168,18 @@ enum MenuAgentSettings {
         static let showNetwork = "menu.pills.network"
         static let showTrash = "menu.pills.trash"
         static let showProtectionMonitor = "menu.pills.protectionMonitor"
+
+        // Protection Monitor (CONTRACTS.md "M4 — UIKitBridge additions"). The main app
+        // writes `monitorEnabled`; the agent, which runs the FSEvents monitor, writes the
+        // other two so Protection › Monitor can show a live-ish status.
+        /// `Bool`: whether the agent should run `ProtectionMonitor`. Absent means on
+        /// (`AgentState.SharedSettings.isMonitorEnabled()`).
+        static let monitorEnabled = "monitor.enabled"
+        /// `Date` (stored via `UserDefaults.set(_:forKey:)`): when the monitor last started,
+        /// scanned a file, or found a threat. Absent until the agent has run the monitor once.
+        static let monitorLastEvent = "monitor.lastEvent"
+        /// `Int`: threats the monitor has reported since it last started.
+        static let monitorThreatCount = "monitor.threatCount"
     }
 }
 

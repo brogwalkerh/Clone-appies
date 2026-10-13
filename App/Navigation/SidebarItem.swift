@@ -130,8 +130,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable, Codable, Sendabl
     /// Milestone in which the module ships (PLAN.md §7); `nil` once implemented.
     var pendingMilestone: String? {
         switch self {
-        case .cleanup, .spaceLens, .applications, .myClutter, .performance, .menuApp: return nil
-        case .protection: return "M4"
+        case .cleanup, .spaceLens, .applications, .myClutter, .performance, .menuApp, .protection: return nil
         case .smartCare, .myActivity: return "M5"
         case .cloudCleanup, .emailCleanup: return "M6"
         }

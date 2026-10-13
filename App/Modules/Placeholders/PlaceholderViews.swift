@@ -5,7 +5,8 @@ import DesignSystem
 /// Keeps the navigation title and bottom bar so the shell feels complete.
 /// Applications and My Clutter moved to `Modules/Applications` and
 /// `Modules/MyClutter` in M2, Performance and Menu to `Modules/Performance` and
-/// `Modules/MenuApp` in M3; Protection, Cloud and Email remain.
+/// `Modules/MenuApp` in M3, Protection to `Modules/Protection` in M4; Cloud and
+/// Email remain.
 struct ModulePlaceholder: View {
     let item: SidebarItem
     let summary: String
@@ -25,13 +26,6 @@ struct ModulePlaceholder: View {
     }
 }
 
-struct ProtectionView: View {
-    var body: some View {
-        ModulePlaceholder(item: .protection,
-                          summary: "Quick, Normal and Deep malware scans, privacy cleaners for browsers and chat apps, an app permissions review, and the real-time Protection Monitor.")
-    }
-}
-
 struct CloudCleanupView: View {
     var body: some View {
         ModulePlaceholder(item: .cloudCleanup,
@@ -48,7 +42,6 @@ struct EmailCleanupView: View {
 
 #Preview("Placeholders") {
     TabView {
-        ProtectionView()
         CloudCleanupView()
         EmailCleanupView()
     }

@@ -55,7 +55,7 @@ struct SmartCareView: View {
                              caption: "Junk found",
                              tint: ModuleTint.cleanup.color(for: scheme, contrast: contrast))
                     StatPill(systemImage: "shield",
-                             value: "—",
+                             value: threatsValue,
                              caption: "Threats",
                              tint: ModuleTint.protection.color(for: scheme, contrast: contrast))
                     StatPill(systemImage: "arrow.up.circle",
@@ -70,6 +70,13 @@ struct SmartCareView: View {
 
     private var cleanupSummary: ScanSummary? {
         appState.lastScanSummaries[.cleanup]
+    }
+
+    /// "—" until a malware scan has run, then the threat count of the last run.
+    private var threatsValue: String {
+        if appState.malware.isScanning { return "…" }
+        guard let summary = appState.lastScanSummaries[.protection] else { return "—" }
+        return "\(summary.totalFindings)"
     }
 
     private var ringPhase: ScanRing.Phase {
@@ -105,6 +112,9 @@ struct SmartCareView: View {
     }
 
     private func status(for item: SidebarItem) -> ModuleCard.Status {
+        if item == .protection {
+            return protectionStatus
+        }
         let model: ScanViewModel?
         let moduleID: ModuleID?
         switch item {
@@ -137,6 +147,17 @@ struct SmartCareView: View {
         return .notScanned
     }
 
+    /// Protection's card reads the malware model (threat count) rather than a `ScanViewModel`.
+    private var protectionStatus: ModuleCard.Status {
+        let malware = appState.malware
+        if malware.isScanning || appState.privacyModel.isScanning { return .scanning }
+        if let summary = appState.lastScanSummaries[.protection] {
+            if summary.totalFindings == 0 { return .clean }
+            return .result(summary.totalFindings == 1 ? "1 threat found" : "\(summary.totalFindings) threats found")
+        }
+        return .notScanned
+    }
+
     // MARK: Assistant (rule-based, PLAN.md §3.1)
 
     private var recommendations: [Recommendation] {
@@ -154,6 +175,13 @@ struct SmartCareView: View {
                 title: "Review \(ByteFormatter.string(summary.totalBytes)) of junk",
                 detail: "Cleanup found files you can safely remove.",
                 action: .navigate(.cleanup)))
+        }
+        if let threats = appState.lastScanSummaries[.protection], threats.totalFindings > 0 {
+            list.append(Recommendation(
+                systemImage: "shield",
+                title: threats.totalFindings == 1 ? "Review 1 threat" : "Review \(threats.totalFindings) threats",
+                detail: "The last malware scan found items you can quarantine.",
+                action: .navigate(.protection)))
         }
         if cleanupSummary == nil, !appState.cleanup.isScanning {
             list.append(Recommendation(

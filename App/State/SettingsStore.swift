@@ -15,6 +15,57 @@ enum SettingsStore {
         /// My Clutter › Large & Old thresholds (PLAN.md §3.6), bound to sliders.
         static let largeOldMinSizeMB = "clutter.largeOld.minSizeMB"
         static let largeOldMinAgeDays = "clutter.largeOld.minAgeDays"
+        /// Protection (PLAN.md §3.3, ADR 0006): signature feed and quarantine policy.
+        /// The Protection Monitor toggle lives in the shared suite (`MenuAgentSettings.Key.monitorEnabled`).
+        static let signatureFeedURL = "protection.signatureFeedURL"
+        static let autoUpdateSignatures = "protection.autoUpdateSignatures"
+        static let quarantineRetentionDays = "protection.quarantineRetentionDays"
+    }
+
+    // MARK: Protection
+
+    /// Release channel that hosts `manifest.json` plus the ClamAV text files (ADR 0006).
+    static let defaultSignatureFeedURL = "https://github.com/brogwalkerh/Clone-appies/releases/latest/download/"
+    static let defaultQuarantineRetentionDays = 30
+
+    /// The feed base URL from Settings › Protection, falling back to the project release channel
+    /// when the stored string is empty or not a URL.
+    static var signatureFeedURL: URL {
+        let stored = defaults.string(forKey: Key.signatureFeedURL)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !stored.isEmpty, let url = URL(string: stored), url.scheme != nil {
+            return url
+        }
+        // The default literal is a well-formed URL; `URL(string:)` only fails on malformed input.
+        return URL(string: defaultSignatureFeedURL) ?? URL(fileURLWithPath: "/")
+    }
+
+    static func autoUpdateSignatures() -> Bool {
+        guard defaults.object(forKey: Key.autoUpdateSignatures) != nil else { return true }
+        return defaults.bool(forKey: Key.autoUpdateSignatures)
+    }
+
+    static func quarantineRetentionDays() -> Int {
+        let stored = defaults.integer(forKey: Key.quarantineRetentionDays)
+        return stored > 0 ? stored : defaultQuarantineRetentionDays
+    }
+
+    /// `~/Library/Application Support/com.example.maccleaner`, created on demand.
+    static func applicationSupportDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let directory = base.appendingPathComponent("com.example.maccleaner", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Where `ThreatQuarantine` stores quarantined items (`<uuid>/` folders plus manifests).
+    static func quarantineDirectory() -> URL {
+        applicationSupportDirectory().appendingPathComponent("Quarantine", isDirectory: true)
+    }
+
+    /// Where `SignatureUpdater` writes downloaded `.hdb` / `.ndb` / `.ign2` files and the version marker.
+    static func signaturesDirectory() -> URL {
+        applicationSupportDirectory().appendingPathComponent("signatures", isDirectory: true)
     }
 
     /// Defaults mirror `LargeOldFilesScanner.init` (100 MB, 180 days).

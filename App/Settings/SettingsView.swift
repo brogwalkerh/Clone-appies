@@ -3,13 +3,16 @@ import SwiftUI
 import CleanerCore
 import DesignSystem
 
-/// Settings window: General, Ignore List, Scheduler, Advanced (PLAN.md §3.12).
-/// Protection, Updates and Privacy tabs arrive with their modules.
+/// Settings window: General, Protection, Ignore List, Scheduler, Advanced (PLAN.md §3.12).
+/// Updates and Privacy tabs arrive with their modules.
 struct SettingsView: View {
     var body: some View {
         TabView {
             Tab("General", systemImage: "gear") {
                 GeneralSettingsView()
+            }
+            Tab("Protection", systemImage: "shield") {
+                ProtectionSettingsView()
             }
             Tab("Ignore List", systemImage: "eye.slash") {
                 IgnoreListSettingsView()
@@ -54,7 +57,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.red)
                 }
                 Toggle("Show menu bar agent", isOn: $showMenuBarAgent)
-                Text("The menu bar agent (storage, RAM, CPU, Protection Monitor, Screen Cleaning Mode) ships in M3. This setting is stored now and takes effect then.")
+                Text("The menu bar agent shows storage, RAM, CPU and the Protection Monitor, and offers Screen Cleaning Mode. Enable or disable it from the Menu screen; this mirrors that choice.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -66,6 +69,69 @@ struct GeneralSettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Text("Trash-first keeps \"Undo last cleanup\" available until you empty the Trash. Permanent deletion is immediate and cannot be undone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Protection
+
+/// Signature feed, quarantine retention and the Protection Monitor toggle (PLAN.md §3.3, ADR 0006).
+/// The monitor key lives in the shared suite because the menu bar agent runs the monitor.
+struct ProtectionSettingsView: View {
+    @AppStorage(SettingsStore.Key.signatureFeedURL) private var feedURL = SettingsStore.defaultSignatureFeedURL
+    @AppStorage(SettingsStore.Key.autoUpdateSignatures) private var autoUpdate = true
+    @AppStorage(SettingsStore.Key.quarantineRetentionDays) private var retentionDays = SettingsStore.defaultQuarantineRetentionDays
+    // Absent means on, matching the agent's `AgentState.SharedSettings.isMonitorEnabled()`.
+    @AppStorage(MenuAgentSettings.Key.monitorEnabled, store: MenuAgentSettings.store) private var monitorEnabled = true
+
+    private var feedURLIsValid: Bool {
+        let trimmed = feedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed) else { return false }
+        return url.scheme == "https" || url.scheme == "http" || url.isFileURL
+    }
+
+    var body: some View {
+        Form {
+            Section("Signatures") {
+                TextField("Feed URL", text: $feedURL, prompt: Text(SettingsStore.defaultSignatureFeedURL))
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                if !feedURLIsValid {
+                    Text("Enter an https:// URL. The default feed is used until this is valid.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                HStack {
+                    Text("Directory that hosts manifest.json and the ClamAV text files (.hdb, .hsb, .ndb, .ign2).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset to Default") { feedURL = SettingsStore.defaultSignatureFeedURL }
+                        .controlSize(.small)
+                        .disabled(feedURL == SettingsStore.defaultSignatureFeedURL)
+                }
+                Toggle("Update signatures automatically", isOn: $autoUpdate)
+                Text("Checks the feed once a day when Protection opens. You can always update by hand from Protection › Malware.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Quarantine") {
+                Stepper(value: $retentionDays, in: 1...365, step: 1) {
+                    LabeledContent("Keep quarantined items for", value: "\(retentionDays) \(retentionDays == 1 ? "day" : "days")")
+                }
+                Text("Quarantined files are locked (no permissions) inside the app's Application Support folder. Older items are deleted permanently the next time Protection opens.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Protection Monitor") {
+                Toggle("Watch Downloads, Applications and launch agents in real time", isOn: $monitorEnabled)
+                Text("Runs inside the menu bar agent, which must be enabled from the Menu screen. Uses FSEvents; nothing runs while nothing changes.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

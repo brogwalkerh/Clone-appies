@@ -6,6 +6,8 @@ import ClutterModule
 import ApplicationsModule
 import HelperProtocol
 import PerformanceModule
+import ProtectionModule
+import UIKitBridge
 
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
 // rebuilt Spotlight indexes the same intents as actions (PLAN.md §2). Every
@@ -159,6 +161,50 @@ final class AppServices {
         appState?.post(title: result.succeeded ? "\(task.name) finished via Siri" : "\(task.name) failed",
                        message: result.message + reclaimed)
     }
+
+    // MARK: Malware
+
+    struct MalwareScanOutcome: Sendable {
+        let threats: [Threat]
+        let roots: Int
+        let error: String?
+    }
+
+    /// Runs a complete malware scan with a fresh `MalwareScanner` (the same
+    /// database, verifier and process list the Protection screen uses) and
+    /// mirrors the result into `AppState` when a window exists. Nothing is quarantined.
+    func scanMalware(scope: ScanScope) async -> MalwareScanOutcome {
+        let context = scanContext()
+        let loaded = await Task.detached(priority: .utility) { MalwareScanModel.loadDatabase() }.value
+        let processes = RunningProcessPaths()
+        let resolver = ScanScopeResolver(fileSystem: context.fileSystem, runningProcesses: processes)
+        let roots = await resolver.roots(for: scope, home: context.home, now: context.now)
+        let scanner = MalwareScanner(scope: scope,
+                                     database: loaded.database,
+                                     verifier: SecCodeSignatureVerifier(),
+                                     runningProcesses: processes)
+        let started = Date.now
+        var threats: [Threat] = []
+        var error: String?
+        do {
+            for try await threat in scanner.scanThreats(context) {
+                threats.append(threat)
+            }
+        } catch let failure {
+            error = failure.localizedDescription
+        }
+        let bytes = threats.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        appState?.record(summary: ScanSummary(totalFindings: threats.count,
+                                              totalBytes: bytes,
+                                              byCategory: ["protection.malware": bytes],
+                                              duration: Date.now.timeIntervalSince(started)),
+                         for: .protection)
+        if !threats.isEmpty {
+            appState?.post(title: "Malware scan finished via Siri",
+                           message: "\(threats.count) threat(s) found. Review and quarantine them in Protection.")
+        }
+        return MalwareScanOutcome(threats: threats, roots: roots.count, error: error)
+    }
 }
 
 // MARK: - Intents
@@ -248,6 +294,56 @@ struct FreeUpRAMIntent: AppIntent {
             return .result(dialog: "Free Up RAM is not available in this build.")
         }
         return .result(dialog: await MaintenanceDialogs.dialog(for: AppServices.shared.runMaintenance(task), task: task))
+    }
+}
+
+// MARK: - Malware scan
+
+/// `ScanScope` as Siri / Shortcuts sees it.
+enum ScanScopeAppEnum: String, AppEnum {
+    case quick, normal, deep
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Scan Scope")
+
+    static let caseDisplayRepresentations: [ScanScopeAppEnum: DisplayRepresentation] = [
+        .quick: DisplayRepresentation(title: "Quick", subtitle: "Running apps, launch agents, Downloads and Desktop"),
+        .normal: DisplayRepresentation(title: "Normal", subtitle: "Quick plus your home folder and Applications"),
+        .deep: DisplayRepresentation(title: "Deep", subtitle: "Normal plus every mounted volume")
+    ]
+
+    var scope: ScanScope {
+        ScanScope(rawValue: rawValue) ?? .quick
+    }
+}
+
+struct RunMalwareScanIntent: AppIntent {
+    static let title: LocalizedStringResource = "Scan for Malware"
+    static let description: IntentDescription? = IntentDescription(
+        "Checks files against the malware signature database and heuristics. Nothing is removed; threats are listed in Protection for you to quarantine.")
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Scope", default: .quick)
+    var scope: ScanScopeAppEnum
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Run a \(\.$scope) malware scan")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
+        let outcome = await AppServices.shared.scanMalware(scope: scope.scope)
+        let count = outcome.threats.count
+        let scopeName = scope.scope.title.lowercased()
+
+        if let error = outcome.error, count == 0 {
+            return .result(value: 0, dialog: "The \(scopeName) scan stopped early: \(error)")
+        }
+        guard count > 0 else {
+            return .result(value: 0, dialog: "No threats found. The \(scopeName) scan checked \(outcome.roots) locations.")
+        }
+        await AppServices.shared.show(.protection)
+        let worst = outcome.threats.map(\.severity).max().map { " The most serious is \($0.title.lowercased())." } ?? ""
+        let dialog: IntentDialog = "Found \(count) \(count == 1 ? "threat" : "threats") in the \(scopeName) scan.\(worst) Review and quarantine them in Protection."
+        return .result(value: count, dialog: dialog)
     }
 }
 
@@ -529,6 +625,16 @@ struct MacCleanerShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Uninstall App",
             systemImageName: "square.grid.2x2"
+        )
+        AppShortcut(
+            intent: RunMalwareScanIntent(),
+            phrases: [
+                "Scan for malware with \(.applicationName)",
+                "Check my Mac for viruses with \(.applicationName)",
+                "Run a \(\.$scope) malware scan in \(.applicationName)"
+            ],
+            shortTitle: "Scan for Malware",
+            systemImageName: "shield"
         )
         AppShortcut(
             intent: FindDuplicatesIntent(),

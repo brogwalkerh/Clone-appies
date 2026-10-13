@@ -1,5 +1,6 @@
 import Foundation
 import PerformanceModule
+import ProtectionModule
 
 /// A parsed `maccleaner://` URL (docs/CONTRACTS.md, "M3 — MenuAgent").
 ///
@@ -7,6 +8,7 @@ import PerformanceModule
 /// - `maccleaner://smart-care`
 /// - `maccleaner://cleanup[?scanner=<scanner id>]`
 /// - `maccleaner://performance[?task=<maintenance task id>]`
+/// - `maccleaner://protection[?scope=quick|normal|deep]`
 ///
 /// Parsing is pure so `DeepLinkRouterTests` can cover it without a window.
 /// The route may be given as the host (`maccleaner://cleanup`) or, for callers
@@ -15,6 +17,8 @@ enum DeepLink: Hashable, Sendable {
     case smartCare
     case cleanup(scannerID: String?)
     case performance(taskID: String?)
+    /// Opens Protection › Malware and starts a scan; an unknown or missing scope keeps the current one.
+    case protection(scope: ScanScope?)
 
     static let scheme = "maccleaner"
 
@@ -22,6 +26,7 @@ enum DeepLink: Hashable, Sendable {
         case smartCare = "smart-care"
         case cleanup
         case performance
+        case protection
     }
 
     init?(url: URL) {
@@ -50,6 +55,8 @@ enum DeepLink: Hashable, Sendable {
             self = .cleanup(scannerID: value("scanner"))
         case .performance:
             self = .performance(taskID: value("task"))
+        case .protection:
+            self = .protection(scope: value("scope").flatMap { ScanScope(rawValue: $0.lowercased()) })
         }
     }
 
@@ -58,6 +65,7 @@ enum DeepLink: Hashable, Sendable {
         case .smartCare: return .smartCare
         case .cleanup: return .cleanup
         case .performance: return .performance
+        case .protection: return .protection
         }
     }
 
@@ -73,6 +81,8 @@ enum DeepLink: Hashable, Sendable {
             if let scannerID { components.queryItems = [URLQueryItem(name: "scanner", value: scannerID)] }
         case .performance(let taskID):
             if let taskID { components.queryItems = [URLQueryItem(name: "task", value: taskID)] }
+        case .protection(let scope):
+            if let scope { components.queryItems = [URLQueryItem(name: "scope", value: scope.rawValue)] }
         }
         return components.url
     }
@@ -110,6 +120,12 @@ struct DeepLinkRouter {
                 appState.maintenance.selectedTaskIDs = [task.id]
                 appState.maintenance.pendingFocusTaskID = task.id
             }
+
+        case .protection(let scope):
+            // The menu bar agent's Protection Monitor row and Siri open this;
+            // the scan starts right away so the user lands on live progress.
+            appState.select(.protection)
+            appState.runMalwareScan(scope: scope)
         }
     }
 }

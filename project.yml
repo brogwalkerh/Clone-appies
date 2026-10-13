@@ -63,6 +63,8 @@ packages:
     path: Packages/HelperProtocol
   Performance:
     path: Packages/Modules/Performance
+  Protection:
+    path: Packages/Modules/Protection
   SpaceLens:
     path: Packages/SpaceLens
   DesignSystem:
@@ -110,6 +112,8 @@ targets:
         product: HelperProtocol
       - package: Performance
         product: PerformanceModule
+      - package: Protection
+        product: ProtectionModule
       - package: SpaceLens
         product: SpaceLens
       - package: DesignSystem
@@ -174,6 +178,8 @@ targets:
     dependencies:
       - package: Core
         product: CleanerCore
+      - package: Protection
+        product: ProtectionModule
       - package: DesignSystem
         product: DesignSystem
       - package: UIKitBridge

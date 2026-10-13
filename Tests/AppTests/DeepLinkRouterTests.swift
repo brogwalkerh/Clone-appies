@@ -1,4 +1,5 @@
 import XCTest
+import ProtectionModule
 @testable import MacCleaner
 
 /// Pure parsing tests for `DeepLink` (App/Navigation/DeepLinkRouter.swift).
@@ -33,6 +34,16 @@ final class DeepLinkRouterTests: XCTestCase {
                        .performance(taskID: "maintenance.flushDNS"))
     }
 
+    func testProtectionWithAndWithoutScope() {
+        XCTAssertEqual(link("maccleaner://protection"), .protection(scope: nil))
+        XCTAssertEqual(link("maccleaner://protection?scope=quick"), .protection(scope: .quick))
+        XCTAssertEqual(link("maccleaner://protection?scope=Deep"), .protection(scope: .deep), "scope is case-insensitive")
+        XCTAssertEqual(link("maccleaner://protection?scope=everything"), .protection(scope: nil),
+                       "an unknown scope keeps the current one rather than failing the link")
+        XCTAssertEqual(link("maccleaner://protection?scope="), .protection(scope: nil))
+        XCTAssertEqual(link("maccleaner:///protection?scope=normal"), .protection(scope: .normal))
+    }
+
     func testBadURLs() {
         XCTAssertNil(link("https://example.com/smart-care"), "wrong scheme")
         XCTAssertNil(link("maccleaner://nope"), "unknown route")
@@ -45,7 +56,9 @@ final class DeepLinkRouterTests: XCTestCase {
             .smartCare,
             .cleanup(scannerID: nil),
             .cleanup(scannerID: "cleanup.logs"),
-            .performance(taskID: "maintenance.freeRAM")
+            .performance(taskID: "maintenance.freeRAM"),
+            .protection(scope: nil),
+            .protection(scope: .deep)
         ]
         for original in links {
             let url = try XCTUnwrap(original.url)
