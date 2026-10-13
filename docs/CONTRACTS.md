@@ -219,3 +219,108 @@ Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
   `RemovalManifest`; `TrashRemover(fileSystem:trashDirectory:)` forces move-based
   trash on every platform (for tests). `CleanerCoreTesting` ships `MockFileSystem`
   (dictionary-literal trees) and `FixtureBuilder` (real temp trees).
+
+## M2 — ClutterModule (Packages/Modules/Clutter)
+
+Foundation-only. Module `ClutterModule`, depends on CleanerCore.
+
+```swift
+public enum ClutterScanners {
+    public static func all(imageFeatures: (any ImageFeatureProvider)? = nil) -> [any CleanerScanner]
+}
+
+/// Large & Old: files >= minSize or not modified in >= minAge under the user's
+/// home (Documents, Desktop, Downloads, Movies, Music, Pictures by default).
+public struct LargeOldFilesScanner: CleanerScanner {   // id "clutter.largeOld"
+    public init(minSizeBytes: Int64 = 100_000_000, minAge: TimeInterval = 180 * 86_400,
+                roots: [String] = ["Documents","Desktop","Downloads","Movies","Music","Pictures"])
+}
+/// Duplicates: size bucket -> head+tail FNV-1a 64 -> full streaming SHA-256
+/// (pure Swift, in-package) -> group. Each duplicate group's *keeper* is the
+/// oldest file; the others are emitted as findings with category
+/// "clutter.duplicates", detail "Duplicate of <keeper path>", risk .caution.
+public struct DuplicatesScanner: CleanerScanner {       // id "clutter.duplicates"
+    public init(minSizeBytes: Int64 = 1_024, roots: [String] = [...same as above...])
+}
+public struct SHA256 { public static func hash(_ data: Data) -> [UInt8]; public static func hexString(_ digest: [UInt8]) -> String }
+public struct StreamingSHA256 { public init(); public mutating func update(_ data: Data); public mutating func finalize() -> [UInt8] }
+
+/// Similar images: platform-neutral. Feature extraction is injected; the
+/// macOS implementation (Vision VNGenerateImageFeaturePrintRequest) lives in
+/// Packages/UIKitBridge. On Linux tests use a stub provider.
+public protocol ImageFeatureProvider: Sendable {
+    func featurePrint(for url: URL) async throws -> [Float]?   // nil = not an image / unsupported
+}
+public struct SimilarImagesScanner: CleanerScanner {    // id "clutter.similarImages"
+    public init(provider: any ImageFeatureProvider, threshold: Float = 0.25, roots: [String] = ["Pictures","Desktop","Downloads"])
+    // Clusters by cosine distance <= threshold; keeper = largest file; others emitted,
+    // detail "Similar to <keeper>", risk .caution, category "clutter.similarImages".
+}
+/// Downloads triage: category "clutter.downloads"; installers (.dmg/.pkg/.zip), screenshots
+/// ("Screenshot*.png", "Screen Recording*.mov"), and anything older than 90 days. Risk .caution.
+public struct DownloadsScanner: CleanerScanner { public init(staleAfter: TimeInterval = 90 * 86_400) }  // id "clutter.downloads"
+```
+
+## M2 — ApplicationsModule (Packages/Modules/Applications)
+
+Foundation-only. Module `ApplicationsModule`, depends on CleanerCore.
+
+```swift
+public struct InstalledApp: Sendable, Hashable, Codable, Identifiable {
+    public var id: URL { bundleURL }
+    public let bundleURL: URL
+    public let name: String
+    public let bundleIdentifier: String?
+    public let version: String?            // CFBundleShortVersionString
+    public let build: String?              // CFBundleVersion
+    public let source: AppSource           // .appStore, .direct, .homebrewCask, .setapp, .system, .unknown
+    public let sizeBytes: Int64
+    public let lastOpened: Date?
+    public let sparkleFeedURL: URL?        // SUFeedURL from Info.plist
+}
+public enum AppSource: String, Codable, Sendable, Hashable { case appStore, direct, homebrewCask, setapp, system, unknown }
+
+/// Discovers apps in /Applications, /Applications/Utilities, ~/Applications,
+/// /Applications/Setapp, Homebrew cask dirs (/opt/homebrew/Caskroom, /usr/local/Caskroom).
+/// Reads Info.plist via PropertyListDecoder. Source heuristics: _MASReceipt/receipt => appStore;
+/// Caskroom symlink target => homebrewCask; /Applications/Setapp => setapp; /System/Applications
+/// and apps whose bundle id starts with com.apple. => system; else direct.
+public struct AppInventory: Sendable {
+    public init(fileSystem: any FileSystem)
+    public func discover(home: URL) async throws -> [InstalledApp]
+}
+
+/// Leftover locations for a bundle id, relative to home:
+/// Library/Application Support/<bid|name>, Library/Caches/<bid>, Library/Preferences/<bid>.plist,
+/// Library/Containers/<bid>, Library/Group Containers/*<bid>*, Library/Saved Application State/<bid>.savedState,
+/// Library/LaunchAgents/<bid>*.plist, Library/Logs/<bid|name>, Library/HTTPStorages/<bid>,
+/// Library/WebKit/<bid>, Library/Application Scripts/<bid>, Library/Cookies/<bid>.binarycookies.
+public struct LeftoverResolver: Sendable {
+    public init(fileSystem: any FileSystem)
+    public func leftovers(for app: InstalledApp, home: URL) async -> [Finding]   // category "applications.leftovers", risk .safe, detail "<app name> support file"
+}
+
+public enum ApplicationsScanners {
+    public static func all() -> [any CleanerScanner]
+}
+/// id "applications.orphanedLeftovers": leftover dirs/plists in the locations above whose
+/// bundle id matches NO installed app and is not com.apple.* => risk .safe, category "applications.orphaned".
+public struct OrphanedLeftoversScanner: CleanerScanner { public init() }
+/// id "applications.installers": *.dmg, *.pkg, *.mpkg in Downloads, Desktop, Documents => category "applications.installers", risk .caution.
+public struct InstallersScanner: CleanerScanner { public init() }
+
+/// Update checking. Network via URLSession; parsing via FoundationXML on Linux (#if canImport(FoundationXML)).
+public struct AvailableUpdate: Sendable, Hashable, Codable { public let app: InstalledApp; public let latestVersion: String; public let downloadURL: URL?; public let releaseNotesURL: URL?; public let source: AppSource }
+public protocol UpdateSource: Sendable { func check(_ apps: [InstalledApp]) async -> [AvailableUpdate] }
+public struct SparkleUpdateSource: UpdateSource { public init(session: URLSession = .shared) }  // fetches SUFeedURL appcasts, compares versions with VersionComparator
+public struct VersionComparator { public static func compare(_ a: String, _ b: String) -> ComparisonResult }  // numeric dotted, handles "1.2.3 (456)", "2.0b1"
+public actor UpdateChecker { public init(sources: [any UpdateSource]); public func check(_ apps: [InstalledApp]) async -> [AvailableUpdate] }
+```
+App Store and Homebrew update sources are macOS-only and live in UIKitBridge
+(M2 UI slice) behind the same `UpdateSource` protocol.
+
+## M2 — UIKitBridge (Packages/UIKitBridge, macOS only)
+`VisionImageFeatureProvider: ImageFeatureProvider` (Vision feature prints),
+`HomebrewUpdateSource: UpdateSource` (runs `brew outdated --cask --json=v2` via Process),
+`AppStoreUpdateSource: UpdateSource` (iTunes lookup API by bundle id),
+`PowerState.isOnBattery` via IOKit.
