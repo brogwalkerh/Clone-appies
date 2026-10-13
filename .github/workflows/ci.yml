@@ -30,6 +30,7 @@ jobs:
       matrix:
         package:
           - Packages/Core
+          - Packages/HelperProtocol
           - Packages/SpaceLens
           - Packages/Modules/Cleanup
           - Packages/Modules/Clutter

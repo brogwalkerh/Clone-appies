@@ -17,6 +17,7 @@ MenuAgent/            Login-item agent: menu bar extra, Protection Monitor
 PrivilegedHelper/     Root daemon (SMAppService), XPC server, closed op set
 CLI/                  `maccleaner` command-line tool (SwiftPM package)
 Packages/Core/        CleanerCore: scan engine, FileSystem, Remover, models
+Packages/HelperProtocol/  Closed op set, validation, command plans for the root helper
 Packages/Modules/Cleanup/  CleanupModule: scanners + cleanup-rules.json
 Packages/Modules/Clutter/  ClutterModule: large/old, duplicates, similar images, downloads
 Packages/Modules/Applications/  ApplicationsModule: inventory, leftovers, orphans, updater
@@ -29,7 +30,7 @@ project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
 ```
 
 ## Hard rules
-1. **Foundation-only packages.** `CleanerCore`, `CleanupModule`, `ClutterModule`,
+1. **Foundation-only packages.** `CleanerCore`, `HelperProtocol`, `CleanupModule`, `ClutterModule`,
    `ApplicationsModule`, `SpaceLens` and `CLI` import Foundation only. They must `swift build && swift test` on Linux
    (Ubuntu 24.04) and on macOS. No AppKit/SwiftUI/Vision/ServiceManagement there.
    Anything platform-specific lives in `App/`, `MenuAgent/`, `DesignSystem`,
@@ -54,6 +55,7 @@ project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
 Linux-testable packages (also work on macOS):
 ```sh
 cd Packages/Core && swift build && swift test
+cd Packages/HelperProtocol && swift build && swift test
 cd Packages/Modules/Cleanup && swift build && swift test
 cd Packages/Modules/Clutter && swift build && swift test
 cd Packages/Modules/Applications && swift build && swift test

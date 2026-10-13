@@ -96,6 +96,15 @@ jobs:
       - name: Generate project
         run: xcodegen generate --spec project.yml
 
+      - name: Pin helper code-signing requirements to the Team ID
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          f=Packages/HelperProtocol/Sources/HelperProtocol/HelperConstants.swift
+          sed -i '' "s/TEAMID_PLACEHOLDER/${APPLE_TEAM_ID}/g" "$f"
+          grep -q "$APPLE_TEAM_ID" "$f"
+
       - name: Build and sign (Release)
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
