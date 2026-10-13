@@ -157,7 +157,8 @@ enum MenuAgentSettings {
     static let suiteName = "com.example.maccleaner.shared"
 
     /// Falls back to `.standard` only if the suite cannot be created (never in practice).
-    static let store: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
+    // UserDefaults is thread-safe; the constant itself never mutates.
+    nonisolated(unsafe) static let store: UserDefaults = UserDefaults(suiteName: suiteName) ?? .standard
 
     enum Key {
         static let showCPU = "menu.pills.cpu"
