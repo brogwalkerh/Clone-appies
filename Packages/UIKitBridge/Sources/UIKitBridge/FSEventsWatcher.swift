@@ -93,7 +93,8 @@ final class FSEventsWatcher: @unchecked Sendable {
     // MARK: Watcher thread
 
     private func run() {
-        let loop = CFRunLoopGetCurrent()
+        // CFRunLoopGetCurrent() is an IUO; pin the type so later calls get a non-optional.
+        let loop: CFRunLoop = CFRunLoopGetCurrent()
         let alreadyStopped: Bool = lock.withLock {
             runLoop = loop
             return shouldStop
