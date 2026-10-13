@@ -59,12 +59,21 @@ public protocol FileSystem: Sendable {
     func temporaryDirectory() -> URL
 }
 public struct FileAttributes: Sendable, Hashable {
-    public let sizeBytes: Int64         // allocated size for files, 0 for directories
+    public let sizeBytes: Int64         // allocated (on-disk) size for files, 0 for directories
+    public let logicalSizeBytes: Int64  // byte length of the contents (st_size); == sizeBytes on Linux
     public let modifiedAt: Date?
     public let isDirectory: Bool
     public let isSymlink: Bool
     public let isPackage: Bool          // macOS bundle; always false on Linux
+    public init(sizeBytes: Int64, logicalSizeBytes: Int64? = nil /* defaults to sizeBytes */,
+                modifiedAt: Date? = nil, isDirectory: Bool = false, isSymlink: Bool = false,
+                isPackage: Bool = false)
 }
+// `sizeBytes` (Darwin: totalFileAllocatedSizeKey) is what reclaim figures and
+// `Finding.sizeBytes` report. `logicalSizeBytes` (Darwin: fileSizeKey) is what
+// content comparison must use: APFS compression and clonefile make byte-identical
+// files report different allocated sizes. `MockFileSystem` nodes take an optional
+// `allocatedSize:` to model this.
 public struct LocalFileSystem: FileSystem { public init() }
 
 public struct ScanContext: Sendable {

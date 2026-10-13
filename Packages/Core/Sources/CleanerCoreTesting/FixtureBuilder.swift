@@ -67,9 +67,9 @@ public struct FixtureBuilder: Sendable {
     public func build(_ tree: [String: MockFileSystem.Node]) throws {
         for (path, node) in tree.sorted(by: { $0.key < $1.key }) {
             switch node {
-            case .file(let size, let modified):
+            case .file(let size, _, let modified):
                 try file(path, size: Int(size), modified: modified)
-            case .data(let data, let modified):
+            case .data(let data, _, let modified):
                 try file(path, contents: data, modified: modified)
             case .directory, .package:
                 try directory(path)
