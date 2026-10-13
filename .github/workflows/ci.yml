@@ -35,6 +35,7 @@ jobs:
           - Packages/Modules/Cleanup
           - Packages/Modules/Clutter
           - Packages/Modules/Applications
+          - Packages/Modules/Performance
           - CLI
     steps:
       - name: Checkout

@@ -2,7 +2,7 @@
 
 A native, directly-distributed macOS 27 cleaner app (CleanMyMac-style): Cleanup,
 Protection, Performance, Applications, My Clutter, Space Lens, menu bar agent, CLI.
-Swift 6.2, SwiftUI, Apple Silicon only. Status: pre-alpha, milestone M0.
+Swift 6.2, SwiftUI, Apple Silicon only. Status: pre-alpha, M3 in progress (see PLAN.md §7).
 
 ## Where things are decided
 - `PLAN.md` — scope, platform facts, architecture (§5), permissions (§6), roadmap.
@@ -21,6 +21,7 @@ Packages/HelperProtocol/  Closed op set, validation, command plans for the root 
 Packages/Modules/Cleanup/  CleanupModule: scanners + cleanup-rules.json
 Packages/Modules/Clutter/  ClutterModule: large/old, duplicates, similar images, downloads
 Packages/Modules/Applications/  ApplicationsModule: inventory, leftovers, orphans, updater
+Packages/Modules/Performance/  PerformanceModule: maintenance tasks, launchd items, process ranking
 Packages/SpaceLens/   Size tree + circle packing layout
 Packages/DesignSystem/  Colors, glass components, shared views (macOS only)
 Packages/UIKitBridge/ AppKit shims (macOS only)
@@ -31,7 +32,7 @@ project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
 
 ## Hard rules
 1. **Foundation-only packages.** `CleanerCore`, `HelperProtocol`, `CleanupModule`, `ClutterModule`,
-   `ApplicationsModule`, `SpaceLens` and `CLI` import Foundation only. They must `swift build && swift test` on Linux
+   `ApplicationsModule`, `PerformanceModule`, `SpaceLens` and `CLI` import Foundation only. They must `swift build && swift test` on Linux
    (Ubuntu 24.04) and on macOS. No AppKit/SwiftUI/Vision/ServiceManagement there.
    Anything platform-specific lives in `App/`, `MenuAgent/`, `DesignSystem`,
    `UIKitBridge`, guarded with `#if canImport(AppKit)` only when unavoidable.
@@ -59,6 +60,7 @@ cd Packages/HelperProtocol && swift build && swift test
 cd Packages/Modules/Cleanup && swift build && swift test
 cd Packages/Modules/Clutter && swift build && swift test
 cd Packages/Modules/Applications && swift build && swift test
+cd Packages/Modules/Performance && swift build && swift test
 cd Packages/SpaceLens && swift build && swift test
 cd CLI && swift build && swift test
 ```
