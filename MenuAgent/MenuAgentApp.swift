@@ -13,17 +13,21 @@ struct MenuAgentApp: App {
         MenuBarExtra {
             StatusPopover(state: state)
         } label: {
-            MenuBarLabel(pressure: state.stats?.memoryPressure)
+            MenuBarLabel(pressure: state.stats?.memoryPressure,
+                         hasThreats: MenuBarLabel.hasThreats(state.monitorState))
         }
         .menuBarExtraStyle(.window)
     }
 }
 
 /// The status-item label: the sparkles symbol plus a small dot that turns
-/// amber or red under memory pressure. Under normal pressure the dot is
-/// omitted so the item looks like any other monochrome status icon.
+/// amber or red under memory pressure, or red when the Protection Monitor has
+/// found something (threats win over pressure). Under normal pressure with no
+/// threats the dot is omitted so the item looks like any other monochrome
+/// status icon.
 struct MenuBarLabel: View {
     let pressure: MemoryPressure?
+    var hasThreats: Bool = false
 
     var body: some View {
         // TODO(macOS27): MenuBarExtra renders the label as a template image, so the
@@ -31,21 +35,33 @@ struct MenuBarLabel: View {
         // symbols per pressure level instead of a colored circle.
         HStack(spacing: 3) {
             Image(systemName: "sparkles")
-            if let pressure, pressure != .normal {
+            if let dot = dotColor {
                 Circle()
-                    .fill(MenuBarLabel.dotColor(for: pressure))
+                    .fill(dot)
                     .frame(width: 6, height: 6)
             }
         }
         .accessibilityLabel(Text(accessibilityText))
     }
 
+    private var dotColor: Color? {
+        if hasThreats { return .red }
+        if let pressure, pressure != .normal { return MenuBarLabel.dotColor(for: pressure) }
+        return nil
+    }
+
     private var accessibilityText: String {
+        if hasThreats { return "Mac Cleaner, threats found" }
         switch pressure {
         case .warn: return "Mac Cleaner, memory pressure elevated"
         case .critical: return "Mac Cleaner, memory pressure critical"
         default: return "Mac Cleaner"
         }
+    }
+
+    static func hasThreats(_ state: AgentState.MonitorState) -> Bool {
+        if case .threats = state { return true }
+        return false
     }
 
     static func dotColor(for pressure: MemoryPressure) -> Color {

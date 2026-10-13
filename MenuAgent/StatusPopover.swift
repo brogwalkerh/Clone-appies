@@ -1,4 +1,5 @@
 import DesignSystem
+import ProtectionModule
 import SwiftUI
 import UIKitBridge
 
@@ -130,22 +131,52 @@ struct StatusPopover: View {
                     .help("Empty the Trash in Mac Cleaner")
             }
 
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(.gray)
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-                Text("Protection Monitor")
-                    .font(.subheadline)
-                Spacer()
-                Text("Available in M4")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
+            protectionRow
         }
+    }
+
+    /// Live Protection Monitor row: dot + status text open the main app's
+    /// Protection screen; the switch starts or stops the monitor in place.
+    private var protectionRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                state.openProtection()
+            } label: {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(StatusPopover.monitorDotColor(for: state.monitorState))
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Protection Monitor")
+                            .font(.subheadline)
+                        Text(StatusPopover.monitorCaption(for: state.monitorState, error: state.monitorError))
+                            .font(.caption)
+                            .foregroundStyle(StatusPopover.monitorCaptionIsAlert(state.monitorState) ? .red : .secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Protection in Mac Cleaner")
+            .accessibilityLabel(Text("Protection Monitor, \(StatusPopover.monitorCaption(for: state.monitorState, error: state.monitorError))"))
+            .accessibilityHint(Text("Opens Protection in Mac Cleaner"))
+
+            Toggle("Protection Monitor", isOn: Binding(
+                get: { state.isMonitorEnabled },
+                set: { state.isMonitorEnabled = $0 }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help(state.isMonitorEnabled ? "Stop watching Downloads, Applications and launch agents"
+                                             : "Watch Downloads, Applications and launch agents for malware")
+                .accessibilityLabel(Text("Protection Monitor enabled"))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 
     // MARK: Buttons
@@ -201,6 +232,31 @@ struct StatusPopover: View {
 
     static func rate(_ bytesPerSecond: Double) -> String {
         "\(ByteText.string(Int64(max(0, bytesPerSecond.rounded()))))/s"
+    }
+
+    static func monitorDotColor(for state: AgentState.MonitorState) -> Color {
+        switch state {
+        case .off: return .gray
+        case .running: return .green
+        case .threats: return .red
+        }
+    }
+
+    static func monitorCaptionIsAlert(_ state: AgentState.MonitorState) -> Bool {
+        if case .threats = state { return true }
+        return false
+    }
+
+    static func monitorCaption(for state: AgentState.MonitorState, error: String?) -> String {
+        switch state {
+        case .off:
+            return error.map { "Off — \($0)" } ?? "Off"
+        case .running(let scanned):
+            return scanned == 1 ? "Watching 1 file" : "Watching \(scanned) files"
+        case .threats(let count, let latest):
+            let summary = count == 1 ? "1 threat found" : "\(count) threats found"
+            return "\(summary) — \(latest.name)"
+        }
     }
 
     static func batteryCaption(_ stats: SystemStats) -> String {

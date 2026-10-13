@@ -5,8 +5,11 @@ import PackageDescription
 // ApplicationsModule / PerformanceModule deliberately leave out (Vision
 // feature prints, IOKit power state and battery health, Homebrew and App Store
 // update sources, NSWorkspace icons, libproc process sampling, launchctl state,
-// host statistics, the Screen Cleaning event tap).
-// Imports AppKit, Vision, IOKit and ImageIO, so it never builds on Linux
+// host statistics, the Screen Cleaning event tap, Security.framework code
+// signature checks, the TCC permissions database and the FSEvents-based
+// Protection Monitor).
+// Imports AppKit, Vision, IOKit, ImageIO, Security, SQLite3 and CoreServices,
+// so it never builds on Linux
 // (CLAUDE.md hard rule 1). Deployment target per ADR 0005.
 let package = Package(
     name: "UIKitBridge",
@@ -23,15 +26,18 @@ let package = Package(
         .package(path: "../Modules/Clutter"),
         .package(path: "../Modules/Applications"),
         .package(path: "../Modules/Performance"),
+        .package(path: "../Modules/Protection"),
     ],
     targets: [
         .target(
             name: "UIKitBridge",
             dependencies: [
                 .product(name: "CleanerCore", package: "Core"),
+                .product(name: "CleanerHashing", package: "Core"),
                 .product(name: "ClutterModule", package: "Clutter"),
                 .product(name: "ApplicationsModule", package: "Applications"),
                 .product(name: "PerformanceModule", package: "Performance"),
+                .product(name: "ProtectionModule", package: "Protection"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
@@ -43,6 +49,7 @@ let package = Package(
                 "UIKitBridge",
                 .product(name: "ApplicationsModule", package: "Applications"),
                 .product(name: "PerformanceModule", package: "Performance"),
+                .product(name: "ProtectionModule", package: "Protection"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
