@@ -140,7 +140,7 @@ struct ApplicationsView: View {
     private var uninstaller: some View {
         @Bindable var store = store
         switch store.discovery {
-        case .idle, .discovering where store.apps.isEmpty:
+        case .idle where store.apps.isEmpty, .discovering where store.apps.isEmpty:
             EmptyState.scanning("Finding installed apps…",
                                 message: "Looking in /Applications, ~/Applications, Setapp and Homebrew.")
         case .failed(let message) where store.apps.isEmpty:

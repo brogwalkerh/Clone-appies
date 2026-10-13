@@ -144,7 +144,8 @@ final class MaintenanceState {
                           home: FileManager.default.homeDirectoryForCurrentUser)
     }
 
-    static func task(withID id: String) -> MaintenanceTask? {
+    /// Pure catalog lookup; nonisolated so intents and entities can call it off the main actor.
+    nonisolated static func task(withID id: String) -> MaintenanceTask? {
         MaintenanceCatalog.all.first { $0.id == id }
     }
 }
