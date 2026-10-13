@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ClutterModule
+import CleanerHashing
 
 @Suite("SHA256")
 struct SHA256Tests {

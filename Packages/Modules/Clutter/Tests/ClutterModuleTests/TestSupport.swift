@@ -24,7 +24,7 @@ func context(_ fs: MockFileSystem, ignore: IgnoreList = .empty,
 }
 
 /// Deterministic pseudo-random bytes (xorshift64), shared with the Python
-/// script that produced the reference digest in `SHA256Tests`.
+/// script that produced the reference digests in the hashing tests.
 func pseudoRandomData(count: Int, seed: UInt64 = 0x9E37_79B9_7F4A_7C15) -> Data {
     var x = seed
     var bytes = [UInt8](repeating: 0, count: count)

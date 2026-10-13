@@ -17,6 +17,7 @@ let package = Package(
             name: "ClutterModule",
             dependencies: [
                 .product(name: "CleanerCore", package: "Core"),
+                .product(name: "CleanerHashing", package: "Core"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
