@@ -148,7 +148,7 @@ struct SignatureUpdaterTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted() == ["VERSION", "mac.hdb"])
     }
 
-    @Test(arguments: ["../evil.hdb", "sub/x.hdb", "notes.txt", ".hidden.hdb", "VERSION", "manifest.json", ""])
+    @Test(arguments: ["../evil.hdb", "sub/x.hdb", "notes.txt", ".hidden.hdb", "VERSION", ""])
     func unsafeFileNamesAreRejected(name: String) async throws {
         let fixture = try FixtureBuilder(name: "updater-names")
         defer { try? fixture.remove() }
@@ -157,6 +157,13 @@ struct SignatureUpdaterTests {
             try await updater(base, fixture).update()
         }
         #expect(!FileManager.default.fileExists(atPath: fixture.url("signatures/VERSION").path))
+    }
+
+    @Test func manifestNameItselfIsNotAnAllowedFile() {
+        #expect(throws: SignatureUpdateError.invalidFileName("manifest.json")) {
+            try SignatureUpdater.validate(name: "manifest.json")
+        }
+        #expect(throws: Never.self) { try SignatureUpdater.validate(name: "mac.ign2") }
     }
 
     @Test func httpErrorsAndBadManifestsThrow() async throws {

@@ -57,6 +57,15 @@ public enum PatternToken: Sendable, Hashable {
         }
     }
 
+    /// Fewest bytes this token can consume.
+    var minSpan: Int {
+        switch self {
+        case .byte, .wildcardByte, .nibbleHigh, .nibbleLow: 1
+        case .skipAny: 0
+        case .skipRange(let min, _): min
+        }
+    }
+
     /// Largest number of bytes this token can consume (for unbounded skips,
     /// the minimum, since the rest is "the rest of the chunk").
     var boundedSpan: Int {
@@ -130,7 +139,13 @@ enum HexPatternParser {
         }
         guard let first = tokens.first, let last = tokens.last else { throw HexPatternError.empty }
         if first.isSkip || last.isSkip { throw HexPatternError.leadingOrTrailingSkip }
-        guard tokens.contains(where: { if case .byte = $0 { return true } else { return false } }) else {
+        // At least one token must constrain a byte value.
+        guard tokens.contains(where: { token in
+            switch token {
+            case .byte, .nibbleHigh, .nibbleLow: true
+            default: false
+            }
+        }) else {
             throw HexPatternError.noFixedBytes
         }
         return tokens

@@ -69,6 +69,8 @@ public actor ThreatQuarantine {
     /// Never throws: per-item failures are recorded in the manifest.
     public func quarantine(_ threats: [Threat]) async -> QuarantineManifest {
         let id = UUID()
+        // Whole seconds: the manifest is stored as ISO 8601 and must round-trip.
+        let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         let manifestDirectory = directory.appendingPathComponent(id.uuidString, isDirectory: true)
         var records: [QuarantineRecord] = []
         do {
@@ -78,7 +80,7 @@ public actor ThreatQuarantine {
                 QuarantineRecord(threat: $0, storedAt: nil, succeeded: false,
                                  error: "Cannot create quarantine directory: \(error)")
             }
-            return QuarantineManifest(id: id, records: records)
+            return QuarantineManifest(id: id, date: date, records: records)
         }
 
         for threat in threats {
@@ -109,7 +111,7 @@ public actor ThreatQuarantine {
                                                 error: "\(error)", originalPermissions: permissions))
             }
         }
-        let manifest = QuarantineManifest(id: id, records: records)
+        let manifest = QuarantineManifest(id: id, date: date, records: records)
         try? Self.write(manifest, to: manifestDirectory)
         return manifest
     }

@@ -27,8 +27,8 @@ public struct PatternMatcher: Sendable {
 
     struct Compiled: Sendable {
         let pattern: HexPattern
-        let span: Int
-        let isBounded: Bool
+        /// Fewest bytes a match can occupy.
+        let minSpan: Int
         let firstByte: UInt8?
     }
 
@@ -38,10 +38,10 @@ public struct PatternMatcher: Sendable {
         var longest = 0
         for pattern in patterns where !pattern.tokens.isEmpty {
             let span = pattern.tokens.reduce(0) { $0 + $1.boundedSpan }
-            let bounded = !pattern.tokens.contains(where: \.isUnbounded)
+            let minSpan = pattern.tokens.reduce(0) { $0 + $1.minSpan }
             var first: UInt8?
             if case .byte(let b) = pattern.tokens[0] { first = b }
-            compiled.append(Compiled(pattern: pattern, span: span, isBounded: bounded, firstByte: first))
+            compiled.append(Compiled(pattern: pattern, minSpan: minSpan, firstByte: first))
             longest = max(longest, span)
         }
         self.compiled = compiled
@@ -91,8 +91,8 @@ public struct PatternMatcher: Sendable {
             guard local >= 0, local < Int64(count) else { return false }
             return matchTokens(tokens, 0, bytes, Int(local))
         case .any:
-            // A bounded pattern cannot start later than count - span.
-            let lastStart = entry.isBounded ? count - entry.span : count - 1
+            // No match can start later than count - minSpan.
+            let lastStart = count - entry.minSpan
             guard lastStart >= 0 else { return false }
             if let first = entry.firstByte {
                 var i = 0

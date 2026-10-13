@@ -22,6 +22,8 @@ struct HexPatternParserTests {
         #expect(throws: HexPatternError.leadingOrTrailingSkip) { try HexPatternParser.parse("*4142") }
         #expect(throws: HexPatternError.leadingOrTrailingSkip) { try HexPatternParser.parse("4142{2}") }
         #expect(throws: HexPatternError.noFixedBytes) { try HexPatternParser.parse("????") }
+        #expect(throws: HexPatternError.noFixedBytes) { try HexPatternParser.parse("??{2}??") }
+        #expect(throws: Never.self) { try HexPatternParser.parse("4???") }
         #expect(throws: HexPatternError.empty) { try HexPatternParser.parse("") }
         #expect(throws: (any Error).self) { try HexPatternParser.parse("4") }
         #expect(throws: (any Error).self) { try HexPatternParser.parse("4g") }
