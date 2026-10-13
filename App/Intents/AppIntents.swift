@@ -4,6 +4,8 @@ import CleanerCore
 import CleanupModule
 import ClutterModule
 import ApplicationsModule
+import HelperProtocol
+import PerformanceModule
 
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
 // rebuilt Spotlight indexes the same intents as actions (PLAN.md §2). Every
@@ -114,6 +116,49 @@ final class AppServices {
     func show(_ item: SidebarItem) {
         appState?.select(item)
     }
+
+    // MARK: Maintenance
+
+    /// Re-checks the helper so an intent that runs with no window sees the truth.
+    func helperIsAvailable() async -> Bool {
+        await HelperClient.shared.checkAvailability()
+        return HelperClient.shared.isAvailable
+    }
+
+    enum MaintenanceOutcome: Sendable {
+        case needsHelper
+        case finished(MaintenanceResult)
+    }
+
+    /// Runs one catalog task through the same `MaintenanceRunner` the Performance
+    /// screen uses, mirroring the result into `AppState` when a window exists.
+    func runMaintenance(_ task: MaintenanceTask) async -> MaintenanceOutcome {
+        let helperAvailable = await helperIsAvailable()
+        if task.requiresHelper, !helperAvailable {
+            return .needsHelper
+        }
+        if let appState, !appState.maintenance.isRunning {
+            // Drive the shared state so the Performance screen shows this run too.
+            appState.maintenance.selectedTaskIDs = [task.id]
+            appState.maintenance.run([task], helperAvailable: helperAvailable)
+            while appState.maintenance.isRunning {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            if let result = appState.maintenance.results[task.id] {
+                postMaintenance(result, task: task)
+                return .finished(result)
+            }
+        }
+        let result = await MaintenanceState.makeRunner().run(task)
+        postMaintenance(result, task: task)
+        return .finished(result)
+    }
+
+    private func postMaintenance(_ result: MaintenanceResult, task: MaintenanceTask) {
+        let reclaimed = result.bytesReclaimed.map { " Reclaimed \(ByteFormatter.string($0))." } ?? ""
+        appState?.post(title: result.succeeded ? "\(task.name) finished via Siri" : "\(task.name) failed",
+                       message: result.message + reclaimed)
+    }
 }
 
 // MARK: - Intents
@@ -193,12 +238,112 @@ struct FindLargeFilesIntent: AppIntent {
 struct FreeUpRAMIntent: AppIntent {
     static let title: LocalizedStringResource = "Free Up RAM"
     static let description: IntentDescription? = IntentDescription(
-        "Releases inactive memory. Part of the Performance module.")
+        "Releases inactive memory by running the Free Up RAM maintenance task.")
     static let openAppWhenRun = false
 
+    static let taskID = "maintenance.freeRAM"
+
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        // Memory purging needs the privileged helper and ships with Performance in M3.
-        .result(dialog: "Free Up RAM arrives with the Performance module in M3.")
+        guard let task = MaintenanceState.task(withID: FreeUpRAMIntent.taskID) else {
+            return .result(dialog: "Free Up RAM is not available in this build.")
+        }
+        return .result(dialog: await MaintenanceDialogs.dialog(for: AppServices.shared.runMaintenance(task), task: task))
+    }
+}
+
+// MARK: - Maintenance entity
+
+/// A `MaintenanceCatalog` task as Siri / Shortcuts sees it.
+struct MaintenanceTaskEntity: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Maintenance Task")
+    static let defaultQuery = MaintenanceTaskQuery()
+
+    let id: String
+    let name: String
+    let summary: String
+    let requiresHelper: Bool
+
+    init(_ task: MaintenanceTask) {
+        id = task.id
+        name = task.name
+        summary = task.summary
+        requiresHelper = task.requiresHelper
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)", subtitle: "\(summary)")
+    }
+
+    var task: MaintenanceTask? { MaintenanceState.task(withID: id) }
+}
+
+struct MaintenanceTaskQuery: EntityStringQuery {
+    func entities(for identifiers: [String]) async throws -> [MaintenanceTaskEntity] {
+        let wanted = Set(identifiers)
+        return MaintenanceCatalog.all.filter { wanted.contains($0.id) }.map(MaintenanceTaskEntity.init)
+    }
+
+    func entities(matching string: String) async throws -> [MaintenanceTaskEntity] {
+        let needle = string.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return try await suggestedEntities() }
+        return MaintenanceCatalog.all
+            .filter { $0.name.localizedCaseInsensitiveContains(needle) || $0.summary.localizedCaseInsensitiveContains(needle) }
+            .map(MaintenanceTaskEntity.init)
+    }
+
+    /// Catalog order; safe tasks first so the picker starts with the harmless ones.
+    func suggestedEntities() async throws -> [MaintenanceTaskEntity] {
+        MaintenanceCatalog.all
+            .sorted { lhs, rhs in
+                if lhs.risk != rhs.risk { return lhs.risk < rhs.risk }
+                return false
+            }
+            .map(MaintenanceTaskEntity.init)
+    }
+}
+
+struct RunMaintenanceIntent: AppIntent {
+    static let title: LocalizedStringResource = "Run Maintenance Task"
+    static let description: IntentDescription? = IntentDescription(
+        "Runs one Performance maintenance task such as Flush DNS Cache or Reindex Spotlight. Tasks that need administrator rights go through the privileged helper.")
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Task")
+    var task: MaintenanceTaskEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Run \(\.$task)")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let catalogTask = task.task else {
+            return .result(dialog: "\(task.name) is not available in this build.")
+        }
+        if catalogTask.risk == .risky {
+            // TODO(macOS27): verify `requestConfirmation(result:confirmationActionName:)`
+            // is still the preferred confirmation API in the 27 SDK.
+            try await requestConfirmation(
+                result: .result(dialog: "\(catalogTask.name): \(catalogTask.summary) Run it now?"),
+                confirmationActionName: .continue)
+        }
+        return .result(dialog: await MaintenanceDialogs.dialog(for: AppServices.shared.runMaintenance(catalogTask), task: catalogTask))
+    }
+}
+
+enum MaintenanceDialogs {
+    static func dialog(for outcome: AppServices.MaintenanceOutcome, task: MaintenanceTask) -> IntentDialog {
+        switch outcome {
+        case .needsHelper:
+            return "\(task.name) needs the privileged helper, which is not installed. Open Mac Cleaner › Settings › Advanced and choose Install, then try again."
+        case .finished(let result):
+            if result.succeeded {
+                if let bytes = result.bytesReclaimed, bytes > 0 {
+                    return "\(task.name) finished and reclaimed \(ByteFormatter.string(bytes))."
+                }
+                return "\(task.name) finished. \(result.message)"
+            }
+            return "\(task.name) failed: \(result.message)"
+        }
     }
 }
 
@@ -359,10 +504,21 @@ struct MacCleanerShortcuts: AppShortcutsProvider {
             intent: FreeUpRAMIntent(),
             phrases: [
                 "Free up RAM with \(.applicationName)",
-                "Free up memory with \(.applicationName)"
+                "Free up memory with \(.applicationName)",
+                "Purge inactive memory using \(.applicationName)"
             ],
             shortTitle: "Free Up RAM",
             systemImageName: "memorychip"
+        )
+        AppShortcut(
+            intent: RunMaintenanceIntent(),
+            phrases: [
+                "Run maintenance with \(.applicationName)",
+                "Run \(\.$task) with \(.applicationName)",
+                "Run the \(\.$task) task in \(.applicationName)"
+            ],
+            shortTitle: "Run Maintenance",
+            systemImageName: "gauge.with.dots.needle.67percent"
         )
         AppShortcut(
             intent: UninstallAppIntent(),

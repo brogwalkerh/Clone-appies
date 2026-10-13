@@ -118,8 +118,8 @@ struct CleanupView: View {
 
     private func startScan() {
         expandedGroups = []
-        model.context = SettingsStore.scanContext()
-        model.run()
+        // Lifts any deep-link scanner restriction and refreshes the context.
+        appState.runCleanup()
     }
 
     private func clean() {

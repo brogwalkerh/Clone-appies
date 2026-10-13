@@ -59,6 +59,10 @@ packages:
     path: Packages/Modules/Clutter
   Applications:
     path: Packages/Modules/Applications
+  HelperProtocol:
+    path: Packages/HelperProtocol
+  Performance:
+    path: Packages/Modules/Performance
   SpaceLens:
     path: Packages/SpaceLens
   DesignSystem:
@@ -102,6 +106,10 @@ targets:
         product: ClutterModule
       - package: Applications
         product: ApplicationsModule
+      - package: HelperProtocol
+        product: HelperProtocol
+      - package: Performance
+        product: PerformanceModule
       - package: SpaceLens
         product: SpaceLens
       - package: DesignSystem
@@ -200,6 +208,8 @@ targets:
     dependencies:
       - package: Core
         product: CleanerCore
+      - package: HelperProtocol
+        product: HelperProtocol
     settings:
       base:
         PRODUCT_NAME: com.example.maccleaner.helper

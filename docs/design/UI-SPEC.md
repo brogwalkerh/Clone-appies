@@ -17,7 +17,10 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Shared findings UI | `Modules/Shared/FindingsList.swift` | `FindingsList`, `FindingRow`, `CategoryHeader`, `RiskBadge`, `FindingsActionBar`, removal confirmation, `ModuleTabBar` |
 | Space Lens | `Modules/SpaceLens/SpaceLensView.swift` | `Canvas` bubbles, breadcrumbs, hover tooltip, context menu |
 | My Activity | `Modules/MyActivity/MyActivityView.swift` | Swift Charts, sample data until M5 |
-| Protection, Performance, Cloud, Email, Menu | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
+| Performance | `Modules/Performance/PerformanceView.swift` (+ `MaintenanceTab`, `BackgroundItemsTab`, `HeavyConsumersTab`) | Segmented Maintenance · Login Items · Heavy Consumers · Hung Apps (§3.3) |
+| Menu | `Modules/MenuApp/MenuAppView.swift` | Menu bar agent settings: enable, launch, pills, Screen Cleaning Mode (§3.4) |
+| Protection, Cloud, Email | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
+| Helper install sheet | `RootView` + `OnboardingView(initialStep: .helper)` | Shown while `AppState.helperInstallRequested`; opened by Performance and `maccleaner://performance?task=` |
 | Onboarding | `Onboarding/OnboardingView.swift` | Sheet, 680×560, three steps |
 | Settings | `Settings/SettingsView.swift` | `TabView`: General, Ignore List, Scheduler, Advanced |
 | Notification popover | `RootView.NotificationListView` | 340 pt wide, mark read / clear |
@@ -86,9 +89,89 @@ One `clutterModel` runs Large & Old, Duplicates, Similar Images (Vision feature 
 
 Primary button: "Scan" → "Scanning…" → "Remove X" (model-wide selection) → "Scan Again"; leading "Stop" / "Undo Last Removal".
 
+### 3.3 Performance (M3)
+
+`ModuleTabBar` selects the tab; the bottom bar changes with it. Maintenance drives `AppState.maintenance`
+(`MaintenanceState`) so a run keeps streaming while the user navigates away. Heavy Consumers and Hung Apps share one
+`ProcessMonitor` that polls `DarwinProcessSampler` every 3 s only while one of those tabs is visible (`.task(id: tab)`).
+"Needs helper" means `task.requiresHelper && !HelperClient.shared.isAvailable`.
+
+| Tab | State | Trigger | Presentation | Primary button |
+|---|---|---|---|---|
+| Maintenance | Idle | no run yet | `List` of `MaintenanceTaskRow`: checkbox, symbol, name, "Helper" / "Needs helper" badge, `RiskBadge` for caution/risky, one-line summary, "~5 s" estimate, chevron that expands the Smart Insights paragraph. Needs-helper rows are dimmed, unchecked-able, and carry an "Install helper" link that opens the helper sheet | "Run N tasks" (N = selected tasks that can run; disabled at 0) |
+| Maintenance | Running | `maintenance.isRunning` | "This run" section above the catalog: `MaintenanceResultRow` per task in run order — pending (dashed circle), running (spinner), success (green check, message, bytes, seconds), failed (red x, message), skipped (orange minus, "needs helper"). Subtitle "Running 2 of 5…" | "Running…" (loading) + leading "Stop" |
+| Maintenance | Done | results and not running | "This run" stays; leading text "3 succeeded • 1 failed • reclaimed 1.2 GB"; toolbar "Clear Results" | "Run N tasks" |
+| Maintenance | Deep link | `maccleaner://performance?task=<id>` | Tab switches to Maintenance, only that task is checked; it runs immediately if it can, otherwise the helper sheet opens | as above |
+| Login Items | Loading | first visit | `EmptyState.scanning("Reading launch agents…")` | "Remove 0 Broken Items" disabled |
+| Login Items | Failed / Empty | discovery threw / no items | `EmptyState` with "Try Again" / `nothingFound` | disabled |
+| Login Items | List | items | Sections Your Launch Agents · Login Item Apps · System Launch Agents · System Launch Daemons, each with a footer explaining where it comes from. `BackgroundItemRow`: domain symbol (red when broken), owner app + label, badges Broken · Apple · Run at load · Keep alive, program path, `.switch` toggle. Toggle rules: user agents via `LaunchctlService` (`bootout`/`bootstrap gui/<uid>`); system agents/daemons via `HelperClient.perform(.setLaunchDaemonEnabled)` (disabled with a banner + "Install helper" link when the helper is missing); Apple items, broken items and login-item apps read-only (help text says why). Context menu: Reveal in Finder | "Remove N Broken Items" (broken, non-Apple, user-domain plists) → `RemovalConfirmation` → `GuardedRemover(TrashRemover)`; leading "Manage in System Settings" (`x-apple.systempreferences:com.apple.LoginItems-Settings.extension`) |
+| Heavy Consumers | Sampling | no sample yet | `EmptyState.scanning("Sampling processes…")` | "Refresh" (loading) |
+| Heavy Consumers | Nothing heavy | ranker returns none | `EmptyState.nothingFound("No Heavy Consumers")` | "Refresh" |
+| Heavy Consumers | List | ranked samples | `ProcessRow`: 28 pt icon (`NSRunningApplication.icon`, generic executable otherwise), name, "System" badge, "Not responding" badge, bundle id / PID, CPU % (orange ≥ 20 %), memory, energy when known, Quit (`terminate()`), Force Quit (`forceTerminate()`, destructive confirmation). System processes: both buttons disabled | "Refresh"; leading "Updated n seconds ago" |
+| Hung Apps | Checking | no sample yet | `EmptyState.scanning("Checking for unresponsive apps…")` | "Force Quit All" disabled |
+| Hung Apps | None | `ranker.hung` empty | `EmptyState.nothingFound("No unresponsive apps")` | disabled |
+| Hung Apps | List | hung samples | same `ProcessRow` without the badge | "Force Quit All" → confirmation; leading "Checked n seconds ago" |
+
+Errors from launchctl, the helper, or a quit that did not take surface through `messageAlert("Performance")`.
+
+### 3.4 Menu (M3)
+
+Settings for the login-item agent. Three `GlassCard`s in a 760 pt column; no scan, so the bottom bar hosts the
+enable/disable action.
+
+| Section | State | Presentation |
+|---|---|---|
+| Status card | `SMAppService.loginItem("com.example.maccleaner.MenuAgent").status` | Symbol + "Enabled; starts at login" / "Not enabled" / "Waiting for approval in System Settings › Login Items" / "Agent not found in the app bundle"; green "Enabled" label when registered |
+| Pills card | `@AppStorage` in suite `com.example.maccleaner.shared` (`MenuAgentSettings.Key`: `menu.pills.cpu`, `.memory`, `.disk`, `.battery`, `.network`, `.trash`, `.protectionMonitor`, all default on) | 2-column grid of `.switch` toggles in glass capsules: CPU · RAM with Free Up · Disk and purgeable · Battery health · Network · Trash size · Protection Monitor. The agent reads the same suite |
+| Screen Cleaning card | `ScreenCleaningController.shared.isActive` | Explanation + "Try Screen Cleaning Mode" (`.glassProminent`, disabled while active). If Accessibility is off an alert explains the limitation first; the controller still starts and shows its own explanation |
+| Bottom bar | — | Primary "Enable Menu Bar Agent" / "Disable Menu Bar Agent" (register / unregister, loading while working; also mirrors `settings.showMenuBarAgent`); leading "Launch Now" (`NSWorkspace.openApplication` on `Contents/Library/LoginItems/MacCleanerMenu.app`) and, when approval is pending, "Open Login Items" |
+| Errors | `MenuAgentController.lastError` | `messageAlert("Menu Bar Agent")` |
+
+### 3.5 URL scheme
+
+`CFBundleURLTypes` registers `maccleaner`. `DeepLink(url:)` (pure, tested in `Tests/AppTests/DeepLinkRouterTests.swift`)
+parses `maccleaner://smart-care`, `maccleaner://cleanup[?scanner=<id>]` and `maccleaner://performance[?task=<id>]`;
+`DeepLinkRouter` selects the sidebar item, starts a Cleanup scan restricted to the named scanner (unknown ids scan
+everything; the next plain Scan restores the full set), or hands the task to the Performance screen as above.
+
 Space Lens: empty → measuring → bubbles; hover tooltip; right-click Reveal / Zoom In / Move to Trash (confirmation).
 Removal always goes through `GuardedRemover(wrapping: TrashRemover())`; permanent delete only when
 Settings › General says so, with a destructive confirmation.
+
+## 3.3 Menu popover (MenuAgent, M3)
+
+`MenuBarExtra` in `.window` style, 320 pt wide, built from `StatPill` rows inside one
+`GlassEffectContainer`. Data comes from `SystemStatsSampler` (2 s) and a 60 s Trash measurement.
+
+| Row / control | State | Presentation |
+|---|---|---|
+| Status item | normal pressure | `sparkles` symbol only |
+| Status item | warn / critical | symbol + 6 pt amber / red dot |
+| Header | measuring | "Mac Cleaner" + "Measuring…" (`.updatesFrequently`) until the first sample |
+| CPU, Memory, Disk, Network | no sample yet | pills show "–" |
+| Memory | any | "used / total", `PressureBadge` (Normal / Warn / Critical), small glass "Free Up" → `maccleaner://performance?task=maintenance.freeRAM` |
+| Disk | any | "used / total", caption "N purgeable" |
+| Battery | laptop | "N %", caption "Charging • 312 cycles • 91 % health"; row hidden on desktops |
+| Network | any | "↓ 1.2 MB/s  ↑ 120 KB/s" |
+| Trash | any | size, small glass "Empty" (disabled at 0 B) → `maccleaner://cleanup?scanner=cleanup.trash` |
+| Protection Monitor | M3 | grey dot, "Available in M4" (placeholder) |
+| Run Smart Care | always | `.glassProminent`, full width, ⏎ → `maccleaner://smart-care` |
+| Screen Cleaning Mode | idle / active | `.glass`; disabled while a session is running |
+| Open Mac Cleaner · Quit | always | `.glass`; ⌘Q quits the agent |
+
+Reduce Transparency: glass pills and buttons fall back on their own; the header badge
+switches from the accent→performance gradient to a flat accent fill. No custom blur anywhere.
+
+### 3.4 Screen Cleaning Mode (M3)
+
+| State | Trigger | Presentation |
+|---|---|---|
+| Needs permission | `AXIsProcessTrusted() == false` | `NSAlert` "Accessibility Access Required" with "Open System Settings" (Privacy › Accessibility) and Cancel; nothing else happens |
+| Active | `begin(duration:)` (default 120 s) | One black borderless `.screenSaver` window per display, cursor hidden, all keyboard and mouse events swallowed by a session event tap; centered `mm:ss` countdown (120 pt, 55 % white) and "Keyboard and trackpad are locked. Hold ⌘ for 2 seconds to exit." |
+| Holding ⌘ | `flagsChanged` with ⌘ down | 220 pt linear progress fills over 2 s; releasing resets it |
+| Ended | countdown hits 0, ⌘ held 2 s, or `end()` | Tap removed, windows closed, cursor restored, agent re-activated |
+
+Reduce Motion drops the numeric cross-fade on the countdown. Text stays dim on pure black so smudges remain visible while wiping.
 
 ## 4. Liquid Glass checklist (PLAN.md §4)
 

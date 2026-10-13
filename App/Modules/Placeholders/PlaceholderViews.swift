@@ -4,7 +4,8 @@ import DesignSystem
 /// Shared scaffold for modules that ship in a later milestone (PLAN.md §7).
 /// Keeps the navigation title and bottom bar so the shell feels complete.
 /// Applications and My Clutter moved to `Modules/Applications` and
-/// `Modules/MyClutter` in M2; Protection, Performance, Cloud, Email and Menu remain.
+/// `Modules/MyClutter` in M2, Performance and Menu to `Modules/Performance` and
+/// `Modules/MenuApp` in M3; Protection, Cloud and Email remain.
 struct ModulePlaceholder: View {
     let item: SidebarItem
     let summary: String
@@ -31,13 +32,6 @@ struct ProtectionView: View {
     }
 }
 
-struct PerformanceView: View {
-    var body: some View {
-        ModulePlaceholder(item: .performance,
-                          summary: "Maintenance tasks (free RAM, flush DNS, reindex Spotlight, thin snapshots), login and background items, heavy consumers, and hung-app detection.")
-    }
-}
-
 struct CloudCleanupView: View {
     var body: some View {
         ModulePlaceholder(item: .cloudCleanup,
@@ -52,45 +46,11 @@ struct EmailCleanupView: View {
     }
 }
 
-/// Preview of the menu bar popover that ships with the login-item agent in M3.
-struct MenuAppView: View {
-    var body: some View {
-        VStack(spacing: 24) {
-            GlassCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    Label("Menu bar agent preview", systemImage: "menubar.rectangle")
-                        .font(.headline)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                        StatPill(systemImage: "internaldrive", value: "—", caption: "Storage free")
-                        StatPill(systemImage: "memorychip", value: "—", caption: "RAM used")
-                        StatPill(systemImage: "cpu", value: "—", caption: "CPU")
-                        StatPill(systemImage: "battery.75percent", value: "—", caption: "Battery health")
-                        StatPill(systemImage: "network", value: "—", caption: "Network")
-                        StatPill(systemImage: "trash", value: "—", caption: "Trash size")
-                    }
-                    Text("Runs as a separate login item so it survives closing the main window. Includes Protection Monitor status, quick Smart Care, and Screen Cleaning Mode.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: 560)
-
-            EmptyState.comingSoon(feature: "Menu",
-                                  milestone: SidebarItem.menuApp.pendingMilestone ?? "M3",
-                                  systemImage: "menubar.rectangle",
-                                  message: "The agent target, live stats and Screen Cleaning Mode arrive in M3.")
-        }
-        .padding(32)
-        .navigationTitle("Menu")
-    }
-}
-
 #Preview("Placeholders") {
     TabView {
         ProtectionView()
-        PerformanceView()
-        MenuAppView()
+        CloudCleanupView()
+        EmailCleanupView()
     }
     .frame(width: 900, height: 600)
 }

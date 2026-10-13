@@ -23,6 +23,11 @@ struct MacCleanerApp: App {
                 .environment(appState)
                 .frame(minWidth: Metrics.minimumWindowSize.width,
                        minHeight: Metrics.minimumWindowSize.height)
+                // `maccleaner://smart-care`, `cleanup?scanner=`, `performance?task=`
+                // from the menu bar agent, Spotlight or the CLI (CFBundleURLTypes in Info.plist).
+                .onOpenURL { url in
+                    appState.open(url)
+                }
         }
         .defaultSize(width: 1280, height: 860)
         .windowResizability(.contentMinSize)
@@ -62,7 +67,7 @@ struct ModuleCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button("Run Cleanup Scan") {
                 appState.select(.cleanup)
-                appState.cleanup.run()
+                appState.runCleanup()
             }
             .keyboardShortcut("r", modifiers: .command)
         }

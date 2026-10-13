@@ -19,13 +19,16 @@ struct OnboardingView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var step: Step = .welcome
+    @State private var step: Step
     @State private var helper = HelperInstaller()
     @State private var isRefreshing = false
 
     let onFinish: @MainActor () -> Void
 
-    init(onFinish: @escaping @MainActor () -> Void) {
+    /// - Parameter initialStep: `.helper` lets modules reopen just the helper
+    ///   install step after onboarding is done (Performance, deep links).
+    init(initialStep: Step = .welcome, onFinish: @escaping @MainActor () -> Void) {
+        _step = State(initialValue: initialStep)
         self.onFinish = onFinish
     }
 

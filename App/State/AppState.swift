@@ -4,6 +4,7 @@ import CleanerCore
 import CleanupModule
 import ClutterModule
 import ApplicationsModule
+import PerformanceModule
 import UIKitBridge
 
 /// An in-app message shown in the toolbar bell popover (Notification Center, PLAN.md §3.12).
@@ -49,6 +50,11 @@ final class AppState {
     private(set) var permissions: PermissionSnapshot = .unknown
     private(set) var hasCompletedOnboarding: Bool
 
+    /// Set when a module needs the privileged helper (Performance's "Install helper"
+    /// link, `maccleaner://performance?task=`). `RootView` shows the onboarding
+    /// helper step as a sheet while this is true.
+    var helperInstallRequested = false
+
     // MARK: Scan results
 
     /// Latest `ScanSummary` per module, used by Smart Care cards and the hero ring.
@@ -71,8 +77,18 @@ final class AppState {
     /// Scanners are rebuilt via `replaceScanners` when the Large & Old sliders move.
     let clutterModel: ScanViewModel
 
+    /// Performance's scan-driven findings (broken login items via `PerformanceScanners.all()`).
+    let performanceModel: ScanViewModel
+
+    /// Performance › Maintenance selection, run state and streamed results.
+    let maintenance: MaintenanceState
+
     /// Installed apps, leftovers and available updates for Applications › Uninstaller / Updater.
     let appInventory: AppInventoryStore
+
+    /// True while `cleanup` runs a subset of `CleanupScanners.all()` (deep link
+    /// `maccleaner://cleanup?scanner=`); the next plain scan restores the full set.
+    private var cleanupScannersRestricted = false
 
     // MARK: Init
 
@@ -96,6 +112,12 @@ final class AppState {
             scanners: AppState.makeClutterScanners(),
             context: SettingsStore.scanContext()
         )
+        performanceModel = ScanViewModel(
+            module: .performance,
+            scanners: PerformanceScanners.all(),
+            context: SettingsStore.scanContext()
+        )
+        maintenance = MaintenanceState()
         appInventory = AppInventoryStore()
     }
 
@@ -116,6 +138,33 @@ final class AppState {
 
     func select(_ item: SidebarItem) {
         selection = item
+    }
+
+    /// Routes a `maccleaner://` URL (see `DeepLinkRouter`). Returns `false` for foreign URLs.
+    @discardableResult
+    func open(_ url: URL) -> Bool {
+        DeepLinkRouter(appState: self).open(url)
+    }
+
+    /// Asks `RootView` to present the onboarding helper step.
+    func requestHelperInstall() {
+        helperInstallRequested = true
+    }
+
+    /// Starts a Cleanup scan, optionally restricted to one scanner id (deep link).
+    /// An unknown id falls back to the full scan. A previous restriction is lifted
+    /// on the next unrestricted call so the Cleanup screen's "Scan" stays complete.
+    func runCleanup(restrictedTo scannerID: String? = nil) {
+        let all = CleanupScanners.all()
+        if let scannerID, let only = all.first(where: { type(of: $0).id == scannerID }) {
+            cleanup.replaceScanners([only])
+            cleanupScannersRestricted = true
+        } else if cleanupScannersRestricted {
+            cleanup.replaceScanners(all)
+            cleanupScannersRestricted = false
+        }
+        cleanup.context = SettingsStore.scanContext()
+        cleanup.run()
     }
 
     func isPinned(_ item: SidebarItem) -> Bool {

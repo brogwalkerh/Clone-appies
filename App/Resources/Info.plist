@@ -20,6 +20,21 @@
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<!-- maccleaner://smart-care, maccleaner://cleanup?scanner=<id>, maccleaner://performance?task=<id>
+	     (App/Navigation/DeepLinkRouter.swift). Used by the menu bar agent. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.example.maccleaner.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>maccleaner</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSApplicationCategoryType</key>

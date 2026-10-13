@@ -110,6 +110,7 @@ struct SmartCareView: View {
         switch item {
         case .cleanup:      (model, moduleID) = (appState.cleanup, .cleanup)
         case .applications: (model, moduleID) = (appState.applicationsModel, .applications)
+        case .performance:  (model, moduleID) = (appState.performanceModel, .performance)
         case .myClutter:    (model, moduleID) = (appState.clutterModel, .clutter)
         default:            (model, moduleID) = (nil, nil)
         }
@@ -117,10 +118,21 @@ struct SmartCareView: View {
             return .comingSoon(item.pendingMilestone ?? "later")
         }
         if model.isScanning { return .scanning }
+        if moduleID == .performance, appState.maintenance.isRunning { return .scanning }
         if let summary = appState.lastScanSummaries[moduleID] {
+            if moduleID == .performance {
+                // Performance findings are broken login items; bytes are meaningless there.
+                return summary.totalFindings == 0
+                    ? .clean
+                    : .result("\(summary.totalFindings) broken login items")
+            }
             return summary.totalFindings == 0
                 ? .clean
                 : .result("\(ByteFormatter.string(summary.totalBytes)) to clean")
+        }
+        if moduleID == .performance, appState.maintenance.hasResults {
+            let bytes = appState.maintenance.totalBytesReclaimed
+            return bytes > 0 ? .result("Reclaimed \(ByteFormatter.string(bytes))") : .clean
         }
         return .notScanned
     }
