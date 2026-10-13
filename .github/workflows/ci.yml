@@ -32,6 +32,8 @@ jobs:
           - Packages/Core
           - Packages/SpaceLens
           - Packages/Modules/Cleanup
+          - Packages/Modules/Clutter
+          - Packages/Modules/Applications
           - CLI
     steps:
       - name: Checkout

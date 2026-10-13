@@ -1,6 +1,8 @@
 import Foundation
 import CleanerCore
 import CleanupModule
+import ClutterModule
+import ApplicationsModule
 
 /// The single place where scanners are registered for the CLI.
 struct ScannerRegistry: Sendable {
@@ -17,6 +19,10 @@ struct ScannerRegistry: Sendable {
     static func builtIn() -> ScannerRegistry {
         var all: [any CleanerScanner] = []
         all.append(contentsOf: CleanupScanners.all())
+        all.append(contentsOf: ApplicationsScanners.all())
+        // Similar-images needs a platform feature provider (Vision, in UIKitBridge);
+        // the CLI runs without it.
+        all.append(contentsOf: ClutterScanners.all(imageFeatures: nil))
         all.append(DemoScanner())
         return ScannerRegistry(scanners: all)
     }
