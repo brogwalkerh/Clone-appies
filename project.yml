@@ -1,0 +1,286 @@
+# XcodeGen spec (XcodeGen 2.x). Generates App.xcodeproj; the project file is NOT
+# committed (see .gitignore). Regenerate with `xcodegen generate` after editing.
+#
+# Layout follows PLAN.md §5. Local packages live under Packages/ and CLI/ is a
+# standalone SwiftPM package that also gets an Xcode target here for convenience.
+name: App
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  groupSortPosition: top
+  xcodeVersion: "27.0"
+  # Sources that other engineers are still landing are marked `optional: true`
+  # below so `xcodegen generate` succeeds while the tree fills in.
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+    ARCHS: arm64
+    VALID_ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    SDKROOT: macosx
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_APP_SANDBOX: NO
+    GENERATE_INFOPLIST_FILE: NO
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      ONLY_ACTIVE_ARCH: YES
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      SWIFT_COMPILATION_MODE: wholemodule
+
+packages:
+  # Local packages (Foundation-only ones also build on Linux; see CLAUDE.md).
+  Core:
+    path: Packages/Core
+  Cleanup:
+    path: Packages/Modules/Cleanup
+  SpaceLens:
+    path: Packages/SpaceLens
+  DesignSystem:
+    path: Packages/DesignSystem
+  UIKitBridge:
+    path: Packages/UIKitBridge
+  # External
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
+  swift-argument-parser:
+    url: https://github.com/apple/swift-argument-parser
+    from: 1.5.0
+
+targets:
+  # --------------------------------------------------------------------------
+  # Main SwiftUI application. App Intents (Intents/) compile into this target.
+  # --------------------------------------------------------------------------
+  App:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - "Resources/Info.plist"
+      - path: Intents
+        optional: true
+      # launchd plist for the SMAppService daemon, copied into the bundle at
+      # Contents/Library/LaunchDaemons as SMAppService.daemon(plistName:) expects.
+      - path: PrivilegedHelper/Resources/com.example.maccleaner.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
+    dependencies:
+      - package: Core
+        product: CleanerCore
+      - package: Cleanup
+        product: CleanupModule
+      - package: SpaceLens
+        product: SpaceLens
+      - package: DesignSystem
+        product: DesignSystem
+      - package: UIKitBridge
+        product: UIKitBridge
+      - package: Sparkle
+        product: Sparkle
+      # Login-item agent embedded at Contents/Library/LoginItems (SMAppService.loginItem).
+      - target: MenuAgent
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Library/LoginItems
+      # Root daemon executable embedded at Contents/MacOS; its launchd plist
+      # (copied above) references it via BundleProgram.
+      - target: PrivilegedHelper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+    info:
+      path: App/Resources/Info.plist
+    entitlements:
+      path: App/Resources/App.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: MacCleaner
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner
+        INFOPLIST_FILE: App/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Resources/App.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_PREVIEWS: YES
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+        OTHER_CODE_SIGN_FLAGS: "--timestamp"
+    scheme:
+      testTargets:
+        - AppTests
+        - UITests
+      gatherCoverageData: true
+      environmentVariables:
+        MACCLEANER_DRY_RUN: "1"
+
+  # --------------------------------------------------------------------------
+  # Menu bar login-item agent (LSUIElement). Embedded in App.
+  # --------------------------------------------------------------------------
+  MenuAgent:
+    type: application
+    platform: macOS
+    sources:
+      - path: MenuAgent
+        optional: true
+        excludes:
+          - "Resources/Info.plist"
+    dependencies:
+      - package: Core
+        product: CleanerCore
+      - package: DesignSystem
+        product: DesignSystem
+      - package: UIKitBridge
+        product: UIKitBridge
+    info:
+      path: MenuAgent/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_NAME: MacCleanerMenu
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner.MenuAgent
+        INFOPLIST_FILE: MenuAgent/Resources/Info.plist
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+          - "@executable_path/../../../../Frameworks"
+
+  # --------------------------------------------------------------------------
+  # Privileged helper: plain executable, root daemon via SMAppService.daemon.
+  # Closed operation set over XPC — never a generic shell op (see ADR 0002).
+  # --------------------------------------------------------------------------
+  PrivilegedHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: PrivilegedHelper
+        optional: true
+        excludes:
+          - "Resources/**"
+    dependencies:
+      - package: Core
+        product: CleanerCore
+    settings:
+      base:
+        PRODUCT_NAME: com.example.maccleaner.helper
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner.helper
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+        # Embed an Info.plist section so the daemon can be identified by launchd/SMAppService.
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        INFOPLIST_FILE: PrivilegedHelper/Resources/Info.plist
+
+  # --------------------------------------------------------------------------
+  # `maccleaner` command-line tool. CLI/ is also a standalone SwiftPM package
+  # (tested on Linux); this target lets it build inside the Xcode workspace.
+  # --------------------------------------------------------------------------
+  CLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: CLI/Sources
+        optional: true
+    dependencies:
+      - package: Core
+        product: CleanerCore
+      - package: Cleanup
+        product: CleanupModule
+      - package: SpaceLens
+        product: SpaceLens
+      - package: swift-argument-parser
+        product: ArgumentParser
+    settings:
+      base:
+        PRODUCT_NAME: maccleaner
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner.cli
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+
+  # --------------------------------------------------------------------------
+  # Tests
+  # --------------------------------------------------------------------------
+  AppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/AppTests
+        optional: true
+    dependencies:
+      - target: App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner.AppTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MacCleaner.app/Contents/MacOS/MacCleaner"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  UITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/UITests
+        optional: true
+    dependencies:
+      - target: App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.maccleaner.UITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: App
+
+schemes:
+  App:
+    build:
+      targets:
+        App: all
+        MenuAgent: [build]
+        PrivilegedHelper: [build]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - AppTests
+        - name: UITests
+          parallelizable: false
+    archive:
+      config: Release
+  CLI:
+    build:
+      targets:
+        CLI: all
+    run:
+      config: Debug

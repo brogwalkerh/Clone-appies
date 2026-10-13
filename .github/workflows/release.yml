@@ -1,0 +1,181 @@
+name: Release
+
+# Builds, signs (Developer ID), notarizes, staples, packages a DMG, signs the
+# Sparkle appcast, and uploads everything to the GitHub Release for the tag.
+#
+# Required repository secrets:
+#   DEVELOPER_ID_CERT_P12        base64-encoded "Developer ID Application" .p12
+#   DEVELOPER_ID_CERT_PASSWORD   password for the .p12
+#   APPLE_TEAM_ID                10-character team identifier (for DEVELOPMENT_TEAM)
+#   NOTARY_KEY_ID                App Store Connect API key ID
+#   NOTARY_ISSUER_ID             App Store Connect API issuer ID
+#   NOTARY_KEY_P8                contents of the AuthKey_XXXX.p8 file
+#   SPARKLE_PRIVATE_KEY          Sparkle EdDSA private key (output of generate_keys -x)
+#
+# TODO: pin runs-on to the macOS 27 / Xcode 27 image once GitHub publishes it.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: MacCleaner
+  SCHEME: App
+  KEYCHAIN_NAME: build.keychain-db
+  KEYCHAIN_PASSWORD: ci-temporary-keychain
+  NOTARY_PROFILE: maccleaner-notary
+
+jobs:
+  release:
+    name: Build, sign, notarize, publish
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select newest Xcode
+        run: |
+          newest=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+          sudo xcode-select -s "$newest"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          build_number="$(git rev-list --count HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build_number" >> "$GITHUB_OUTPUT"
+          echo "Version $version ($build_number)"
+
+      - name: Import Developer ID certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cert_path="$RUNNER_TEMP/developer_id.p12"
+          echo -n "$CERT_P12_BASE64" | base64 --decode > "$cert_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security import "$cert_path" -P "$CERT_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN_NAME"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security list-keychain -d user -s "$KEYCHAIN_NAME" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN_NAME"
+          rm -f "$cert_path"
+
+      - name: Store notarization credentials
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
+          printf '%s' "$NOTARY_KEY_P8" > "$key_path"
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --key "$key_path" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+            --keychain "$HOME/Library/Keychains/$KEYCHAIN_NAME"
+          rm -f "$key_path"
+
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build and sign (Release)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild -project App.xcodeproj -scheme "$SCHEME" -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+            build
+          mkdir -p dist
+          cp -R "build/Build/Products/Release/$APP_NAME.app" dist/
+          codesign --verify --deep --strict --verbose=2 "dist/$APP_NAME.app"
+
+      - name: Notarize and staple app
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent "dist/$APP_NAME.app" "dist/$APP_NAME.zip"
+          Scripts/notarize.sh "dist/$APP_NAME.zip" "$NOTARY_PROFILE" \
+            --keychain "$HOME/Library/Keychains/$KEYCHAIN_NAME" \
+            --staple "dist/$APP_NAME.app"
+          rm -f "dist/$APP_NAME.zip"
+          spctl --assess --type execute --verbose=4 "dist/$APP_NAME.app"
+
+      - name: Build DMG
+        run: |
+          set -euo pipefail
+          Scripts/make-dmg.sh "dist/$APP_NAME.app" \
+            "dist/$APP_NAME-${{ steps.version.outputs.version }}.dmg" \
+            --volume-name "$APP_NAME"
+          codesign --force --sign "Developer ID Application" --timestamp \
+            "dist/$APP_NAME-${{ steps.version.outputs.version }}.dmg"
+
+      - name: Notarize and staple DMG
+        run: |
+          Scripts/notarize.sh "dist/$APP_NAME-${{ steps.version.outputs.version }}.dmg" \
+            "$NOTARY_PROFILE" --keychain "$HOME/Library/Keychains/$KEYCHAIN_NAME"
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          generate_appcast="$(find build/SourcePackages/artifacts -type f -name generate_appcast -perm -u+x | head -n 1)"
+          if [ -z "$generate_appcast" ]; then
+            echo "::error::generate_appcast not found in Sparkle package artifacts"
+            exit 1
+          fi
+          mkdir -p appcast
+          cp "dist/$APP_NAME-${{ steps.version.outputs.version }}.dmg" appcast/
+          # Download URL prefix must match where the DMG is hosted (GitHub release assets).
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$generate_appcast" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/" \
+            --link "https://github.com/${GITHUB_REPOSITORY}/releases" \
+            -o dist/appcast.xml \
+            appcast
+          cat dist/appcast.xml
+
+      - name: Checksums
+        working-directory: dist
+        run: shasum -a 256 ./*.dmg appcast.xml > SHA256SUMS.txt
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ env.APP_NAME }} ${{ steps.version.outputs.version }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            dist/*.dmg
+            dist/appcast.xml
+            dist/SHA256SUMS.txt
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN_NAME" || true

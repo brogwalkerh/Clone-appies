@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- launchd daemon registered with SMAppService.daemon(plistName: "com.example.maccleaner.helper.plist").
+	     Installed into MacCleaner.app/Contents/Library/LaunchDaemons by the App target. -->
+	<key>Label</key>
+	<string>com.example.maccleaner.helper</string>
+	<!-- Path relative to the app bundle root. -->
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/com.example.maccleaner.helper</string>
+	<key>MachServices</key>
+	<dict>
+		<key>com.example.maccleaner.helper</key>
+		<true/>
+	</dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.example.maccleaner</string>
+	</array>
+	<key>ProcessType</key>
+	<string>Adaptive</string>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>KeepAlive</key>
+	<false/>
+	<key>ExitTimeOut</key>
+	<integer>10</integer>
+</dict>
+</plist>
