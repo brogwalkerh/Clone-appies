@@ -205,3 +205,17 @@ Executable `maccleaner`: `scan [--module cleanup|...] [--json] [--home PATH]`,
 ## App (App/) — SwiftUI, macOS 27 only
 Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
 (`@MainActor @Observable`) consumes `ScanCoordinator.run` events.
+
+## Implementation notes (CleanerCore as built)
+- `Scanner` collides with `Foundation.Scanner` in files importing both. Write
+  `CleanerCore.Scanner` or use the alias `CleanerScanner`.
+- `FileWalker.walk` does not yield the root; depth 1 is the root's direct children.
+  Unreadable subdirectories are skipped; only an unreadable root throws.
+- `IgnoreList.contains` treats listed paths as covering their descendants. A glob
+  without `/` also matches the last path component.
+- A cancelled coordinator run emits `.finished` with partial counts for the
+  interrupted scanner, then `.completed`.
+- Extra public inits exist on `FileAttributes`, `ScanSummary`, `RemovalRecord`,
+  `RemovalManifest`; `TrashRemover(fileSystem:trashDirectory:)` forces move-based
+  trash on every platform (for tests). `CleanerCoreTesting` ships `MockFileSystem`
+  (dictionary-literal trees) and `FixtureBuilder` (real temp trees).
