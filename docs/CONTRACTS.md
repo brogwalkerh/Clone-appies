@@ -490,3 +490,128 @@ row (placeholder until M4), "Screen Cleaning Mode", "Open Mac Cleaner", Quit.
 Registered as `SMAppService.loginItem(identifier: "com.example.maccleaner.MenuAgent")`.
 Main app declares the `maccleaner` URL scheme (CFBundleURLTypes) and handles
 `smart-care`, `cleanup`, `performance` routes.
+
+## M4 — CleanerHashing (new target in Packages/Core, product `CleanerHashing`)
+Pure-Swift digests shared by Clutter and Protection. `SHA256`/`StreamingSHA256`
+move here from ClutterModule unchanged (Clutter depends on this product and
+re-exports via `@_exported import CleanerHashing` so its public API stays).
+Adds `MD5` / `StreamingMD5` with the same shape, tested against RFC 1321 vectors.
+
+## M4 — ProtectionModule (Packages/Modules/Protection, Foundation-only)
+
+```swift
+public enum ScanScope: String, Codable, Sendable, CaseIterable { case quick, normal, deep }
+
+public enum ThreatSeverity: String, Codable, Sendable, Comparable { case low, medium, high, critical }
+public enum ThreatKind: String, Codable, Sendable { case signature, heuristic }
+public struct Threat: Sendable, Hashable, Codable, Identifiable {
+    public let id: UUID; public let path: URL; public let name: String      // "Eicar-Test-Signature", "Heuristic.UnsignedLaunchAgent"
+    public let kind: ThreatKind; public let severity: ThreatSeverity; public let detail: String
+    public let sizeBytes: Int64; public let isDirectory: Bool
+    public var finding: Finding { get }   // category "protection.malware", risk .safe, detail "<name>: <detail>"
+}
+
+/// ClamAV text formats. Parsing is tolerant: malformed lines are skipped and counted.
+public struct SignatureDatabase: Sendable {
+    public struct Stats: Sendable, Hashable { public let hashSignatures: Int; public let patternSignatures: Int; public let allowlisted: Int; public let skippedLines: Int }
+    public init()
+    public mutating func load(hdb text: String)        // md5:size:name   (size may be "*")
+    public mutating func load(hsb text: String)        // sha256:size:name
+    public mutating func load(ndb text: String)        // name:target:offset:hexpattern  (target 0 any, 1 PE, 6 ELF, 9 Mach-O; offset "*" or int or "EOF-n")
+    public mutating func load(ign2 text: String)       // signature names to ignore
+    public mutating func load(contentsOf directory: URL, fileSystem: any FileSystem) throws   // by extension
+    public static func bundledStarter() -> SignatureDatabase   // Resources/signatures/*.hdb,*.ndb incl. EICAR
+    public var stats: Stats { get }
+    public func match(md5: String, sha256: String, size: Int64) -> String?
+    public var patterns: [HexPattern] { get }
+}
+public struct HexPattern: Sendable, Hashable { public let name: String; public let target: Int; public let offset: PatternOffset; public let tokens: [PatternToken] }
+public enum PatternOffset: Sendable, Hashable { case any, absolute(Int), fromEnd(Int) }
+public enum PatternToken: Sendable, Hashable { case byte(UInt8), wildcardByte, nibbleHigh(UInt8), nibbleLow(UInt8), skipAny, skipRange(min: Int, max: Int) }
+public struct PatternMatcher: Sendable {
+    public init(patterns: [HexPattern])
+    public func matches(in data: Data, fileSize: Int64, chunkOffset: Int64) -> [String]   // names; caller streams chunks with overlap >= maxPatternLength
+    public var maxPatternLength: Int { get }
+}
+
+/// Heuristics are pure functions over file metadata + small reads; platform facts injected.
+public protocol CodeSignatureVerifier: Sendable { func isValidlySigned(_ executable: URL) async -> Bool? }   // nil = unknown (Linux)
+public protocol RunningProcessPathsProvider: Sendable { func executablePaths() async -> [URL] }
+public struct HeuristicContext: Sendable {
+    public let fileSystem: any FileSystem; public let home: URL
+    public let signatureVerifier: (any CodeSignatureVerifier)?; public let now: Date
+}
+public struct Heuristics: Sendable {
+    public init()
+    public func evaluate(launchAgentPlist url: URL, context: HeuristicContext) async -> [Threat]   // curl|bash, osascript -e, base64 -d, /tmp or hidden paths, unsigned program, program missing from bundle
+    public func evaluate(executable url: URL, attributes: FileAttributes, context: HeuristicContext) async -> [Threat]   // executable in hidden dir under ~/Library, masquerading extension (magic bytes vs .jpg/.pdf/.txt), script with #! in LaunchAgents
+}
+
+public struct ScanScopeResolver: Sendable {
+    public init(fileSystem: any FileSystem, runningProcesses: (any RunningProcessPathsProvider)? = nil)
+    /// quick: running executables, ~/Library/LaunchAgents, /Library/LaunchAgents, /Library/LaunchDaemons programs, ~/Downloads, ~/Desktop, apps modified < 7 days
+    /// normal: quick + home + /Applications + /Library/LaunchAgents + /Library/LaunchDaemons + /usr/local
+    /// deep: normal + every mounted volume under /Volumes except protected/Time Machine
+    public func roots(for scope: ScanScope, home: URL, now: Date) async -> [URL]
+}
+
+/// The scanner. id "protection.malware". Streams Threat-derived Findings. Hashes every regular file
+/// (MD5+SHA-256 in one streaming pass), applies patterns to files whose target type matches (by magic
+/// bytes: Mach-O 0xFEEDFACE/0xFEEDFACF/0xCAFEBABE, PE "MZ", ELF 0x7F"ELF", scripts "#!") up to maxFileSize,
+/// skips allowlisted names, runs heuristics on launch agents and executables. Respects ignore list and
+/// protected paths. Emits progress by root.
+public struct MalwareScanner: CleanerScanner {
+    public init(scope: ScanScope, database: SignatureDatabase, verifier: (any CodeSignatureVerifier)? = nil,
+                runningProcesses: (any RunningProcessPathsProvider)? = nil, maxFileSize: Int64 = 200_000_000)
+}
+public enum ProtectionScanners { public static func make(scope: ScanScope, database: SignatureDatabase, verifier: (any CodeSignatureVerifier)?, runningProcesses: (any RunningProcessPathsProvider)?) -> [any CleanerScanner] }  // malware + privacy scanners
+
+/// Quarantine instead of Trash: moves into <quarantineDirectory>/<uuid>/, chmod 000, writes manifest.json.
+public actor ThreatQuarantine {
+    public init(directory: URL, fileSystem: any FileSystem = LocalFileSystem())
+    public func quarantine(_ threats: [Threat]) async -> QuarantineManifest
+    public func restore(_ manifest: QuarantineManifest) async -> [QuarantineRecord]
+    public func list() async throws -> [QuarantineManifest]
+    public func purge(olderThan: TimeInterval) async throws -> Int
+}
+public struct QuarantineRecord: Codable, Sendable, Hashable { public let threat: Threat; public let storedAt: URL?; public let succeeded: Bool; public let error: String? }
+public struct QuarantineManifest: Codable, Sendable, Hashable, Identifiable { public let id: UUID; public let date: Date; public let records: [QuarantineRecord] }
+
+/// Feed: <baseURL>/manifest.json => { "version": "2026-10-13", "files": [ { "name": "mac.hdb", "sha256": "...", "bytes": 1234 } ] }
+public struct SignatureUpdater: Sendable {
+    public init(baseURL: URL, session: URLSession = .shared, destination: URL)
+    public func currentVersion() -> String?
+    public func update() async throws -> SignatureUpdateResult   // downloads manifest, fetches changed files, verifies sha256, atomically swaps, writes version
+}
+public struct SignatureUpdateResult: Sendable, Hashable { public let version: String; public let filesUpdated: Int; public let bytes: Int64 }
+
+/// Privacy: path-based scanners, one per data kind, all risk .caution, categories "privacy.<kind>".
+/// Browsers: Safari (History.db, Downloads.plist, LocalStorage, Cookies), Chrome/Chromium/Brave/Edge/Arc/Vivaldi
+/// (History, Cookies, Cache, Login Data NOT touched, Top Sites, Visited Links), Firefox (places.sqlite history only
+/// via a copy? no — report the profile's cache2 and cookies.sqlite; places is .risky with detail "Removes bookmarks too").
+/// System: recent items (com.apple.sharedfilelist/*.sfl3), QuickLook thumbnail cache, Wi-Fi known networks (report-only on
+/// Linux; macOS removal needs the helper — mark .risky and requiresHelper detail), chat caches (Slack, Discord, Teams, Telegram, WhatsApp).
+public enum PrivacyScanners { public static func all() -> [any CleanerScanner] }
+
+/// Permissions review model. The reader is platform-specific (UIKitBridge reads TCC.db with SQLite3).
+public enum PrivacyService: String, Codable, Sendable, CaseIterable { case camera, microphone, fullDiskAccess, accessibility, screenRecording, location, contacts, calendars, photos, inputMonitoring, automation }
+public struct PermissionGrant: Sendable, Hashable, Codable, Identifiable { public var id: String { "\(service.rawValue):\(clientID)" }; public let service: PrivacyService; public let clientID: String; public let clientName: String?; public let granted: Bool; public let lastModified: Date? }
+public protocol PermissionsReader: Sendable { func grants() async throws -> [PermissionGrant] }
+```
+
+## M4 — UIKitBridge additions (macOS only)
+```swift
+public struct SecCodeSignatureVerifier: CodeSignatureVerifier { public init() }   // SecStaticCodeCreateWithPath + SecStaticCodeCheckValidity(kSecCSDefaultFlags)
+public struct RunningProcessPaths: RunningProcessPathsProvider { public init() }   // proc_listallpids + proc_pidpath, deduped
+public struct TCCPermissionsReader: PermissionsReader { public init() }           // reads user + system TCC.db via SQLite3; needs FDA; maps kTCCService* to PrivacyService; app names via NSWorkspace
+/// FSEvents-based fallback for the Protection Monitor (Endpoint Security is a later entitlement).
+public actor ProtectionMonitor {
+    public init(paths: [URL] = [~/Downloads, /Applications, ~/Library/LaunchAgents, /Library/LaunchAgents, /Library/LaunchDaemons], database: SignatureDatabase, verifier: any CodeSignatureVerifier)
+    public func start() -> AsyncStream<ProtectionEvent>     // FSEventStreamCreate on a dedicated thread + runloop; debounced; new/changed files hashed + pattern-checked + heuristics; quarantine xattr noted
+    public func stop()
+}
+public enum ProtectionEvent: Sendable { case started, threat(Threat), scanned(URL), stopped(reason: String) }
+```
+MenuAgent's Protection Monitor row becomes live (green = running, red = threat
+found, with count; click opens `maccleaner://protection`). The monitor runs
+inside the MenuAgent process so it survives the main window closing.
