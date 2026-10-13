@@ -64,7 +64,6 @@ public struct SecCodeSignatureVerifier: CodeSignatureVerifier {
         errSecCSResourcesInvalid,
         errSecCSResourcesNotSealed,
         errSecCSResourceDirectoryFailed,
-        errSecCSBadDiskImage,
         errSecCSInfoPlistFailed,
         errSecCSBadFrameworkVersion,
         errSecCSBadMainExecutable,
