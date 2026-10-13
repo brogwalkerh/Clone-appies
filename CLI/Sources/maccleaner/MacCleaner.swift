@@ -11,5 +11,5 @@ struct MacCleaner: AsyncParsableCommand {
         abstract: "Scan a macOS home directory for junk and remove it safely (Trash first, undo via manifests).",
         version: maccleanerVersion,
         subcommands: [ListScannersCommand.self, ScanCommand.self, RemoveCommand.self, UndoCommand.self,
-                      MaintenanceCommand.self, LoginItemsCommand.self])
+                      MaintenanceCommand.self, LoginItemsCommand.self, ProtectCommand.self])
 }

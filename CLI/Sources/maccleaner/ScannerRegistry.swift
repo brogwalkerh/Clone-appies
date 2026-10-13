@@ -4,6 +4,7 @@ import CleanupModule
 import ClutterModule
 import ApplicationsModule
 import PerformanceModule
+import ProtectionModule
 
 /// The single place where scanners are registered for the CLI.
 struct ScannerRegistry: Sendable {
@@ -22,6 +23,9 @@ struct ScannerRegistry: Sendable {
         all.append(contentsOf: CleanupScanners.all())
         all.append(contentsOf: ApplicationsScanners.all())
         all.append(contentsOf: PerformanceScanners.all())
+        // Protection: privacy scanners only. The malware scanner needs a scope
+        // and a signature database, so it runs through `maccleaner protect scan`.
+        all.append(contentsOf: PrivacyScanners.all())
         // Similar-images needs a platform feature provider (Vision, in UIKitBridge);
         // the CLI runs without it.
         all.append(contentsOf: ClutterScanners.all(imageFeatures: nil))
