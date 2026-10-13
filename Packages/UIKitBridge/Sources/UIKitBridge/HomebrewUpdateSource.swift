@@ -93,45 +93,16 @@ public struct HomebrewUpdateSource: UpdateSource {
         case exitStatus(Int32)
     }
 
-    /// Runs `executable` to completion and returns its standard output.
-    /// Stdout is drained on a detached task *while* the process runs so a large
-    /// JSON payload cannot fill the pipe and deadlock the termination handler.
+    /// Runs `brew` through the shared `ProcessRunner` with the Homebrew
+    /// environment knobs that keep it quiet and fast.
     static func run(_ executable: URL, arguments: [String]) async throws -> Data {
-        let process = Process()
-        let stdout = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
         var environment = ProcessInfo.processInfo.environment
         environment["HOMEBREW_NO_AUTO_UPDATE"] = "1"
         environment["HOMEBREW_NO_ENV_HINTS"] = "1"
         environment["HOMEBREW_NO_ANALYTICS"] = "1"
-        process.environment = environment
-
-        // FileHandle is not Sendable in the Darwin overlay; the reader task is the
-        // only user of this handle, so hand it over without checking.
-        nonisolated(unsafe) let reader = stdout.fileHandleForReading
-        let drain = Task.detached(priority: .utility) { () -> Data in
-            reader.readDataToEndOfFile()
-        }
-
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { finished in
-                continuation.resume(returning: finished.terminationStatus)
-            }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                drain.cancel()
-                continuation.resume(throwing: error)
-            }
-        }
-
-        let data = await drain.value
-        guard status == 0 else { throw BrewError.exitStatus(status) }
-        return data
+        let output = try await ProcessRunner.run(executable, arguments: arguments, environment: environment)
+        guard output.exitStatus == 0 else { throw BrewError.exitStatus(output.exitStatus) }
+        return output.stdout
     }
 
     // MARK: JSON
