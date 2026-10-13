@@ -20,4 +20,25 @@ public struct Bubble: Sendable, Hashable, Identifiable {
         self.depth = depth
         self.node = node
     }
+
+    // `CGPoint` is Hashable in swift-corelibs-foundation (Linux) but only
+    // Equatable in CoreGraphics (Darwin), so conformance is spelled out here
+    // to keep the type identical on both platforms.
+    public static func == (lhs: Bubble, rhs: Bubble) -> Bool {
+        lhs.id == rhs.id
+            && lhs.center.x == rhs.center.x
+            && lhs.center.y == rhs.center.y
+            && lhs.radius == rhs.radius
+            && lhs.depth == rhs.depth
+            && lhs.node == rhs.node
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(center.x)
+        hasher.combine(center.y)
+        hasher.combine(radius)
+        hasher.combine(depth)
+        hasher.combine(node)
+    }
 }
