@@ -94,6 +94,58 @@ struct DuplicatesScannerTests {
         #expect(findings.map(\.path.lastPathComponent) == ["big-2", "small-2"])
     }
 
+    @Test func equalLogicalSizeWithDifferentAllocatedSizeIsGrouped() async throws {
+        // Byte-identical content; APFS compression / clonefile makes the
+        // on-disk footprint differ. They must land in the same bucket.
+        let fs: MockFileSystem = [
+            "/Users/test/Documents/original.bin": .data(blob, allocatedSize: 24_576, modified: daysAgo(40)),
+            "/Users/test/Documents/compressed.bin": .data(blob, allocatedSize: 8_192, modified: daysAgo(3)),
+            "/Users/test/Documents/cloned.bin": .data(blob, allocatedSize: 0, modified: daysAgo(1)),
+        ]
+        let findings = try await collect(scanner, context(fs))
+        #expect(findings.paths == [
+            "/Users/test/Documents/compressed.bin",
+            "/Users/test/Documents/cloned.bin",
+        ])
+        #expect(findings.allSatisfy { $0.detail == "Duplicate of /Users/test/Documents/original.bin" })
+        // Findings report the allocated size, so reclaim figures stay accurate.
+        #expect(findings.named("compressed.bin")?.sizeBytes == 8_192)
+        #expect(findings.named("cloned.bin")?.sizeBytes == 0)
+    }
+
+    @Test func minimumSizeGateUsesLogicalSize() async throws {
+        // Logically large files whose on-disk footprint is below `minSizeBytes`
+        // (sparse, cloned, or heavily compressed) are still candidates.
+        let fs: MockFileSystem = [
+            "/Users/test/Documents/sparse-a.bin": .data(blob, allocatedSize: 512, modified: daysAgo(2)),
+            "/Users/test/Documents/sparse-b.bin": .data(blob, allocatedSize: 512, modified: daysAgo(1)),
+        ]
+        let findings = try await collect(scanner, context(fs))
+        #expect(findings.paths == ["/Users/test/Documents/sparse-b.bin"])
+        #expect(findings.first?.sizeBytes == 512)
+    }
+
+    @Test func prefilterTailOffsetIsTakenFromLogicalSize() throws {
+        let edge = DuplicatesScanner.sampleLength
+        let a = pseudoRandomData(count: 3 * edge, seed: 11)
+        var b = a
+        b[b.count - 1] ^= 0xFF  // differs only in the last byte
+        let allocated = Int64(8 * edge)
+        let fs: MockFileSystem = [
+            "/Users/test/a.bin": .data(a, allocatedSize: allocated),
+            "/Users/test/b.bin": .data(b, allocatedSize: allocated),
+        ]
+        let urlA = URL(fileURLWithPath: "/Users/test/a.bin")
+        let urlB = URL(fileURLWithPath: "/Users/test/b.bin")
+        let logical = Int64(a.count)
+        #expect(try DuplicatesScanner.prefilterHash(of: urlA, size: logical, fileSystem: fs)
+                != DuplicatesScanner.prefilterHash(of: urlB, size: logical, fileSystem: fs))
+        // An offset derived from the allocated size would read past EOF and
+        // sample an empty tail, hiding the difference from the prefilter.
+        #expect(try DuplicatesScanner.prefilterHash(of: urlA, size: allocated, fileSystem: fs)
+                == DuplicatesScanner.prefilterHash(of: urlB, size: allocated, fileSystem: fs))
+    }
+
     @Test func realFilesAreHashedThroughFileHandles() async throws {
         let fixture = try FixtureBuilder(name: "clutter-dups")
         defer { try? fixture.remove() }
