@@ -182,7 +182,9 @@ enum PermissionChecker {
     /// Prompts for Accessibility (shows the system dialog once) then opens Settings.
     @MainActor
     static func promptAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        // The kAXTrustedCheckOptionPrompt global is a mutable C symbol that strict
+        // concurrency rejects; its value is this literal key.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 

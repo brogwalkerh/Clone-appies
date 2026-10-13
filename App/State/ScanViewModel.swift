@@ -220,7 +220,7 @@ final class ScanViewModel {
 
     /// Selection state of an arbitrary subset, e.g. one duplicate group keyed by keeper.
     func selectionState(for findings: [Finding]) -> GroupSelection {
-        let count = findings.lazy.filter { selectedIDs.contains($0.id) }.count
+        let count = findings.lazy.filter { self.selectedIDs.contains($0.id) }.count
         if count == 0 { return .none }
         return count == findings.count ? .all : .some
     }
