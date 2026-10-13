@@ -190,7 +190,7 @@ public final class HelperClient {
 
     private func makeConnection() -> NSXPCConnection {
         let connection = NSXPCConnection(machServiceName: HelperConstants.machServiceName, options: .privileged)
-        connection.remoteObjectInterface = NSXPCInterface(with: HelperXPCProtocol.self)
+        connection.remoteObjectInterface = NSXPCInterface(with: (any HelperXPCProtocol).self)
         // Only our own Developer ID-signed helper may answer (macOS 13+ API;
         // the deployment target is 26).
         connection.setCodeSigningRequirement(HelperConstants.helperRequirement)

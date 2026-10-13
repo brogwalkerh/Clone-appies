@@ -110,7 +110,7 @@ public actor SystemStatsSampler {
                     break
                 }
                 let now = clock.now
-                let elapsed = max(Double((now - previousTime).nanoseconds) / 1_000_000_000, 0.001)
+                let elapsed = max((now - previousTime).totalSeconds, 0.001)
                 let cpu = HostStatistics.cpuTicks()
                 let network = HostStatistics.networkCounters()
                 let stats = HostStatistics.snapshot(cpuPercent: HostStatistics.cpuPercent(from: previousCPU, to: cpu),

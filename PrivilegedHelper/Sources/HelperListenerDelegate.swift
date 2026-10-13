@@ -24,7 +24,7 @@ final class HelperListenerDelegate: NSObject, NSXPCListenerDelegate, Sendable {
         // message for the lifetime of the connection (macOS 13+).
         newConnection.setCodeSigningRequirement(HelperConstants.clientRequirement)
 
-        newConnection.exportedInterface = NSXPCInterface(with: HelperXPCProtocol.self)
+        newConnection.exportedInterface = NSXPCInterface(with: (any HelperXPCProtocol).self)
         newConnection.exportedObject = HelperService()
         newConnection.invalidationHandler = { [logger] in
             logger.notice("Connection from pid \(pid, privacy: .public) invalidated")

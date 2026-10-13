@@ -53,7 +53,7 @@ public struct DarwinProcessSampler: ProcessSampler {
         try await Task.sleep(for: sampleWindow)
         try Task.checkCancellation()
 
-        let elapsedNanos = Double((clock.now - start).nanoseconds)
+        let elapsedNanos = (clock.now - start).totalSeconds * 1_000_000_000
         let timebase = machTimebase()
         let accessibilityTrusted = AXIsProcessTrusted()
 

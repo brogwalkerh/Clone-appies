@@ -38,8 +38,8 @@ public enum ProcessRunner {
 
         // FileHandle is not Sendable in the Darwin overlay; each reader task is
         // the only user of its handle, so hand them over without checking.
-        nonisolated(unsafe) let stdoutReader = stdoutPipe.fileHandleForReading
-        nonisolated(unsafe) let stderrReader = stderrPipe.fileHandleForReading
+        let stdoutReader = stdoutPipe.fileHandleForReading
+        let stderrReader = stderrPipe.fileHandleForReading
         let stdoutDrain = Task.detached(priority: .utility) { () -> Data in
             stdoutReader.readDataToEndOfFile()
         }
