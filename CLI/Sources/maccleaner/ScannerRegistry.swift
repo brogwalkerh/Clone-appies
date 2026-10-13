@@ -3,6 +3,7 @@ import CleanerCore
 import CleanupModule
 import ClutterModule
 import ApplicationsModule
+import PerformanceModule
 
 /// The single place where scanners are registered for the CLI.
 struct ScannerRegistry: Sendable {
@@ -20,6 +21,7 @@ struct ScannerRegistry: Sendable {
         var all: [any CleanerScanner] = []
         all.append(contentsOf: CleanupScanners.all())
         all.append(contentsOf: ApplicationsScanners.all())
+        all.append(contentsOf: PerformanceScanners.all())
         // Similar-images needs a platform feature provider (Vision, in UIKitBridge);
         // the CLI runs without it.
         all.append(contentsOf: ClutterScanners.all(imageFeatures: nil))

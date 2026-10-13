@@ -60,3 +60,15 @@ func fileURL(fromArgument path: String, isDirectory: Bool) -> URL {
     let expanded = NSString(string: path).expandingTildeInPath
     return URL(fileURLWithPath: expanded, isDirectory: isDirectory).standardizedFileURL
 }
+
+/// Asks `Proceed? [y/N]` on the terminal; anything but y/yes declines. The
+/// prompt goes to stderr when stdout is reserved for a JSON document.
+@Sendable
+func promptForConfirmation(viaStandardError: Bool = false) -> Bool {
+    let handle = viaStandardError ? FileHandle.standardError : FileHandle.standardOutput
+    handle.write(Data("Proceed? [y/N] ".utf8))
+    guard let answer = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+        return false
+    }
+    return answer == "y" || answer == "yes"
+}

@@ -37,7 +37,7 @@ struct RemoveCommand: AsyncParsableCommand {
         options.manifestOut = manifestOut.map { fileURL(fromArgument: $0, isDirectory: false) }
         let remover = GuardedRemover(wrapping: TrashRemover(), protectedPaths: .default)
         _ = try await RemoveRunner.run(document: document, options: options, remover: remover,
-                                       confirm: RemoveCommand.promptForConfirmation, io: .standard)
+                                       confirm: { promptForConfirmation() }, io: .standard)
     }
 
     static func parseMode(_ argument: String) throws -> RemovalMode {
@@ -47,15 +47,6 @@ struct RemoveCommand: AsyncParsableCommand {
         return mode
     }
 
-    /// Asks `Proceed? [y/N]` on the terminal; anything but y/yes declines.
-    @Sendable
-    static func promptForConfirmation() -> Bool {
-        FileHandle.standardOutput.write(Data("Proceed? [y/N] ".utf8))
-        guard let answer = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
-            return false
-        }
-        return answer == "y" || answer == "yes"
-    }
 }
 
 struct RemoveOptions: Sendable {
