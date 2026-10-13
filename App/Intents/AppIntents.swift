@@ -2,6 +2,8 @@ import AppIntents
 import Foundation
 import CleanerCore
 import CleanupModule
+import ClutterModule
+import ApplicationsModule
 
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
 // rebuilt Spotlight indexes the same intents as actions (PLAN.md §2). Every
@@ -20,7 +22,55 @@ final class AppServices {
 
     weak var appState: AppState?
 
+    /// Inventory used when an intent runs with no window (and therefore no `AppState`).
+    private var standaloneInventory: AppInventoryStore?
+
     private init() {}
+
+    /// The live `AppInventoryStore` when the app is running, else a private one
+    /// so Siri can list and uninstall apps without a window.
+    func inventory() -> AppInventoryStore {
+        if let appState {
+            return appState.appInventory
+        }
+        if let standaloneInventory {
+            return standaloneInventory
+        }
+        let store = AppInventoryStore()
+        standaloneInventory = store
+        return store
+    }
+
+    /// Discovered apps, refreshing once if nothing has been discovered yet.
+    func installedApps() async -> [InstalledApp] {
+        let store = inventory()
+        await store.refreshIfNeeded()
+        return store.apps
+    }
+
+    /// Runs the Duplicates scanner with a private coordinator and returns the findings.
+    func scanDuplicates() async -> (findings: [Finding], summary: ScanSummary?) {
+        let coordinator = ScanCoordinator(scanners: [DuplicatesScanner()])
+        var findings: [Finding] = []
+        var summary: ScanSummary?
+        for await event in await coordinator.run(scanContext()) {
+            switch event {
+            case .finding(let finding):
+                findings.append(finding)
+            case .completed(let scanSummary):
+                summary = scanSummary
+            default:
+                break
+            }
+        }
+        return (findings, summary)
+    }
+
+    func recordUninstall(_ manifest: RemovalManifest, appName: String) {
+        appState?.lastRemovalManifests[.applications] = manifest
+        appState?.post(title: "Uninstalled \(appName) via Siri",
+                       message: "Reclaimed \(ByteFormatter.string(manifest.bytesReclaimed)).")
+    }
 
     func scanContext() -> ScanContext {
         SettingsStore.scanContext()
@@ -152,6 +202,124 @@ struct FreeUpRAMIntent: AppIntent {
     }
 }
 
+// MARK: - Applications entity
+
+/// An installed app as Siri / Shortcuts sees it. Identified by bundle path so
+/// two copies of the same app (e.g. /Applications and ~/Applications) stay distinct.
+struct InstalledAppEntity: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Application")
+    static let defaultQuery = InstalledAppQuery()
+
+    /// Standardized bundle path.
+    let id: String
+    let name: String
+    let version: String?
+    let isSystem: Bool
+
+    init(_ app: InstalledApp) {
+        id = AppInventoryStore.normalizedPath(app.bundleURL)
+        name = app.name
+        version = app.version
+        isSystem = app.isSystem
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        let subtitle: LocalizedStringResource? = version.map { "Version \($0)" }
+        return DisplayRepresentation(title: "\(name)", subtitle: subtitle)
+    }
+}
+
+struct InstalledAppQuery: EntityStringQuery {
+    func entities(for identifiers: [String]) async throws -> [InstalledAppEntity] {
+        let wanted = Set(identifiers)
+        return await AppServices.shared.installedApps()
+            .map(InstalledAppEntity.init)
+            .filter { wanted.contains($0.id) }
+    }
+
+    func entities(matching string: String) async throws -> [InstalledAppEntity] {
+        let needle = string.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return try await suggestedEntities() }
+        return await AppServices.shared.installedApps()
+            .filter { $0.name.localizedCaseInsensitiveContains(needle) }
+            .map(InstalledAppEntity.init)
+    }
+
+    /// Removable apps, most recently opened first, so the picker starts useful.
+    func suggestedEntities() async throws -> [InstalledAppEntity] {
+        let apps = await AppServices.shared.installedApps()
+        return apps
+            .filter { !$0.isSystem }
+            .sorted { ($0.lastOpened ?? .distantPast) > ($1.lastOpened ?? .distantPast) }
+            .prefix(30)
+            .map(InstalledAppEntity.init)
+    }
+}
+
+struct UninstallAppIntent: AppIntent {
+    static let title: LocalizedStringResource = "Uninstall App"
+    static let description: IntentDescription? = IntentDescription(
+        "Moves an app and the support files it left behind to the Trash after you confirm. System apps are never touched.")
+    static let openAppWhenRun = false
+
+    @Parameter(title: "App")
+    var app: InstalledAppEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Uninstall \(\.$app)")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let store = await AppServices.shared.inventory()
+        _ = await AppServices.shared.installedApps()
+        guard let installed = await store.app(withPath: app.id) else {
+            return .result(dialog: "\(app.name) is no longer installed.")
+        }
+        guard !installed.isSystem else {
+            return .result(dialog: "\(installed.name) is part of macOS and cannot be uninstalled.")
+        }
+
+        let leftovers = await store.leftovers(for: installed)
+        let bytes = installed.sizeBytes + leftovers.reduce(Int64(0)) { $0 + $1.sizeBytes }
+
+        // TODO(macOS27): verify `requestConfirmation(result:confirmationActionName:)`
+        // is still the preferred confirmation API in the 27 SDK.
+        try await requestConfirmation(
+            result: .result(dialog: "Move \(installed.name) and \(leftovers.count) support files (\(ByteFormatter.string(bytes))) to the Trash?"),
+            confirmationActionName: .continue)
+
+        let remover = await AppServices.shared.remover()
+        let manifest = try await store.uninstall(installed, leftovers: leftovers, using: remover, mode: .trash)
+        await AppServices.shared.recordUninstall(manifest, appName: installed.name)
+
+        let failed = manifest.records.filter { !$0.succeeded }.count
+        let tail = failed > 0 ? " \(failed) items could not be moved." : " You can undo this from the Applications module."
+        return .result(dialog: "Uninstalled \(installed.name) and reclaimed \(ByteFormatter.string(manifest.bytesReclaimed)).\(tail)")
+    }
+}
+
+struct FindDuplicatesIntent: AppIntent {
+    static let title: LocalizedStringResource = "Find Duplicate Files"
+    static let description: IntentDescription? = IntentDescription(
+        "Looks for byte-identical files in Documents, Desktop, Downloads, Movies, Music and Pictures. Nothing is removed.")
+    static let openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<[String]> {
+        let scan = await AppServices.shared.scanDuplicates()
+        let paths = scan.findings
+            .sorted { $0.sizeBytes > $1.sizeBytes }
+            .map { $0.path.path(percentEncoded: false) }
+        await AppServices.shared.show(.myClutter)
+
+        guard !scan.findings.isEmpty else {
+            return .result(value: paths, dialog: "No duplicate files found.")
+        }
+        let bytes = scan.findings.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let dialog: IntentDialog = "Found \(scan.findings.count) duplicate files taking \(ByteFormatter.string(bytes)). Review them in My Clutter › Duplicates."
+        return .result(value: paths, dialog: dialog)
+    }
+}
+
 // MARK: - Shortcuts
 
 struct MacCleanerShortcuts: AppShortcutsProvider {
@@ -195,6 +363,25 @@ struct MacCleanerShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Free Up RAM",
             systemImageName: "memorychip"
+        )
+        AppShortcut(
+            intent: UninstallAppIntent(),
+            phrases: [
+                "Uninstall an app with \(.applicationName)",
+                "Uninstall \(\.$app) with \(.applicationName)",
+                "Remove \(\.$app) completely using \(.applicationName)"
+            ],
+            shortTitle: "Uninstall App",
+            systemImageName: "square.grid.2x2"
+        )
+        AppShortcut(
+            intent: FindDuplicatesIntent(),
+            phrases: [
+                "Find duplicates with \(.applicationName)",
+                "Find duplicate files in \(.applicationName)"
+            ],
+            shortTitle: "Find Duplicates",
+            systemImageName: "doc.on.doc"
         )
     }
 }

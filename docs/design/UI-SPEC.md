@@ -12,9 +12,12 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Bottom bar | `BottomActionBar` | Per module; hosts one `PrimaryActionButton`, optional leading control |
 | Smart Care | `Modules/SmartCare/SmartCareView.swift` | Hero `ScanRing`, 5 module cards, Assistant panel |
 | Cleanup | `Modules/Cleanup/CleanupView.swift` | Categories as disclosure groups, checkboxes, risk badges, Undo |
+| Applications | `Modules/Applications/ApplicationsView.swift` | Segmented Uninstaller · Updater · Leftovers · Installers (§3.1) |
+| My Clutter | `Modules/MyClutter/MyClutterView.swift` | Segmented Large & Old · Duplicates · Similar Images · Downloads (§3.2) |
+| Shared findings UI | `Modules/Shared/FindingsList.swift` | `FindingsList`, `FindingRow`, `CategoryHeader`, `RiskBadge`, `FindingsActionBar`, removal confirmation, `ModuleTabBar` |
 | Space Lens | `Modules/SpaceLens/SpaceLensView.swift` | `Canvas` bubbles, breadcrumbs, hover tooltip, context menu |
 | My Activity | `Modules/MyActivity/MyActivityView.swift` | Swift Charts, sample data until M5 |
-| Protection, Performance, Applications, My Clutter, Cloud, Email, Menu | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
+| Protection, Performance, Cloud, Email, Menu | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
 | Onboarding | `Onboarding/OnboardingView.swift` | Sheet, 680×560, three steps |
 | Settings | `Settings/SettingsView.swift` | `TabView`: General, Ignore List, Scheduler, Advanced |
 | Notification popover | `RootView.NotificationListView` | 340 pt wide, mark read / clear |
@@ -44,7 +47,45 @@ Icons appear in the sidebar and toolbar only, never in menus.
 | Done | manifest exists | Leading "Undo Last Cleanup" + "Reclaimed X" | "Scan Again" |
 | Coming soon | later milestone | `EmptyState.comingSoon(feature:milestone:)` | disabled "Scan" |
 
-Smart Care mirrors Cleanup: ring `.idle` → `.scanning(fraction)` → `.result(value, unit, caption)`.
+Every scan-driven list (Cleanup, Applications › Leftovers / Installers, My Clutter) renders through
+`FindingsList` + `FindingsActionBar`, so the rows above apply verbatim; tabbed modules filter the
+one shared `ScanViewModel` by category id prefix and the primary button acts on the model's whole selection.
+
+### 3.1 Applications (M2)
+
+Segmented control (`ModuleTabBar`, `.bar` strip under the toolbar) selects the tab; the bottom bar changes with it.
+
+| Tab | State | Trigger | Presentation | Primary button |
+|---|---|---|---|---|
+| Uninstaller | Discovering | `AppInventoryStore.discovery == .discovering`, no apps yet | `EmptyState.scanning("Finding installed apps…")` | "Uninstall" disabled |
+| Uninstaller | Failed | discovery threw, no apps | `EmptyState` with "Try Again" | disabled |
+| Uninstaller | List, nothing selected | apps loaded | Left: `List` of `InstalledAppRow` (icon, name, `AppSourceBadge`, version, last opened, size). Right 380 pt: "Select an App" | disabled |
+| Uninstaller | App selected | `selectedAppID` set | Detail pane: 64 pt icon, name, version, source badge, `GlassCard` facts (size, last opened, bundle id, location), "Items to remove": bundle (always on) + leftovers with checkboxes, "Removing n items • X" | "Uninstall X" |
+| Uninstaller | Resolving leftovers | `resolvingLeftovers` contains app | spinner row "Looking for support files…" | enabled (bundle only) |
+| Uninstaller | System app | `app.isSystem` | lock.shield explanation instead of the checklist | disabled, help text |
+| Uninstaller | Uninstalling / Done | `isUninstalling` / `lastUninstallManifest` | button loading; leading "Undo Last Uninstall" | "Uninstalling…" |
+| Updater | Idle | `updateState == .idle` | `EmptyState` "Check for Updates" | "Check for Updates" |
+| Updater | Checking | `.checking` | `EmptyState.scanning("Checking n apps…")` | "Checking…" (loading) |
+| Updater | Up to date | `.checked`, no updates | `EmptyState.nothingFound` + "Check Again" | "Check for Updates" |
+| Updater | Results | `.checked`, updates | `List` of `AvailableUpdateRow`: icon, name, installed → latest, source badge, "Open" (release notes or download via `NSWorkspace`) ; leading "Checked 2 minutes ago" | "Check for Updates" |
+| Leftovers / Installers | all | `applicationsModel` phases | identical to §3 rows, filtered to `applications.orphaned` / `applications.installers` | "Scan" → "Remove X" |
+
+Confirmation copy for Uninstall names the app and the number of support files. Removal always goes through
+`GuardedRemover(wrapping: TrashRemover())`; `AppInventoryStore.uninstall` throws before touching a `.system` app.
+
+### 3.2 My Clutter (M2)
+
+One `clutterModel` runs Large & Old, Duplicates, Similar Images (Vision feature prints) and Downloads; tabs filter by category.
+
+| Tab | State | Presentation |
+|---|---|---|
+| Large & Old | any | Threshold strip under the tab bar: "Larger than" slider (10 MB–5 GB, step 10 MB) and "Or not opened for" slider (any–2 y, step 30 d), both `@AppStorage`. Moving a slider calls `ScanViewModel.replaceScanners`; existing results stay and a caption reads "Applies on the next scan". |
+| Large & Old, Downloads | results | `FindingsList` filtered to the tab's category |
+| Duplicates, Similar Images | results | `KeeperGroupList`: one disclosure group per keeper parsed from "Duplicate of <path>" / "Similar to <keeper>"; header shows a lazily decoded 36 pt thumbnail (ImageIO, max 96 px) for images, keeper name, "Keeping this one • n copies", bytes, tri-state checkbox; rows are `FindingRow` |
+| any | idle / scanning / nothing / cancelled | §3 rows; the nothing-found copy notes that other tabs may still hold results |
+
+Primary button: "Scan" → "Scanning…" → "Remove X" (model-wide selection) → "Scan Again"; leading "Stop" / "Undo Last Removal".
+
 Space Lens: empty → measuring → bubbles; hover tooltip; right-click Reveal / Zoom In / Move to Trash (confirmation).
 Removal always goes through `GuardedRemover(wrapping: TrashRemover())`; permanent delete only when
 Settings › General says so, with a destructive confirmation.

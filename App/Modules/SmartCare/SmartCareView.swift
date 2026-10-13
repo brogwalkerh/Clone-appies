@@ -105,18 +105,24 @@ struct SmartCareView: View {
     }
 
     private func status(for item: SidebarItem) -> ModuleCard.Status {
+        let model: ScanViewModel?
+        let moduleID: ModuleID?
         switch item {
-        case .cleanup:
-            if appState.cleanup.isScanning { return .scanning }
-            if let summary = cleanupSummary {
-                return summary.totalFindings == 0
-                    ? .clean
-                    : .result("\(ByteFormatter.string(summary.totalBytes)) to clean")
-            }
-            return .notScanned
-        default:
+        case .cleanup:      (model, moduleID) = (appState.cleanup, .cleanup)
+        case .applications: (model, moduleID) = (appState.applicationsModel, .applications)
+        case .myClutter:    (model, moduleID) = (appState.clutterModel, .clutter)
+        default:            (model, moduleID) = (nil, nil)
+        }
+        guard let model, let moduleID else {
             return .comingSoon(item.pendingMilestone ?? "later")
         }
+        if model.isScanning { return .scanning }
+        if let summary = appState.lastScanSummaries[moduleID] {
+            return summary.totalFindings == 0
+                ? .clean
+                : .result("\(ByteFormatter.string(summary.totalBytes)) to clean")
+        }
+        return .notScanned
     }
 
     // MARK: Assistant (rule-based, PLAN.md §3.1)

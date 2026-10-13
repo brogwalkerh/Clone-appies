@@ -2,6 +2,9 @@ import Foundation
 import Observation
 import CleanerCore
 import CleanupModule
+import ClutterModule
+import ApplicationsModule
+import UIKitBridge
 
 /// An in-app message shown in the toolbar bell popover (Notification Center, PLAN.md §3.12).
 struct AppNotification: Identifiable, Hashable, Sendable {
@@ -54,9 +57,22 @@ final class AppState {
     /// The most recent cleanup manifest, kept for "Undo last cleanup".
     var lastCleanupManifest: RemovalManifest?
 
+    /// Latest removal manifest per module (Applications, My Clutter, …) for Smart Care's summary.
+    var lastRemovalManifests: [ModuleID: RemovalManifest] = [:]
+
     /// Cleanup module wiring (PLAN.md §5 scan engine). Built once so a running
     /// scan is not torn down when the user switches sidebar items.
     let cleanup: ScanViewModel
+
+    /// Applications › Leftovers and Installers (orphaned leftovers + stray installers).
+    let applicationsModel: ScanViewModel
+
+    /// My Clutter: Large & Old, Duplicates, Similar Images (Vision), Downloads.
+    /// Scanners are rebuilt via `replaceScanners` when the Large & Old sliders move.
+    let clutterModel: ScanViewModel
+
+    /// Installed apps, leftovers and available updates for Applications › Uninstaller / Updater.
+    let appInventory: AppInventoryStore
 
     // MARK: Init
 
@@ -70,6 +86,30 @@ final class AppState {
             scanners: CleanupScanners.all(),
             context: SettingsStore.scanContext()
         )
+        applicationsModel = ScanViewModel(
+            module: .applications,
+            scanners: ApplicationsScanners.all(),
+            context: SettingsStore.scanContext()
+        )
+        clutterModel = ScanViewModel(
+            module: .clutter,
+            scanners: AppState.makeClutterScanners(),
+            context: SettingsStore.scanContext()
+        )
+        appInventory = AppInventoryStore()
+    }
+
+    /// `ClutterScanners.all` with Vision feature prints, with the Large & Old
+    /// scanner swapped for one built from the thresholds stored in Settings.
+    static func makeClutterScanners() -> [any CleanerScanner] {
+        let minSize = Int64(SettingsStore.largeOldMinSizeMB() * 1_000_000)
+        let minAge = SettingsStore.largeOldMinAgeDays() * 86_400
+        return ClutterScanners.all(imageFeatures: VisionImageFeatureProvider()).map { scanner -> any CleanerScanner in
+            if scanner is LargeOldFilesScanner {
+                return LargeOldFilesScanner(minSizeBytes: minSize, minAge: minAge)
+            }
+            return scanner
+        }
     }
 
     // MARK: Navigation actions

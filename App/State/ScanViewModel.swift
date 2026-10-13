@@ -81,8 +81,8 @@ final class ScanViewModel {
 
     // MARK: Private
 
-    private let coordinator: ScanCoordinator
-    private let scannerIDs: [String]
+    private var coordinator: ScanCoordinator
+    private var scannerIDs: [String]
     private var scannerCount: Int { scannerIDs.count }
     private var scannerFractions: [String: Double?] = [:]
     private var finishedScanners: Set<String> = []
@@ -156,6 +156,20 @@ final class ScanViewModel {
         phase = .idle
     }
 
+    /// Swaps the scanner set used by the *next* run (e.g. My Clutter's Large & Old
+    /// thresholds changed). A run in progress is stopped; results already on
+    /// screen stay until the user scans again, so moving a slider never wipes
+    /// a list the user is working through.
+    func replaceScanners(_ scanners: [any CleanerScanner]) {
+        if phase == .scanning {
+            cancel()
+        }
+        coordinator = ScanCoordinator(scanners: scanners)
+        scannerIDs = scanners.map { type(of: $0).id }
+        scannerFractions = [:]
+        finishedScanners = []
+    }
+
     private func handle(_ event: ScanEvent) {
         switch event {
         case .started(let scannerID):
@@ -201,13 +215,22 @@ final class ScanViewModel {
     enum GroupSelection: Hashable { case none, some, all }
 
     func selectionState(for group: FindingGroup) -> GroupSelection {
-        let count = group.findings.lazy.filter { selectedIDs.contains($0.id) }.count
+        selectionState(for: group.findings)
+    }
+
+    /// Selection state of an arbitrary subset, e.g. one duplicate group keyed by keeper.
+    func selectionState(for findings: [Finding]) -> GroupSelection {
+        let count = findings.lazy.filter { selectedIDs.contains($0.id) }.count
         if count == 0 { return .none }
-        return count == group.findings.count ? .all : .some
+        return count == findings.count ? .all : .some
     }
 
     func setSelected(_ selected: Bool, for group: FindingGroup) {
-        let ids = group.findings.map(\.id)
+        setSelected(selected, for: group.findings)
+    }
+
+    func setSelected(_ selected: Bool, for findings: [Finding]) {
+        let ids = findings.map(\.id)
         if selected {
             selectedIDs.formUnion(ids)
         } else {

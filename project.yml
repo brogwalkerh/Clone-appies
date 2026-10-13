@@ -8,11 +8,11 @@ name: App
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
-    macOS: "27.0"
+    macOS: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: false
   groupSortPosition: top
-  xcodeVersion: "27.0"
+  xcodeVersion: "26.0"
   # Sources that other engineers are still landing are marked `optional: true`
   # below so `xcodegen generate` succeeds while the tree fills in.
 
@@ -28,7 +28,7 @@ settings:
     ARCHS: arm64
     VALID_ARCHS: arm64
     ONLY_ACTIVE_ARCH: NO
-    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
     SDKROOT: macosx
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -55,6 +55,10 @@ packages:
     path: Packages/Core
   Cleanup:
     path: Packages/Modules/Cleanup
+  Clutter:
+    path: Packages/Modules/Clutter
+  Applications:
+    path: Packages/Modules/Applications
   SpaceLens:
     path: Packages/SpaceLens
   DesignSystem:
@@ -94,6 +98,10 @@ targets:
         product: CleanerCore
       - package: Cleanup
         product: CleanupModule
+      - package: Clutter
+        product: ClutterModule
+      - package: Applications
+        product: ApplicationsModule
       - package: SpaceLens
         product: SpaceLens
       - package: DesignSystem

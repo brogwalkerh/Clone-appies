@@ -3,6 +3,8 @@ import DesignSystem
 
 /// Shared scaffold for modules that ship in a later milestone (PLAN.md §7).
 /// Keeps the navigation title and bottom bar so the shell feels complete.
+/// Applications and My Clutter moved to `Modules/Applications` and
+/// `Modules/MyClutter` in M2; Protection, Performance, Cloud, Email and Menu remain.
 struct ModulePlaceholder: View {
     let item: SidebarItem
     let summary: String
@@ -33,20 +35,6 @@ struct PerformanceView: View {
     var body: some View {
         ModulePlaceholder(item: .performance,
                           summary: "Maintenance tasks (free RAM, flush DNS, reindex Spotlight, thin snapshots), login and background items, heavy consumers, and hung-app detection.")
-    }
-}
-
-struct ApplicationsView: View {
-    var body: some View {
-        ModulePlaceholder(item: .applications,
-                          summary: "Uninstaller with leftovers, orphaned-file cleanup, an updater for App Store, Sparkle and Homebrew apps, extensions, app reset, and stray installers.")
-    }
-}
-
-struct MyClutterView: View {
-    var body: some View {
-        ModulePlaceholder(item: .myClutter,
-                          summary: "Large and old files, duplicate detection with SHA-256, similar-image clustering via Vision, and Downloads triage.")
     }
 }
 
