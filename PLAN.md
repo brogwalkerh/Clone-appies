@@ -4,7 +4,14 @@ A private web app for two roommates: shared schedule, reminders, notes, the Airb
 calendar, bills, and files. It opens in any browser and installs to a phone's home
 screen like an app.
 
-Status: **plan only, awaiting approval.** No code has been written yet.
+Status: **approved 2026-10-15, build in progress.**
+
+Decisions:
+- Lives in a new public repo, `brogwalkerh/roommate-hub`, served at
+  `https://brogwalkerh.github.io/roommate-hub/`.
+- You are the Airbnb host, so the listing's export link is available.
+- Phone push notifications for reminders are in v1.
+- Your roommate's email gets added to the allowlist before go-live.
 
 ---
 
@@ -64,8 +71,9 @@ updates the feed every few hours on its side.
 
 **Reminders**: title, notes, due date/time, assigned to me / roommate / both,
 repeats (none, daily, weekly, monthly; for chores like "trash goes out Tuesday"),
-done-by tracking, overdue highlighting. Alerts show in-app, plus browser
-notifications while the app is open. Phone push notifications: see open questions.
+done-by tracking, overdue highlighting. Push notifications reach each person's
+phone or laptop when a reminder comes due, even with the app closed. On iPhone
+this needs iOS 16.4+ and the app added to the Home Screen.
 
 **Notes**: Markdown notes with checklists (grocery list), pinning, search, live
 updates. Two people editing the same note at once is handled with last-save-wins
@@ -99,6 +107,7 @@ bills           (id, title, amount_cents, paid_by, incurred_on, due_on, category
                  split_type, recurring_template_id, receipt_path, notes)
 bill_shares     (bill_id, user_id, share_cents)  -- shares always sum to amount_cents
 settlements     (id, from_user, to_user, amount_cents, paid_on, note)
+push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
 files           (id, storage_path, name, folder, size_bytes, mime, uploaded_by)
 ```
 
@@ -143,6 +152,7 @@ worktree and confined to `src/features/<module>/`, so they can't collide.
 | 3d | Files module | Sonnet 5.5 | Same |
 | 3e | Bills and balances module | Opus 5.5 | Money math: splits, rounding to the cent, balances |
 | 4 | `sync-calendars` Edge Function + pg_cron schedule | Opus 5.5 | Server-side, handles secrets, iCal edge cases (time zones, all-day dates) |
+| 4b | Push notifications: service worker, subscriptions, `send-reminders` Edge Function every 5 min | Opus 5.5 | Secrets (VAPID keys), service worker lifecycle, iOS quirks |
 | 5 | Home dashboard + integrating all modules | Opus 5.5 | Cross-module wiring |
 | 6 | Unit + end-to-end tests; phone/desktop screenshot QA and fixes | Sonnet 5.5 | Mechanical, high-volume, well-defined |
 | 7 | README, user guide (incl. how to find the Airbnb export link), demo seed data | Haiku 5.5 | Simple writing from given facts; very cheap |
@@ -160,25 +170,14 @@ because a subtle bug in feature code costs more to fix than the model saves.
 1. GitHub: Settings → Pages → Source: **GitHub Actions** (one click).
 2. Supabase dashboard: Authentication → URL Configuration → set the Site URL to
    the app's address, so signup confirmation emails link back correctly.
-3. Give me the two email addresses for the allowlist, before go-live.
+3. Give me your roommate's email for the allowlist, before go-live.
 4. After launch, paste the Airbnb *Export calendar* link into the app's Settings
    (Airbnb → Calendar → Availability → Connect calendars → Export calendar).
 5. Each of you: open the URL on your phone → Share → **Add to Home Screen**.
 
 ## 9. Open questions
 
-1. **Where it lives.** Recommended: a new public repo `brogwalkerh/roommate-hub`,
-   served at `https://brogwalkerh.github.io/roommate-hub/`. `Clone-appies` keeps one
-   app per branch on an otherwise empty `main`, and a repo gets only one Pages
-   site. Alternative: a branch in `Clone-appies`, served at
-   `https://brogwalkerh.github.io/Clone-appies/`. That needs a Pages setting so it
-   can deploy from a non-default branch.
-2. **Airbnb.** Do you host the listing, so you can get its export link? One listing
-   or several?
-3. **Phone push notifications for reminders.** In v1 (one extra phase; on iPhone it
-   only works once the app is added to the Home Screen) or later?
-4. **Emails.** Should your login be brogwalkerh@gmail.com? What's your roommate's
-   email? This can wait until go-live.
+- Roommate's email for the allowlist (needed before go-live).
 
 ## 10. Later ideas (not in v1)
 
