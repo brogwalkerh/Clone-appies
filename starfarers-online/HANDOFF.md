@@ -40,21 +40,29 @@ starfarers-online/
     src/supply.ts       hand / supply / reserve-pile helpers
     src/vp.ts           computeVp, recomputeAllVp (spec §12.3)
     src/board/          geometry (pointy-top odd-r, N/S vertex ids), layout parsing, graph builder, query helpers
-    src/setup/beginner.ts   createBeginnerGame({ players, seed }) for 3–4 players (blockers in 3p)
+    src/setup/           index.ts: createGame({ variant, players, seed }) dispatches to beginner.ts (preset
+                         pieces, 3p blockers), variants.ts (strategic / explorer / wild space tile + disc
+                         shuffles), common.ts (shared placement helpers); GAME_VARIANTS + labels
     src/actions/        applyAction + per-phase handler modules (see §3)
     src/production/     produce.ts, seven.ts, relief.ts
-    src/flight/         stats, shake, movement, explore, tokens, jump
+    src/flight/         stats, shake, movement, explore, discover (face-down tiles), tokens, jump
     src/found/          colony, station, friendship, freeTradeShip
     src/encounters/     schema, cards (32 as data), engine (resumable interpreter), text (progressive reveal)
     src/index.ts        barrel; the server/client import only from here
     test/               15 files, 418 tests; test/support/tradeBuild.ts has fixture helpers
-    src/net/redact.ts   redactState(state, viewerId) + handSize(); src/net/protocol.ts: Socket.IO event types
+    src/net/redact.ts   redactState(state, viewerId) + redactBoard() (hides undiscovered tiles) + handSize();
+                        src/net/protocol.ts: Socket.IO event types
     src/flight/reach.ts reachablePaths / legalMoves / legalJumpTargets (BFS + validateEndNode)
-  server/                                        @starfarers/server, Node 22 + Socket.IO 4, in-memory rooms
-    src/rooms.ts        RoomStore (no sockets): create/join/resume/bind/start/applyAction/chat/snapshot/restore
+  server/                                        @starfarers/server, Node 22 + Socket.IO 4, rooms in memory + JSON files
+    src/rooms.ts        RoomStore (no sockets): create/join/resume/bind/configure/start/applyAction/chat/
+                        snapshot/restore/restoreAll/sweep/flush/replayState; writes queued per room
+    src/persist.ts      RoomPersistence interface; FileRoomPersistence (one <CODE>.json per room, atomic
+                        rename, corrupt files skipped) and MemoryRoomPersistence (tests)
     src/socket.ts       attachSockets(io, store): protocol events → store, per-socket redacted `state`
     src/static.ts       static handler for client/dist with SPA fallback
-    src/index.ts        entry: http + static + /healthz + Socket.IO; env PORT, HOST, STATIC_DIR, CORS_ORIGIN
+    src/index.ts        entry: http + static + /healthz + Socket.IO; restoreAll + sweep on boot, sweep every
+                        10 min, flush on SIGTERM; env PORT, HOST, STATIC_DIR, CORS_ORIGIN, DATA_DIR,
+                        ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS
     test/bot.ts         greedy bot (nextAction / actor) used to play whole games
     test/               rooms.test.ts (8), fullGame.test.ts (3 whole games to a win), socket.test.ts (6,
                         socket.io-client against an in-process server, incl. a full game over sockets)
@@ -73,7 +81,7 @@ starfarers-online/
     test/                       6 files, 32 tests (legal-move highlight vs engine, encounter modal per
                                 awaiting.kind, viewer switch, scripted full turn + replay, remote store
                                 over a fake socket, session storage)
-  Dockerfile  .dockerignore     single-process image: node server/dist/index.js serving client/dist
+  Dockerfile  .dockerignore     single-process image: node server/dist/index.js serving client/dist; DATA_DIR=/data (VOLUME)
 ```
 
 Toolchain: Node 22, pnpm 10.28, TypeScript 5.9.2 (strict,
@@ -91,8 +99,11 @@ docker build -t starfarers . && docker run -p 3000:3000 starfarers
 ```
 
 Deploy target (HANDOFF §7.7): any Node host that runs `pnpm build && pnpm start`
-or the Dockerfile; one process, in-memory rooms (lost on restart — see §8 for
-persistence). `PORT`, `HOST`, `STATIC_DIR`, `CORS_ORIGIN` are the only knobs.
+or the Dockerfile; one process; rooms are written to `DATA_DIR` (default
+`./data`, the Docker image uses `/data`) after every change and read back on
+boot, so a restart keeps every game. Knobs: `PORT`, `HOST`, `STATIC_DIR`,
+`CORS_ORIGIN`, `DATA_DIR` (empty string = memory only), `ROOM_IDLE_HOURS`,
+`ROOM_FINISHED_HOURS` (both default 24).
 
 ## 3. Engine API the client and server build on
 
@@ -167,9 +178,8 @@ reached; pending trade ships not placed as soon as a site freed up.
 7. `[VERIFY]` items (shake bands on cards 12–15, travelers splits 28–30, tile
    star backs, beginner `shipSide`) live in `config.ts`/`board.json` and are
    pinned by tests so a change is deliberate.
-8. Not yet implemented and deferred by spec to phase 6: strategic / explorer /
-   wild-space set-ups (the loader already takes any placement), advanced
-   set-up draft (§3.4), turn timer, persistence.
+8. (Superseded in phase 6: variable set-ups, the advanced draft and
+   persistence are done; see §5.18–§5.21. The turn timer is still config only.)
 9. Client (phase 4): the "viewer" is one seat; `requiredViewer` picks the
    encounter picker, then a 7-discarder (current viewer first), then the open
    trade's recipient, else the active player. Any seat can also be taken from
@@ -200,10 +210,53 @@ reached; pending trade ships not placed as soon as a site freed up.
    seat so the token can come back.
 16. Turn timer: `RoomConfig.turnTimerSeconds` is stored and sent in the lobby
    view but nothing enforces it (spec: config only in phase 5).
-17. Remote replay indexes the redacted states received since joining
-   (`snapshots`, offset `snapshotBase` = actions before the join), so a resumed
-   client cannot scrub before its own join. Full replay needs the server's
-   action log plus the initial state (both already in `RoomSnapshot`).
+17. Remote replay: states received since joining are indexed locally
+   (`snapshots`, offset `snapshotBase`); earlier indices are fetched from the
+   server (`replay {index}`, §5.21), so a resumed client can scrub to turn 1.
+18. Persistence (phase 6): "activity" = create, join, configure, start, an
+   accepted action, chat; each bumps `updatedAt` and writes the whole
+   `RoomSnapshot` (fire-and-forget, one write chain per room, failures logged
+   via `RoomStoreOptions.warn`, never thrown). Socket bind/unbind bump
+   `updatedAt` in memory only, so after a restart a room can expire up to one
+   session earlier. `sweep()` removes rooms idle longer than `idleMs`, or
+   finished (`phase === 'gameOver'` or `winner`) and idle longer than
+   `finishedMs`; a room with a connected player is never swept. Snapshots
+   written before phase 6 lack `updatedAt` / `initial` and still restore
+   (`StoredRoomSnapshot`). Every accepted action rewrites the file (~300 KB at
+   500 actions); coalescing bursts is a possible follow-up.
+19. Variable set-ups: the authoritative board holds the real tile under every
+   slot; `redactBoard` turns an undiscovered sector into `kind: 'hidden'`
+   (no planets, no interior vertices or edges, rim nodes lose
+   `adjacentPlanets`) and a test proves the redacted slot is identical whatever
+   tile is really there. The hot-seat Board draws through `redactBoard` too,
+   so face-down tiles are hidden from hot-seat players (trusted not to inspect
+   state, like hands). Discovery runs per move step (and before a space jump
+   lands) at the same trigger as exploration: a system draws one disc per
+   planet from `discPools[icon]` through the rng, then the normal flip; an
+   outpost just becomes usable. `exploreSector` ignores undiscovered systems.
+   Undiscovered slot interiors are never legal path or end nodes
+   (`validatePath`, `validateEndNode`, `reachablePaths` agree).
+20. `[VERIFY]` config for the set-ups: `DISCOVERY_ENDS_MOVE = false` (the ship
+   keeps its remaining steps), `WILD_SPACE_SLOT_ORDER` (near slots then far,
+   each by mean lobe x, ties top-to-bottom), `VARIABLE_SETUP_START_LOBE = 0`
+   (planets assigned clockwise from the first lobe; the physical placer may
+   rotate), `STRATEGIC_RETURNED_EMPTY = 'random'` (E1/E2 are identical). The
+   three variants use the beginner starting pieces unless the advanced draft
+   is chosen. `configureRoom` ignores unknown keys; a bad value is
+   `badRequest`.
+21. Server-side replay: a remote client cannot re-run the engine (redacted
+   seed, piles and action payloads), so `RoomStore.replayState(room, k)`
+   replays `initial` + `actions[0..k)` with `createRng(room.seed)`, caching one
+   `{index, state, rngState}` per room and continuing from it when k grows; the
+   live end is answered from `room.game`. ~3.4 ms per action, so a 700-action
+   game replays from scratch in ~2.5 s; the LogPane waits 150 ms after the
+   slider stops before asking, the client caches the last 50 positions and
+   shows the nearest known state meanwhile. There is no rate limit on
+   `replay` yet. Rooms saved before phase 6 have `initial: null`: the join
+   reply says so, the slider starts at the join point and nothing is
+   requested. A `state` broadcast without an action (a reconnect) now
+   replaces the latest local snapshot instead of appending, which kept replay
+   indices aligned.
 
 ## 6. Phase 4 — hot-seat client (done)
 
@@ -252,9 +305,11 @@ client → server events take an ack `{ ok, value } | { ok, error }`:
 | `createRoom {roomName, playerName}` | `JoinReply` (session with token, lobby, state null, actions []); room gets `lobby` |
 | `joinRoom {code, playerName}` | same; refused when started, full, name taken |
 | `resume {roomCode, playerToken}` | same with the current redacted state and the redacted action log; room gets `lobby` (+ `state` if started) |
-| `startGame {}` | host only, 3–4 players; room gets `lobby` then `state` per socket |
+| `configureRoom {variant?, setup?}` | host only, before start; validated against `GAME_VARIANTS` / `SETUP_MODES`; room gets `lobby` |
+| `startGame {}` | host only, 3–4 players; builds the game with `createGame(room.config)`; room gets `lobby` then `state` per socket |
 | `action {action}` | `action.playerId` must be the socket's player; engine runs; everyone gets `state {state, action}` (both redacted per viewer); on failure the sender alone gets `error` and the ack carries it |
 | `chat {text}` | room gets `chat` |
+| `replay {index}` | the redacted state after `index` accepted actions (0 = initial); `badRequest` outside `0..actions.length` or when the room predates phase 6 |
 
 Server → client: `lobby(LobbyView)`, `state({state, action})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
 
@@ -262,12 +317,14 @@ Test ids added for the online screens: `online-screen`, `player-name`,
 `room-name`, `create-room`, `room-code`, `join-room`, `rejoin`, `net-error`,
 `room-lobby`, `lobby-code`, `lobby-players`, `start-online`, `chat-panel`,
 `chat-input`, `chat-send`, `viewer-name`, `home`, `go-local`, `go-online`.
+Phase 6 added `variant-select`, `variant-description`, `lobby-variant`,
+`hidden-<slot>` (a face-down tile on the board) and `JoinReply.initial` (the
+redacted initial state) next to `actions`.
 
-Known gaps (phase 6 candidates): rooms live in memory (a restart drops them;
-`RoomStore.snapshot/restore` are the hooks for Postgres/Supabase or a JSON
-file); no room expiry; no spectators; the join screen does not validate the
-code format before sending; no "kick" or host hand-over when the host leaves;
-the turn timer is config only.
+Known gaps: no spectators; the join screen does not validate the code format
+before sending; no "kick" or host hand-over when the host leaves; the turn
+timer is config only; `replay` has no rate limit. (Rooms are persisted and
+expired since phase 6, §5.18.)
 
 ## 8. Phase 6 — polish (next)
 
