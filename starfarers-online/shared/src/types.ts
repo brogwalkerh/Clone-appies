@@ -267,6 +267,12 @@ export interface TurnState {
     awaitingDiscard: PlayerId[];
     stealDone: boolean;
   };
+  /**
+   * Cards each player received from this turn's (non-7) production roll, Green
+   * Folk bonus included. Set by `rollDice`; read by the Diplomats "Galactic
+   * Relief Fund" eligibility check (production/relief.ts).
+   */
+  productionReceived?: Record<PlayerId, number>;
 }
 
 export interface LogEntry {
