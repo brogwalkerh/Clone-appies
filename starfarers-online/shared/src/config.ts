@@ -261,6 +261,21 @@ export const DRAFT_3P_REMOVED_UPGRADE: UpgradeKind | 'random' = 'booster';
  */
 export const DRAFT_3P_BLOCK_FREE_SITES = true;
 
+/**
+ * **[VERIFY]** 3-player games: do the two spaceport sites of the unused
+ * colour's blocker spaceport forbid other players' ships from ending a move
+ * there, like a real player's spaceport sites (spec §9.2 / §11 "may not end
+ * on another player's spaceport site")? The layout's `threePlayerRule` says
+ * the blocker pieces "only block the sites", and both §7.2 ("an opponent's
+ * ship … that opponent must move it away") and §9.2 / §11 are written about
+ * players and opponents; the blocker colour is nobody's. Default `false`: the
+ * blockers only occupy the Catanian sites they stand on (nothing can be
+ * founded or built there) and have no spaceport privileges. `true` restores
+ * the phase-2 reading (HANDOFF §5.2) in which the blocker spaceport's two
+ * sites are off limits as end nodes for every ship.
+ */
+export const BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES = false;
+
 // ---------------------------------------------------------------------------
 // Friendship cards (spec §8) — static catalogue
 // ---------------------------------------------------------------------------

@@ -23,9 +23,11 @@ import {
   spaceportSites,
   spaceportsOf,
 } from '../src/board/query.js';
-import { BALL_VALUES, MOTHERSHIP_BALLS, type Ball } from '../src/config.js';
+import { BALL_VALUES, BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES, MOTHERSHIP_BALLS, type Ball } from '../src/config.js';
 import { exploreAt } from '../src/flight/explore.js';
 import { applySpaceJump, validateJumpTarget } from '../src/flight/jump.js';
+import { isForeignSpaceportSite, validateEndNode } from '../src/flight/movement.js';
+import { createBeginnerGame } from '../src/setup/beginner.js';
 import { drawBalls, evaluateShake } from '../src/flight/shake.js';
 import { boosterCountForRace, combatStrengthOf, speedOf } from '../src/flight/stats.js';
 import { checkSpecialTokens, nodeTouchesToken } from '../src/flight/tokens.js';
@@ -33,7 +35,7 @@ import { computeProduction } from '../src/production/produce.js';
 import { createRng, type Rng } from '../src/rng.js';
 import type { FriendshipCardId, GameState, NodeId, PlayerId, ShipId } from '../src/types.js';
 import { computeVp } from '../src/vp.js';
-import { fails, ok, opponents, player, rng, tradeBuildState } from './support/tradeBuild.js';
+import { THREE, fails, ok, opponents, player, rng, tradeBuildState } from './support/tradeBuild.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -420,15 +422,39 @@ describe('moveShip: end-node rules (§9.2 / §11)', () => {
     const site = spaceportSites(state.board, theirs.nodeId).find((n) => !state.board.ships['ship:yellow:1'] || state.board.ships['ship:yellow:1']!.nodeId !== n)!;
     teleport(state, approachNode(state, site));
     moveFails(state, [site], 'ruleViolation');
-    // The blocker colour's spaceport counts as foreign too.
-    const blockerPort = Object.values(state.board.settlements).find((s) => s.kind === 'spaceport' && s.owner === null)!;
-    const bSite = spaceportSites(state.board, blockerPort.nodeId).find((n) => !state.board.settlements[n])!;
-    const s2 = flightState();
-    teleport(s2, approachNode(s2, bSite));
-    moveFails(s2, [bSite], 'ruleViolation');
     // Own site N(4,2) (other site of S(3,1)).
     const own = move(flightState(), ['S(3,1)', 'N(4,2)']);
     expect(ship(own).nodeId).toBe('N(4,2)');
+  });
+
+  it("3-player blocker spaceport sites: BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES decides (default false: they 'only block the sites')", () => {
+    // [VERIFY] config pin (HANDOFF §5.2): §9.2 / §11 speak of ANOTHER PLAYER's spaceport; the unused colour is nobody.
+    expect(BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES).toBe(false);
+    const state = flightState();
+    expect(state.players).toHaveLength(3);
+    const blockerPort = Object.values(state.board.settlements).find((s) => s.kind === 'spaceport' && s.owner === null)!;
+    const bSite = spaceportSites(state.board, blockerPort.nodeId).find((n) => !state.board.settlements[n])!;
+    const theirs = spaceportsOf(state, 'p3')[0]!;
+    const pSite = spaceportSites(state.board, theirs.nodeId).find((n) => !Object.values(state.board.ships).some((sh) => sh.nodeId === n))!;
+    // The predicate under both values: a real player's site is always foreign, the blocker's only with the flag on.
+    expect(isForeignSpaceportSite(state, pSite, 'p1', false)).toBe(true);
+    expect(isForeignSpaceportSite(state, pSite, 'p1', true)).toBe(true);
+    expect(isForeignSpaceportSite(state, bSite, 'p1', false)).toBe(false);
+    expect(isForeignSpaceportSite(state, bSite, 'p1', true)).toBe(true);
+    expect(isForeignSpaceportSite(state, bSite, 'p1')).toBe(BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES);
+    // The validator and a real move follow the default: a ship may end on the blocker spaceport's site …
+    teleport(state, approachNode(state, bSite));
+    expect(validateEndNode(state, ship(state), bSite)).toBeNull();
+    const parked = move(state, [bSite]);
+    expect(ship(parked).nodeId).toBe(bSite);
+    // … and the blocker colony / spaceport nodes themselves stay unavailable (one piece per intersection).
+    expect(validateEndNode(state, ship(state), blockerPort.nodeId)?.code).toBe('invalidTarget');
+    for (const b of Object.values(state.board.settlements).filter((s) => s.owner === null)) {
+      expect(validateEndNode(state, ship(state), b.nodeId)).not.toBeNull();
+    }
+    // A 4-player game has no blocker spaceport at all, so the flag changes nothing there.
+    const four = createBeginnerGame({ players: [...THREE, { id: 'p4', name: 'Dee', color: 'white' }], seed: 'four' });
+    expect(Object.values(four.board.settlements).some((s) => s.owner === null)).toBe(false);
   });
 
   it('a trade ship never ends on a colony site; a colony ship may park there', () => {

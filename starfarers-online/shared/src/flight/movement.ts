@@ -10,8 +10,10 @@
  * End-node rules (`validateEndNode`, also used by space jumps):
  *   - no settlement and no other ship on the node (one piece per intersection;
  *     a colony site holding a colony/spaceport is therefore never a legal end);
- *   - not a spaceport site (graph neighbour) of a spaceport the mover does not
- *     own — the 3-player blocker colour's spaceport counts as "another player's";
+ *   - not a spaceport site (graph neighbour) of a spaceport ANOTHER PLAYER
+ *     owns; the 3-player blocker colour's spaceport (owner null) counts only
+ *     when `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES` says so (config, default
+ *     false: the blockers "only block the sites" they stand on);
  *   - trade ship never on a colony site; colony ship never on a docking point;
  *   - trade ship on a docking point only if `canFoundTradeStation` says a
  *     station can be founded right now (the move then sets `turn.pendingFound`);
@@ -38,17 +40,28 @@ import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { canFoundTradeStation } from '../found/station.js';
 import { areAdjacent, getPlayer, hasNode, settlementAt, shipAt, spaceportSites, undiscoveredInteriorNodes } from '../board/query.js';
 import { logEvent } from '../actions/handler.js';
-import { DISCOVERY_ENDS_MOVE } from '../config.js';
+import { BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES, DISCOVERY_ENDS_MOVE } from '../config.js';
 import type { Rng } from '../rng.js';
 import type { GameError, GameState, NodeId, Ship } from '../types.js';
 import { gameError } from '../types.js';
 import { discoverAt } from './discover.js';
 import { exploreAt } from './explore.js';
 
-/** Is `nodeId` a spaceport site of a spaceport the player does not own? */
-export function isForeignSpaceportSite(state: GameState, nodeId: NodeId, playerId: string): boolean {
+/**
+ * Is `nodeId` a spaceport site of a spaceport the player does not own (§9.2 /
+ * §11 "another player's spaceport site")? The unused colour's blocker
+ * spaceport in a 3-player game belongs to nobody; whether its sites count is
+ * `blockerSitesBlock` (`BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES`, **[VERIFY]**).
+ */
+export function isForeignSpaceportSite(
+  state: GameState,
+  nodeId: NodeId,
+  playerId: string,
+  blockerSitesBlock: boolean = BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES,
+): boolean {
   for (const s of Object.values(state.board.settlements)) {
     if (s.kind !== 'spaceport' || s.owner === playerId) continue;
+    if (s.owner === null && !blockerSitesBlock) continue;
     if (spaceportSites(state.board, s.nodeId).includes(nodeId)) return true;
   }
   return false;
