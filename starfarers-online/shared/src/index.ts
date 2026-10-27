@@ -6,6 +6,9 @@ export * from './rng.js';
 export * from './vp.js';
 export * from './supply.js';
 
+export * from './production/seven.js';
+export * from './production/relief.js';
+
 export * from './board/geometry.js';
 export * from './board/layout.js';
 export * from './board/discs.js';
