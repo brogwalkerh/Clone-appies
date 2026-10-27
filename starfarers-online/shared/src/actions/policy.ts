@@ -30,7 +30,9 @@ export const ACTION_POLICY: Readonly<Record<ActionType, ActionPolicy>> = {
   // Sent at the end of Trade & Build to enter the flight phase.
   shakeMothership: { phases: ['tradeBuild', 'flight.shake'], activePlayerOnly: true },
   encounterChoice: { phases: ['flight.encounter'], activePlayerOnly: true },
-  encounterPick: { phases: ['flight.encounter'], activePlayerOnly: true },
+  // Some picks belong to opponents (cards that make everyone give a card or
+  // remove an upgrade); the handler checks the sender against `awaiting.playerId`.
+  encounterPick: { phases: ['flight.encounter'], activePlayerOnly: false },
   moveShip: { phases: ['flight.move'], activePlayerOnly: true },
   foundColony: { phases: ['flight.move'], activePlayerOnly: true },
   foundTradeStation: { phases: ['flight.move'], activePlayerOnly: true },

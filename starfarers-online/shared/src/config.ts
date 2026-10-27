@@ -70,6 +70,13 @@ export const UPGRADE_CAPS: Readonly<Record<UpgradeKind, number>> = {
   freightPod: 5,
 };
 
+/** Upgrade kind → the counter it lives in (`Mothership` / `UpgradesTray`). */
+export const UPGRADE_TRAY_KEY: Readonly<Record<UpgradeKind, 'boosters' | 'cannons' | 'freightPods'>> = {
+  booster: 'boosters',
+  cannon: 'cannons',
+  freightPod: 'freightPods',
+};
+
 // ---------------------------------------------------------------------------
 // Build costs (spec §7.2)
 // ---------------------------------------------------------------------------
@@ -118,14 +125,6 @@ export const BALLS_PER_SHAKE = 2;
 // ---------------------------------------------------------------------------
 
 export const MAX_STATIONS_PER_OUTPOST = 5;
-/**
- * TEMPORARY phase-2 testing switch. While the encounter module (phase 3) is not
- * built, a black-ball shake with `value: false` skips the encounter: base speed
- * is still 3, the drawn card goes straight to the discard pile and the turn
- * continues in 'flight.move'. Default `true` = real behaviour (phase →
- * 'flight.encounter'). Mutable object so tests and hot-seat can flip it.
- */
-export const ENCOUNTERS_ENABLED: { value: boolean } = { value: true };
 /** 3-player game: max colonies that may be founded per unexplored planetary system. */
 export const MAX_COLONIES_PER_SYSTEM_3P = 2;
 export const PIRATE_BASE_TOKENS: readonly number[] = [4, 5, 6];
@@ -134,6 +133,8 @@ export const ICE_PLANET_TOKENS: readonly number[] = [3, 4];
 export const FAME_PIECES_PER_VP = 2;
 export const FRIENDSHIP_MARKER_VP = 2;
 export const ENCOUNTER_CARD_COUNT = 32;
+/** "Wear and Tear" (cards 31 / 32): players with MORE than this many physical upgrades remove 1. */
+export const WEAR_AND_TEAR_THRESHOLDS: Readonly<Record<31 | 32, number>> = { 31: 8, 32: 6 };
 
 // ---------------------------------------------------------------------------
 // Inferred / [VERIFY] items (spec §16)

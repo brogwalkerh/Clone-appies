@@ -4,9 +4,10 @@
  *                     board → flight is skipped (§5.3a): baseSpeed = speed = 0,
  *                     phase 'flight.move' where nothing but endTurn can do
  *                     anything. Otherwise draw 2 balls: black → baseSpeed 3 and
- *                     an encounter (top card of `encounterDeck` → `turn.encounter`,
- *                     phase 'flight.encounter'); else baseSpeed = sum, phase
- *                     'flight.move'. `turn.speed` is set from `speedOf`. Before
+ *                     an encounter (`startEncounter`, encounters/engine.ts:
+ *                     top card → `turn.encounter`, phase 'flight.encounter');
+ *                     else baseSpeed = sum, phase 'flight.move'. `turn.speed`
+ *                     is set from `speedOf`. Before
  *                     the balls are drawn, every ship already adjacent to a
  *                     pirate base / ice planet whose threshold the player now
  *                     meets (upgrades built this Trade & Build) claims it —
@@ -14,23 +15,17 @@
  *                     and a parked colony ship may then found there.
  *   moveShip        — move one of your ships along `path` (nodes after the
  *                     current one), see flight/movement.ts.
- *   encounterChoice / encounterPick — placeholders until the encounter module
- *                     (phase 3) replaces them; they return `notImplemented`.
+ *   encounterChoice / encounterPick live in actions/encounter.ts.
  *
  * Once shaken, the reserve draw is forfeited: ACTION_POLICY only allows
  * `takeReserveDraw` in 'production' / 'tradeBuild'.
- *
- * Temporary switch `ENCOUNTERS_ENABLED.value === false` (config.ts): a black
- * shake still gives base speed 3 but the card is discarded and the turn goes
- * straight to 'flight.move'. Remove once phase 3 lands.
  *
  * While `turn.pendingFound` is set (a trade ship just docked) every handler in
  * this module rejects with `ruleViolation`; only `foundTradeStation` may run.
  */
 
-import { BLACK_BALL_BASE_SPEED, ENCOUNTERS_ENABLED } from '../config.js';
 import { getPlayer, shipsOf } from '../board/query.js';
-import type { Rng } from '../rng.js';
+import { startEncounter } from '../encounters/engine.js';
 import type { GameError, GameState } from '../types.js';
 import { gameError } from '../types.js';
 import { applyMove, stepsLeft, validateEndNode, validatePath } from '../flight/movement.js';
@@ -46,16 +41,6 @@ export function pendingFoundError(state: GameState): GameError | null {
   return gameError('ruleViolation', `${state.turn.pendingFound} must found a trade station first`, {
     shipId: state.turn.pendingFound,
   });
-}
-
-/** Top card of the encounter deck, reshuffling the discard pile when the deck is empty. */
-function drawEncounterCard(state: GameState, rng: Rng): number | undefined {
-  if (state.encounterDeck.length === 0 && state.encounterDiscard.length > 0) {
-    state.encounterDeck = rng.shuffle(state.encounterDiscard);
-    state.encounterDiscard = [];
-    logEvent(state, 'Encounter discard pile reshuffled into a new deck', null);
-  }
-  return state.encounterDeck.shift();
 }
 
 const handleShakeMothership: Handler<'shakeMothership'> = (state, action, rng) => {
@@ -89,21 +74,10 @@ const handleShakeMothership: Handler<'shakeMothership'> = (state, action, rng) =
     return state;
   }
 
-  const cardId = drawEncounterCard(state, rng);
-  if (cardId === undefined) {
+  if (!startEncounter(state, rng)) {
     logEvent(state, 'Black ball, but no encounter card is left; flight continues', player.id);
     state.phase = 'flight.move';
-    return state;
   }
-  if (!ENCOUNTERS_ENABLED.value) {
-    state.encounterDiscard.push(cardId);
-    logEvent(state, `Black ball: encounter card ${cardId} drawn and discarded (encounters disabled), base speed ${BLACK_BALL_BASE_SPEED}`, player.id);
-    state.phase = 'flight.move';
-    return state;
-  }
-  state.turn.encounter = { cardId, step: 'pending' };
-  state.phase = 'flight.encounter';
-  logEvent(state, `Black ball: encounter card ${cardId} drawn`, player.id);
   return state;
 };
 
@@ -136,17 +110,9 @@ const handleMoveShip: Handler<'moveShip'> = (state, action) => {
   return state;
 };
 
-const notYetImplemented = (type: string): GameError =>
-  gameError('notImplemented', `Action '${type}' is not implemented yet (encounter module, phase 3)`);
-
-const handleEncounterChoice: Handler<'encounterChoice'> = (_state, action) => notYetImplemented(action.type);
-const handleEncounterPick: Handler<'encounterPick'> = (_state, action) => notYetImplemented(action.type);
-
 export const handlers: HandlerMap = {
   shakeMothership: handleShakeMothership,
   moveShip: handleMoveShip,
-  encounterChoice: handleEncounterChoice,
-  encounterPick: handleEncounterPick,
 };
 
 export const flightModule: ActionModule = { handlers };

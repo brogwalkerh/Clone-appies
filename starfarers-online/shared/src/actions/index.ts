@@ -5,7 +5,7 @@
  *   →  recompute VP  →  post-action hooks (win check …)  →  append log entry
  *
  * Handler modules register themselves in `MODULES`; adding behaviour means
- * filling `production.ts`, `tradeBuild.ts` or `turn.ts`, never editing this
+ * filling `production.ts`, `tradeBuild.ts`, `encounter.ts` or `turn.ts`, never editing this
  * file. Unhandled action types are rejected with `notImplemented`.
  */
 
@@ -20,12 +20,13 @@ import { productionModule } from './production.js';
 import { tradeBuildModule } from './tradeBuild.js';
 import { turnModule } from './turn.js';
 import { foundModule } from './found.js';
+import { encounterModule } from './encounter.js';
 
 export type { ActionModule, Handler, HandlerMap, PostActionHook } from './handler.js';
 export { logEvent } from './handler.js';
 export { ACTION_POLICY } from './policy.js';
 
-const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, flightModule, turnModule, foundModule];
+const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, flightModule, encounterModule, turnModule, foundModule];
 
 function assembleHandlers(modules: readonly ActionModule[]): HandlerMap {
   const map: HandlerMap = {};

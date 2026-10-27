@@ -23,7 +23,7 @@ import {
   spaceportSites,
   spaceportsOf,
 } from '../src/board/query.js';
-import { BALL_VALUES, ENCOUNTERS_ENABLED, MOTHERSHIP_BALLS, type Ball } from '../src/config.js';
+import { BALL_VALUES, MOTHERSHIP_BALLS, type Ball } from '../src/config.js';
 import { exploreAt } from '../src/flight/explore.js';
 import { applySpaceJump, validateJumpTarget } from '../src/flight/jump.js';
 import { drawBalls, evaluateShake } from '../src/flight/shake.js';
@@ -211,31 +211,32 @@ describe('shakeMothership', () => {
     expect(next.turn.baseSpeed).toBe(3);
     expect(next.turn.speed).toBe(4);
     expect(next.phase).toBe('flight.encounter');
-    expect(next.turn.encounter).toEqual({ cardId: top, step: 'pending' });
-    expect(next.encounterDeck).toEqual(state.encounterDeck.slice(1));
-    // Encounter placeholders and gating until phase 3 lands.
-    fails(next, { type: 'encounterChoice', playerId: me, value: true }, 'notImplemented');
-    fails(next, { type: 'encounterPick', playerId: me, shipId: SHIP }, 'notImplemented');
+    // The top card was drawn; a "Wear and Tear" card (31/32) resolves itself and redraws, so
+    // the context may already show a later card — either way a choice is pending.
+    expect(next.turn.encounter?.stage).toBe('choice');
+    if (top <= 30) expect(next.turn.encounter?.cardId).toBe(top);
+    expect(next.encounterDeck).not.toContain(next.turn.encounter?.cardId);
+    expect(next.encounterDeck.length + next.encounterDiscard.length + 1).toBe(state.encounterDeck.length);
+    // Gating while the encounter is open.
+    fails(next, { type: 'encounterChoice', playerId: opponents(next)[0]!.id, value: true }, 'notYourTurn');
+    fails(next, { type: 'encounterPick', playerId: me, shipId: SHIP }, 'ruleViolation');
     fails(next, { type: 'moveShip', playerId: me, shipId: SHIP, path: ['S(4,2)'] }, 'wrongPhase');
     fails(next, { type: 'endTurn', playerId: me }, 'wrongPhase');
   });
 
-  it('ENCOUNTERS_ENABLED=false (temporary switch): black still gives base speed 3 but the card is discarded', () => {
+  it('black: the encounter resolves through the real flow, then flight continues at base speed 3', () => {
     const state = tradeBuildState();
     const me = state.activePlayer;
-    const top = state.encounterDeck[0]!;
-    ENCOUNTERS_ENABLED.value = false;
-    try {
-      const next = ok(state, { type: 'shakeMothership', playerId: me }, shakeRng(['yellow', 'black']));
-      expect(next.phase).toBe('flight.move');
-      expect(next.turn.baseSpeed).toBe(3);
-      expect(next.turn.encounter).toBeUndefined();
-      expect(next.encounterDiscard).toEqual([top]);
-      expect(next.encounterDeck).toEqual(state.encounterDeck.slice(1));
-      expect(next.log.some((e) => e.kind === 'event' && /encounters disabled/.test(e.message))).toBe(true);
-    } finally {
-      ENCOUNTERS_ENABLED.value = true;
-    }
+    state.encounterDeck = [3, ...state.encounterDeck];
+    const enc = ok(state, { type: 'shakeMothership', playerId: me }, shakeRng(['yellow', 'black']));
+    expect(enc.turn.encounter).toMatchObject({ cardId: 3, stage: 'choice' });
+    const next = ok(enc, { type: 'encounterChoice', playerId: me, value: 0, cards: [] });
+    expect(next.phase).toBe('flight.move');
+    expect(next.turn.baseSpeed).toBe(3);
+    expect(next.turn.speed).toBe(4);
+    expect(next.turn.encounter?.stage).toBe('done');
+    expect(next.encounterDiscard).toEqual([3]);
+    expect(next.encounterDeck).toEqual(state.encounterDeck.slice(1));
   });
 
   it('reshuffles the discard pile when the deck is empty, and skips the encounter if both are empty', () => {
@@ -733,7 +734,7 @@ describe('endTurn gating and reset', () => {
     state.turn.shake = ['red', 'yellow'];
     state.turn.shipMovesUsed = { [SHIP]: 2 };
     state.turn.immobilized = ['ship:red:2'];
-    state.turn.encounter = { cardId: 3, step: 'done' };
+    state.turn.encounter = { cardId: 3, stage: 'done', revealed: [], queue: [] };
     const enc = structuredClone(state);
     enc.phase = 'flight.encounter';
     fails(enc, { type: 'endTurn', playerId: 'p1' }, 'wrongPhase');

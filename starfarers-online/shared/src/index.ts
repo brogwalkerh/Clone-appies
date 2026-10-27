@@ -27,4 +27,9 @@ export * from './found/station.js';
 export * from './found/friendship.js';
 export * from './found/freeTradeShip.js';
 
+export * from './encounters/schema.js';
+export * from './encounters/cards.js';
+export * from './encounters/engine.js';
+export * from './encounters/text.js';
+
 export * from './actions/index.js';

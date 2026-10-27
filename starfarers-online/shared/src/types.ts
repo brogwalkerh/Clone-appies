@@ -7,6 +7,9 @@
  */
 
 import type { Ball } from './config.js';
+import type { EncounterCtx } from './encounters/schema.js';
+
+export type { EncounterCtx } from './encounters/schema.js';
 
 // ---------------------------------------------------------------------------
 // Primitive identifiers
@@ -251,15 +254,6 @@ export interface TradeProposal {
   want: ResourceBag;
 }
 
-/** Encounter context while `phase === 'flight.encounter'` (filled in by the encounter module). */
-export interface EncounterCtx {
-  cardId: number;
-  step: string;
-  choice?: number | boolean;
-  offered?: number;
-  data?: Record<string, unknown>;
-}
-
 export interface TurnState {
   rolled?: number;
   reserveDrawTaken: boolean;
@@ -267,6 +261,7 @@ export interface TurnState {
   speed?: number;
   shipMovesUsed: Record<ShipId, number>;
   immobilized: ShipId[];
+  /** Encounter in progress / just resolved this turn (encounters/schema.ts, owned by actions/encounter.ts). */
   encounter?: EncounterCtx;
   /** The two balls revealed by this turn's mothership shake (flight/shake.ts). */
   shake?: Ball[];
@@ -373,17 +368,33 @@ export interface UseFriendshipCardAction extends ActionBase {
   targets?: PlayerId[];
 }
 export interface ShakeMothershipAction extends ActionBase { type: 'shakeMothership' }
+/**
+ * The active player's answer to the encounter card (spec §10). An offer is
+ * `value: 0–3` plus the exact `cards` handed to the supply (paid BEFORE the
+ * result is revealed; with no cards only 0 is possible). A yes/no card takes
+ * `value: boolean`. Cards 7/8 take the offer first, then the yes/no.
+ */
 export interface EncounterChoiceAction extends ActionBase {
   type: 'encounterChoice';
-  /** Yes/no, or the offered amount 0–3. */
   value: number | boolean;
+  cards?: Resource[];
 }
+/**
+ * Answer to `turn.encounter.awaiting` (encounters/schema.ts `EncounterPickRequest`),
+ * sent by the player named there — not necessarily the active player.
+ */
 export interface EncounterPickAction extends ActionBase {
   type: 'encounterPick';
+  /** resources / payResources / giveOne. */
+  resources?: Resource[];
+  /** upgradeKind / removeUpgrade. */
   upgrade?: UpgradeKind;
+  /** immobilizeShip / spaceJump. */
   shipId?: ShipId;
+  /** spaceJump. */
   targetNodeId?: NodeId;
-  resource?: Resource;
+  /** spaceJump: skip the jump. */
+  decline?: boolean;
 }
 export interface MoveShipAction extends ActionBase { type: 'moveShip'; shipId: ShipId; path: NodeId[] }
 export interface FoundColonyAction extends ActionBase { type: 'foundColony'; shipId: ShipId }

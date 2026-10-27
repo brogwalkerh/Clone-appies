@@ -31,6 +31,7 @@ import {
   MAX_SHIPS_ON_BOARD,
   SUPPLY_TRADE,
   UPGRADE_CAPS,
+  UPGRADE_TRAY_KEY,
 } from '../config.js';
 import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { reliefEligible } from '../production/relief.js';
@@ -280,12 +281,6 @@ const handleRespondTrade: Handler<'respondTrade'> = (state, action) => {
 // build
 // ---------------------------------------------------------------------------
 
-const TRAY_KEY: Readonly<Record<UpgradeKind, 'boosters' | 'cannons' | 'freightPods'>> = {
-  booster: 'boosters',
-  cannon: 'cannons',
-  freightPod: 'freightPods',
-};
-
 function isUpgrade(item: string): item is UpgradeKind {
   return Object.hasOwn(UPGRADE_CAPS, item);
 }
@@ -363,7 +358,7 @@ function buildSpaceport(state: GameState, player: Player, siteId: string | undef
 }
 
 function buildUpgrade(state: GameState, player: Player, kind: UpgradeKind): GameError | null {
-  const trayKey = TRAY_KEY[kind];
+  const trayKey = UPGRADE_TRAY_KEY[kind];
   if (player.mothership[trayKey] >= UPGRADE_CAPS[kind]) {
     return gameError('upgradeCap', `Your mothership already has the maximum of ${UPGRADE_CAPS[kind]} ${trayKey}`, {
       kind,
