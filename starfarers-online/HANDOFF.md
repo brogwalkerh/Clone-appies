@@ -1,30 +1,40 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 5. The project is on `main` (merged in PR #2,
-commit `45b6c0c`); phases 1–5 live there in full.
+Last updated after phase 6 (persistence, variable set-ups, advanced draft,
+3-player review, server-side replay) on branch `claude/starfarers-phase-6`,
+which is `main` (PR #2, `45b6c0c`, phases 1–5) plus the phase 6 commits listed
+in §4. Nothing from phase 6 is merged to `main` yet.
 
 **Starting a new session:** read `CLAUDE.md`, then this file top to bottom, then
-`starfarers-clone-spec.md` §13–§16. Run the commands in §2 to confirm green,
-then pick up §8 (phase 6). Everything before §8 is finished and tested.
+`starfarers-clone-spec.md` §13–§16. Run the commands in §2 to confirm green
+(547 tests), then pick up §8. Everything before §8 is finished and tested.
 Read `CLAUDE.md` and `starfarers-clone-spec.md` first; this file only says
 where the project stands and how to run the next phases.
 
 ## 1. Current state in one paragraph
 
-Phases 1–5 of spec §15 are done: the pure engine in `shared/` plays a complete
-beginner game from set-up to a 15-VP win (the 7, trade, build, flight,
-exploration, pirate/ice tokens, founding, friendship cards, all 32 encounter
-cards); the React client in `client/` plays it either hot-seat in one tab or
-online; the Node + Socket.IO server in `server/` hosts rooms (create / join by
-code / host starts with 3–4), redacts the state per socket, forwards actions
-through the engine, carries chat, and re-binds a player by token after a
-reload. 472 Vitest tests pass (423 engine, 17 server, 32 client), `tsc --noEmit`
-is clean in all three packages, `pnpm build` produces `client/dist` and
-`server/dist`, and the `starfarers-engine` CI job runs all of it. A Dockerfile
-builds the single-process deploy. Verified by hand in headless Chromium: a
-12-turn hot-seat run and a 3-browser online game (lobby, chat, start, hidden
-hands, trade, shake, encounter, move, reload-reconnect, end turn) with zero
-page errors.
+Phases 1–6 of spec §15 are done except animations and host controls: the pure
+engine in `shared/` plays a complete game from set-up to a 15-VP win on any of
+the four boards (beginner, strategic, explorer, wild space — the last two with
+face-down tiles discovered by ships) starting either from the preset pieces or
+from the §3.4 snake draft (the 7, trade, build, flight, exploration,
+pirate/ice tokens, founding, friendship cards, all 32 encounter cards); the
+React client in `client/` plays it hot-seat in one tab or online; the Node +
+Socket.IO server in `server/` hosts rooms (create / join by code / host picks
+board and set-up / starts with 3–4), redacts the state per socket (hidden
+tiles included), forwards actions through the engine, carries chat, re-binds a
+player by token after a reload, writes every room to a JSON file under
+`DATA_DIR` and restores them on boot, expires idle rooms, and replays the
+action log on request so a resumed client can scrub to turn 1. 547 Vitest
+tests pass (462 engine, 43 server, 42 client), `tsc --noEmit` is clean in all
+three packages, `pnpm build` produces `client/dist` and `server/dist`, and the
+`starfarers-engine` CI job runs all of it. A Dockerfile builds the
+single-process deploy with `/data` as the volume. Verified by hand in headless
+Chromium (zero page errors): 3-browser online games on the explorer and
+strategic boards and with the draft (lobby pickers seen by guests, chat, draft
+through the UI, hidden hands, move, encounter, reload-reconnect, a server
+restart with all three players resuming, log slider back to the initial state
+and to a mid-game turn), plus hot-seat wild-space and draft runs.
 
 ## 2. Layout
 
@@ -49,7 +59,8 @@ starfarers-online/
     src/found/          colony, station, friendship, freeTradeShip
     src/encounters/     schema, cards (32 as data), engine (resumable interpreter), text (progressive reveal)
     src/index.ts        barrel; the server/client import only from here
-    test/               15 files, 418 tests; test/support/tradeBuild.ts has fixture helpers
+    test/               19 files, 462 tests; test/support/tradeBuild.ts has fixture helpers;
+                        setupVariants / discovery / draft tests are the phase 6 additions
     src/net/redact.ts   redactState(state, viewerId) + redactBoard() (hides undiscovered tiles) + handSize();
                         src/net/protocol.ts: Socket.IO event types
     src/flight/reach.ts reachablePaths / legalMoves / legalJumpTargets (BFS + validateEndNode)
@@ -64,8 +75,10 @@ starfarers-online/
                         10 min, flush on SIGTERM; env PORT, HOST, STATIC_DIR, CORS_ORIGIN, DATA_DIR,
                         ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS
     test/bot.ts         greedy bot (nextAction / actor) used to play whole games
-    test/               rooms.test.ts (8), fullGame.test.ts (3 whole games to a win), socket.test.ts (6,
-                        socket.io-client against an in-process server, incl. a full game over sockets)
+    test/               rooms.test.ts, fullGame.test.ts (whole games to a win: beginner ×3, strategic,
+                        explorer, wild, draft+strategic 3p, draft+beginner 4p), socket.test.ts (socket.io-client
+                        against an in-process server, incl. a full game over sockets and a replay round trip),
+                        persist.test.ts (file store, restart determinism, sweep), replay.test.ts — 43 tests
   client/                                        @starfarers/client, Vite 6 + React 19 + zustand + socket.io-client
     index.html  vite.config.ts (proxies /socket.io to :3000 in dev)  vitest.config.ts (jsdom + testing-library)
     src/main.tsx  src/App.tsx   hash router (#/ #/local #/online #/room/CODE), GameScreen (store-agnostic)
@@ -78,9 +91,10 @@ starfarers-online/
                                 EncounterModal, FoundStationDialog, ActionBar, LogPane, PassBanner, SetupScreen,
                                 ResourcePicker (BagPicker), OnlineLobby (JoinScreen, RoomLobby), ChatPanel
     src/ui/format.ts            colours, labels, bag/hand helpers (no rules)
-    test/                       6 files, 32 tests (legal-move highlight vs engine, encounter modal per
-                                awaiting.kind, viewer switch, scripted full turn + replay, remote store
-                                over a fake socket, session storage)
+    test/                       7 files, 42 tests (legal-move highlight vs engine incl. explorer and 3p
+                                boards, encounter modal per awaiting.kind, viewer switch, scripted full
+                                turn + replay, remote store over a fake socket incl. configureRoom and
+                                server replay, session storage, variant/set-up pickers, draft panel)
   Dockerfile  .dockerignore     single-process image: node server/dist/index.js serving client/dist; DATA_DIR=/data (VOLUME)
 ```
 
@@ -122,7 +136,9 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
   dispatches, recomputes VP, runs the win hook, appends a log entry.
 - Phases: `production → tradeBuild → (shakeMothership) → flight.encounter? →
   flight.move → (endTurn) → production`, plus `gameOver`.
-- Actions (spec §12.2, all implemented): `rollDice`, `takeReserveDraw`,
+- Actions (spec §12.2, all implemented): `draftColony{siteId}` and
+  `draftFinish{spaceportSiteId,ship,shipSiteId,upgrade}` (phase `setup`, draft
+  games only), `rollDice`, `takeReserveDraw`,
   `discardForSeven{cards}`, `stealForSeven{target}`, `proposeTrade{to,give,want}`,
   `respondTrade{accept,counter?}`, `tradeWithSupply{give,want}`,
   `build{item,siteId?}`, `useFriendshipCard{cardId,give?,want?,targets?}`,
@@ -153,7 +169,8 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
 | 2 Flight | `f4b72e4` `c4ac534` | uniform two-ball shake (40 % encounter), speed and combat incl. Scientists cards, moveShip validator (§9.2/§11: pass-through, backtrack, cumulative budget, no-blockade rules, must-found-or-leave), exploration flips discs into numbers or tokens, immediate pirate defeat / ice terraform with reserve discs, foundColony (3p cap), foundTradeStation (freight threshold, docks, card pick, marker on strict majority), free trade ships with pending markers, space-jump helpers | 226 |
 | 3 Encounters | `9a1dcd3` `867d7d9` | 32 cards as data, resumable effect interpreter with player picks, contests, flee, shake bands, Wear and Tear, redraw, progressive text; one spec-derived test per branch per outcome (zero mismatches found) | 418 |
 | 4 Hot-seat client | `dc3cd18` | `client/` package; store with one rng per game and an action log that replays deterministically; SVG board (hexes, resource-coloured planets, discs sized by dice probability, face-down discs, P/I tokens, outposts with 5 docks, colonies/spaceports/ships in player colours); ship selection → BFS highlight filtered by `validateEndNode`, hover path preview, click to `moveShip`; found-colony buttons and a dock + friendship-card dialog for stations; hand / others' counts, mothership with shake animation, VP track, build menu with affordability and board site picks, supply trade with every ratio the player may use, player trade proposal / counter / accept / reject / withdraw, friendship card actions (Fame for Sale, Helping Hand, Relief Fund), 7 dialog (discard picker, steal target), encounter modal with progressive text and a control per `awaiting.kind` (space jump through board clicks), log pane with replay slider, pass-the-laptop curtain, seat select, error toast with the engine's message; Playwright-driven 12-turn smoke run with zero page errors | 444 |
-| 5 Server, lobby, reconnect | (this branch, after `32b5c73`) | `shared/net`: `redactState` (other hands emptied + `handCount`, reserve pile / encounter deck emptied + counts, `seed` blanked, hidden log payloads stripped) and the typed Socket.IO protocol; `shared/flight/reach.ts` (BFS moved out of the client); `server/`: `RoomStore` with 6-char codes, per-player reconnect tokens, colours by join order, host-only start with 3–4, server-generated seed and one `Rng` per room, action validation (`action.playerId` must be the socket's player) before the engine, chat list, `snapshot()/restore()`, `startWithState()`; `attachSockets` emits `lobby` to the room, `state` redacted per socket with the accepted action attached, `error` to the sender only, evicts a stale socket when a token resumes elsewhere, mirrors `connected` into the game state; static serving + `/healthz`; `client/`: hash router, `StoreContext` so every panel runs against either store, `RemoteGameStore` (dispatch → emit with ack, snapshots for replay, viewer fixed, no curtain), localStorage session + auto-resume on `#/room/CODE`, join/create/rejoin screen, room lobby with copyable code, start button and chat, chat panel in the game sidebar, `(offline)` tag on disconnected players; Dockerfile; CI builds both; a greedy bot plays whole games to a win (3 through the store, 1 over sockets) with zero rejections | 472 |
+| 5 Server, lobby, reconnect | `1ccb53d` `52e5db3` `6b945b7` | `shared/net`: `redactState` (other hands emptied + `handCount`, reserve pile / encounter deck emptied + counts, `seed` blanked, hidden log payloads stripped) and the typed Socket.IO protocol; `shared/flight/reach.ts` (BFS moved out of the client); `server/`: `RoomStore` with 6-char codes, per-player reconnect tokens, colours by join order, host-only start with 3–4, server-generated seed and one `Rng` per room, action validation (`action.playerId` must be the socket's player) before the engine, chat list, `snapshot()/restore()`, `startWithState()`; `attachSockets` emits `lobby` to the room, `state` redacted per socket with the accepted action attached, `error` to the sender only, evicts a stale socket when a token resumes elsewhere, mirrors `connected` into the game state; static serving + `/healthz`; `client/`: hash router, `StoreContext` so every panel runs against either store, `RemoteGameStore` (dispatch → emit with ack, snapshots for replay, viewer fixed, no curtain), localStorage session + auto-resume on `#/room/CODE`, join/create/rejoin screen, room lobby with copyable code, start button and chat, chat panel in the game sidebar, `(offline)` tag on disconnected players; Dockerfile; CI builds both; a greedy bot plays whole games to a win (3 through the store, 1 over sockets) with zero rejections | 472 |
+| 6 Polish, part 1 | `723d7ad` `60bb274` `66d4725` `ea03792` `5784d53` | `server/persist.ts` (`RoomPersistence`, file + memory stores), `RoomStore` writes a snapshot after every change with one write chain per room, `restoreAll()` on boot, `sweep()` for idle/finished rooms, `flush()` on SIGTERM, env `DATA_DIR` / `ROOM_IDLE_HOURS` / `ROOM_FINISHED_HOURS`, Docker `/data` volume; `shared/setup/` `createGame({variant, setup})` with strategic / explorer / wild-space tile and disc shuffles (`[VERIFY]` items in config), `Sector.discovered`, `GameState.discPools`, `flight/discover.ts` (tile flipped + discs drawn per icon at the exploration trigger), undiscovered interiors excluded from paths, `redactBoard` so a hidden tile is indistinguishable from any other, face-down tiles on the SVG board, variant picker in the set-up screen and the lobby (`configureRoom`); `JoinReply.initial` + `replay {index}` with an incremental per-room cache and a client-side cache so a resumed client scrubs to turn 1; the §3.4 snake draft as phase `setup` with `draftColony` / `draftFinish`, `DraftPanel`, bot support, 3-player pool and free-site rules in config; the 3-player blocker review (§5.2) | 547 |
 
 Review passes fixed: non-active Relief Fund holder blocked; bogus card names
 cleared a 7 discard for free; inherited object keys could write junk into the
@@ -164,9 +181,12 @@ reached; pending trade ships not placed as soon as a site freed up.
 
 1. Trade finalisation: when the ACTIVE player proposes, the recipient's accept
    executes the trade (spec §7.1 literally says only the active player accepts).
-2. 3-player blocker colour's spaceport sites block other ships' end nodes
-   (`flight/movement.ts`, `isForeignSpaceportSite`); the rulebook's "they only
-   block the sites" could mean the opposite. One-line flip.
+2. 3-player blockers: reviewed in phase 6. §7.2, §9.2 and §11 are all written
+   about *players* and `threePlayerRule` says the blockers "only block the
+   sites", so `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES = false` ([VERIFY],
+   `config.ts`): the blocker pieces still occupy their intersections, but the
+   two empty spaceport sites beside the blocker spaceport are ordinary end
+   nodes. `true` restores the phase-2 reading; both are tested.
 3. §7.2 "opponent must move away from a new spaceport site if possible" checks
    one-step neighbours only.
 4. Free trade ships go on the first free own spaceport site; the player does
@@ -257,6 +277,22 @@ reached; pending trade ships not placed as soon as a site freed up.
    requested. A `state` broadcast without an action (a reconnect) now
    replaces the latest local snapshot instead of appending, which kept replay
    indices aligned.
+22. Advanced draft (§3.4): `createGame({ setup: 'draft' })` starts in phase
+   `setup` with `state.draft` {round, order, index, starter, colonies, pool}
+   and `activePlayer` = the picker, so the usual gating and "waiting for X"
+   UI apply. Rounds 1/3 follow `turnOrder`, 2/4 the reverse (round 4 starts
+   with the last placer of round 3). `draftColony` accepts any free Catanian
+   site (no distance rule in the spec; Catanian sites are never adjacent).
+   Round 4 is ONE action, `draftFinish`, validated as a unit (own drafted
+   colony → spaceport, ship on one of its two free spaceport sites, upgrade
+   still in the pool and under the cap) to keep the policy and UI simple.
+   Closing deals 3 reserve cards each in seating order, +1 fame, recomputes VP
+   (4 each), deletes `draft`, sets `production` with the round-1 starter. The
+   starting 2d6 roll uses the same rng order as the preset set-up. 3-player:
+   `DRAFT_3P_REMOVED_UPGRADE = 'booster'` ([VERIFY]; `'random'` supported) and
+   `DRAFT_3P_BLOCK_FREE_SITES = true` ([VERIFY]; the three free sites get
+   blocker colonies, no blocker spaceport). `redactState` passes `setup` /
+   `draft` through; snapshot/restore and `replayState` work mid-draft.
 
 ## 6. Phase 4 — hot-seat client (done)
 
@@ -318,41 +354,43 @@ Test ids added for the online screens: `online-screen`, `player-name`,
 `room-lobby`, `lobby-code`, `lobby-players`, `start-online`, `chat-panel`,
 `chat-input`, `chat-send`, `viewer-name`, `home`, `go-local`, `go-online`.
 Phase 6 added `variant-select`, `variant-description`, `lobby-variant`,
-`hidden-<slot>` (a face-down tile on the board) and `JoinReply.initial` (the
-redacted initial state) next to `actions`.
+`setup-select`, `setup-description`, `lobby-setup`, `phase-label`,
+`hidden-<slot>` (a face-down tile on the board), `draft-panel`,
+`draft-spaceport-<node>`, `draft-ship-colony|trade`, `draft-ship-site-<node>`,
+`draft-upgrade-<kind>`, `draft-confirm` (draft sites are highlighted
+`node-<id>` like build picks), and `JoinReply.initial` (the redacted initial
+state) next to `actions`.
 
 Known gaps: no spectators; the join screen does not validate the code format
 before sending; no "kick" or host hand-over when the host leaves; the turn
 timer is config only; `replay` has no rate limit. (Rooms are persisted and
 expired since phase 6, §5.18.)
 
-## 8. Phase 6 — polish (next)
+## 8. Phase 6, part 2 — what is left (next)
 
-Spec §15.6. Suggested order, each its own commit with tests:
+Phase 6 items 1–4 of the previous list (persistence, variable set-ups,
+advanced draft + 3-player review, server replay) are done; see §4 and
+§5.17–§5.21. First merge `claude/starfarers-phase-6` to `main` (open the PR
+when asked). Then, each its own commit with tests:
 
-1. **Persistence** (optional in spec, most valuable first): persist
-   `RoomSnapshot` on every accepted action and restore on boot. Smallest
-   version: a JSON file per room under `DATA_DIR` (write `snapshot(room)`
-   after `applyAction`, `restore()` all files on start, delete finished
-   rooms after a day). Supabase/Postgres is the same interface with a table
-   `rooms(code primary key, snapshot jsonb, updated_at)`; the Supabase MCP
-   tools are available in the cloud session if that route is chosen. Add
-   room expiry (idle > N hours) while there.
-2. **Variable set-ups** (strategic → explorer → wild space, spec §3.2):
-   shuffle logic in `shared/src/setup/` using the existing loader and
-   `assignPlanetsClockwise`; `GameVariant` already exists on `GameState`;
-   `[VERIFY]` tile star backs live in `layouts/board.json`. Expose the variant
-   in `createBeginnerGame`'s successor and in the lobby/setup screens.
-3. **Advanced set-up draft** (§3.4), then the **3-player rule review** against
-   judgment call §5.2 (blocker spaceport sites).
-4. **Log replay from the server**: send `initial` + full `actions` in
-   `JoinReply` (or on demand) so a resumed client can scrub to turn 1; the
-   hot-seat store's `replayState` already shows the shape.
-5. **Animations** (ship moves along the path, disc flips, VP marker slides)
-   and the cosmetic gaps from §6; keyboard navigation.
-6. **Host controls**: hand host over when the host disconnects for long,
-   kick, room expiry UI; the turn timer enforcement if wanted.
-7. Revisit the judgment calls in §5 once real players have played a few games.
+1. **Animations** (ship moves along the path, disc flips and tile discovery,
+   VP marker slides) and the cosmetic gaps from §6; keyboard navigation.
+2. **Host controls**: hand host over when the host disconnects for long,
+   kick, room expiry shown in the lobby; turn-timer enforcement if wanted
+   (`RoomConfig.turnTimerSeconds` is still config only).
+3. **Server hardening**: a rate limit or a few checkpoint states for
+   `replay` (a member socket can force a full replay, ~2.5 s for a 700-action
+   game); coalesce persistence writes under bursts (every accepted action
+   rewrites the whole room file today); a Postgres/Supabase `RoomPersistence`
+   (same interface as `FileRoomPersistence`: `save`, `remove`, `loadAll`;
+   table `rooms(code primary key, snapshot jsonb, updated_at)`).
+4. **Rules follow-ups**: let the discoverer orient a discovered system (today
+   `VARIABLE_SETUP_START_LOBE`); confirm the `[VERIFY]` defaults added in
+   phase 6 (`DISCOVERY_ENDS_MOVE`, `WILD_SPACE_SLOT_ORDER`,
+   `DRAFT_3P_REMOVED_UPGRADE`, `DRAFT_3P_BLOCK_FREE_SITES`,
+   `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES`) against the physical rulebook;
+   spectators; code-format validation on the join screen.
+5. Revisit the judgment calls in §5 once real players have played a few games.
 
 ## 9. Working agreements that held so far
 
@@ -371,4 +409,15 @@ Spec §15.6. Suggested order, each its own commit with tests:
   so write a fresh one: start `node server/dist/index.js` on a spare port,
   open 3 browser contexts, use the test ids listed in §6/§7).
 - Parallel shell calls that `cd` interfere with each other in this harness;
-  use absolute paths in scripts.
+  use absolute paths in scripts (also inside `( … ) &` subshells).
+- Phase 6 ran one agent per item in isolated git worktrees and cherry-picked
+  the results onto the branch in order; the worktrees are cut from `main`, so
+  an agent that must build on the branch has to `git reset --hard` to it
+  first. Shared-file edits stayed additive, so every cherry-pick applied
+  cleanly.
+- The phase 6 drive script plays any set-up by clicking test ids in priority
+  order (take-seat, draft panel / highlighted site, encounter and 7 dialogs,
+  roll / reserve / shake / found / one move / end), reloads a guest, restarts
+  the server on the same `DATA_DIR`, and scrubs the log slider to 0 and to
+  the middle, checking the log pane shrinks accordingly (the action bar is
+  hidden while replaying).
