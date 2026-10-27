@@ -1,7 +1,7 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 5 on branch `claude/dreamy-babbage-d8h1cd` (which
-contains all of `claude/optimistic-mayer-4n6h9p`). Nothing is merged to `main`.
+Last updated after phase 5. The project is on `main` (merged in PR #2,
+commit `45b6c0c`); phases 1–5 live there in full.
 
 **Starting a new session:** read `CLAUDE.md`, then this file top to bottom, then
 `starfarers-clone-spec.md` §13–§16. Run the commands in §2 to confirm green,
