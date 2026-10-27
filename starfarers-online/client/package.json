@@ -1,0 +1,34 @@
+{
+  "name": "@starfarers/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hot-seat React client for Starfarers Online (plays against the local engine).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@starfarers/shared": "workspace:*",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "socket.io-client": "4.8.4",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "6.10.0",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.2",
+    "vite": "6.4.5",
+    "vitest": "3.2.4"
+  }
+}

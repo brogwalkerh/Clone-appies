@@ -1,0 +1,30 @@
+{
+  "name": "starfarers-online",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "build": "pnpm --filter @starfarers/client build && pnpm --filter @starfarers/server build",
+    "start": "node server/dist/index.js",
+    "dev:server": "pnpm --filter @starfarers/server dev",
+    "dev:client": "pnpm --filter @starfarers/client dev"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "overrides": {
+      "vite": "6.4.5"
+    }
+  }
+}

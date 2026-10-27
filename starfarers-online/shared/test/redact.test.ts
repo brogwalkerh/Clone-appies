@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import { ACTION_POLICY, applyAction, computeVp, createBeginnerGame, createRng, handSize, redactState, validateEndNode, type GameState } from '../src/index.js';
+
+const PLAYERS = [
+  { id: 'p1', name: 'Ann', color: 'red' as const },
+  { id: 'p2', name: 'Bob', color: 'blue' as const },
+  { id: 'p3', name: 'Cid', color: 'yellow' as const },
+];
+
+function game(): GameState {
+  return createBeginnerGame({ players: PLAYERS, seed: 'redact' });
+}
+
+describe('redactState', () => {
+  it('keeps the viewer hand, empties the others and records every hand size', () => {
+    const s = game();
+    const r = redactState(s, 'p2');
+    for (const p of r.players) {
+      const original = s.players.find((o) => o.id === p.id)!;
+      expect(p.handCount).toBe(original.hand.length);
+      expect(handSize(p)).toBe(original.hand.length);
+      if (p.id === 'p2') expect(p.hand).toEqual(original.hand);
+      else expect(p.hand).toEqual([]);
+    }
+  });
+
+  it('hides the reserve pile, the encounter deck and the seed but keeps their sizes', () => {
+    const s = game();
+    const r = redactState(s, 'p1');
+    expect(r.reservePile).toEqual([]);
+    expect(r.reservePileCount).toBe(s.reservePile.length);
+    expect(r.encounterDeck).toEqual([]);
+    expect(r.encounterDeckCount).toBe(s.encounterDeck.length);
+    expect(r.seed).toBe('');
+    expect(r.encounterDiscard).toEqual(s.encounterDiscard);
+  });
+
+  it('does not mutate the input and leaves public data untouched', () => {
+    const s = game();
+    const before = structuredClone(s);
+    const r = redactState(s, 'p1');
+    expect(s).toEqual(before);
+    expect(r.board).toEqual(s.board);
+    expect(r.supply).toEqual(s.supply);
+    expect(r.players.map((p) => p.vp)).toEqual(s.players.map((p) => p.vp));
+  });
+
+  it('strips discard payloads from the log for everyone but the discarder', () => {
+    const s = game();
+    const active = s.activePlayer;
+    const other = s.players.find((p) => p.id !== active)!;
+    s.turn.rolled = 7;
+    s.turn.seven = { awaitingDiscard: [other.id], stealDone: false };
+    other.hand = ['ore', 'ore', 'fuel', 'fuel', 'food', 'food', 'goods', 'goods'];
+    const r = applyAction(s, { type: 'discardForSeven', playerId: other.id, cards: ['ore', 'ore', 'fuel', 'fuel'] }, createRng('x'));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const entry = r.value.log.find((e) => e.action?.type === 'discardForSeven')!;
+    expect(entry).toBeDefined();
+    const forOther = redactState(r.value, other.id).log.find((e) => e.seq === entry.seq)!;
+    const forActive = redactState(r.value, active).log.find((e) => e.seq === entry.seq)!;
+    expect(forOther.action?.type).toBe('discardForSeven');
+    expect(forActive.action).toBeUndefined();
+    expect(forActive.message).toBe(entry.message);
+  });
+
+  it('public helpers still work on a redacted state', () => {
+    const s = game();
+    s.phase = 'flight.move';
+    s.turn.baseSpeed = 3;
+    s.turn.speed = 4;
+    const r = redactState(s, 'p1');
+    expect(computeVp(r, 'p1')).toBe(computeVp(s, 'p1'));
+    const ship = Object.values(s.board.ships)[0]!;
+    const node = s.board.adjacency[ship.nodeId]![0]!;
+    expect(validateEndNode(r, ship, node)).toEqual(validateEndNode(s, ship, node));
+    expect(ACTION_POLICY.rollDice.phases).toContain('production');
+  });
+});
