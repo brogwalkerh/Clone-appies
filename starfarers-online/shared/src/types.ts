@@ -238,6 +238,12 @@ export interface Player {
   medals: { pirate: number; ice: number };
   pieces: PlayerPieces;
   connected: boolean;
+  /**
+   * Set by `redactState` (net/redact.ts): number of cards in `hand`, kept for
+   * every player while opponents' `hand` arrays are emptied. Absent in the
+   * authoritative state; clients read `handCount ?? hand.length`.
+   */
+  handCount?: number;
 }
 
 export interface UpgradesTray {
@@ -320,6 +326,9 @@ export interface GameState {
   turn: TurnState;
   winner: PlayerId | null;
   log: LogEntry[];
+  /** Set by `redactState`: sizes of the hidden `reservePile` / `encounterDeck`. */
+  reservePileCount?: number;
+  encounterDeckCount?: number;
 }
 
 // ---------------------------------------------------------------------------

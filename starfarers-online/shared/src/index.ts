@@ -24,6 +24,7 @@ export * from './flight/tokens.js';
 export * from './flight/explore.js';
 export * from './flight/movement.js';
 export * from './flight/jump.js';
+export * from './flight/reach.js';
 
 export * from './found/colony.js';
 export * from './found/station.js';
@@ -36,3 +37,6 @@ export * from './encounters/engine.js';
 export * from './encounters/text.js';
 
 export * from './actions/index.js';
+
+export * from './net/redact.js';
+export * from './net/protocol.js';
