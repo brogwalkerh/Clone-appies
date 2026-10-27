@@ -1,13 +1,14 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 6 (persistence, variable set-ups, advanced draft,
-3-player review, server-side replay) on branch `claude/starfarers-phase-6`,
-which is `main` (PR #2, `45b6c0c`, phases 1–5) plus the phase 6 commits listed
-in §4. Nothing from phase 6 is merged to `main` yet.
+Last updated after phase 6. Everything is on `main`: phases 1–5 via PR #2
+(`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
+review, server-side replay) via PR #3 (`e473ca2`). No open branches.
 
 **Starting a new session:** read `CLAUDE.md`, then this file top to bottom, then
-`starfarers-clone-spec.md` §13–§16. Run the commands in §2 to confirm green
-(550 tests), then pick up §8. Everything before §8 is finished and tested.
+`starfarers-clone-spec.md` §13–§16. Branch from `main`, run the commands in §2
+to confirm green (550 tests), then work §8 (phase 7) in order. Everything
+before §8 is finished and tested; §8 is what separates the project from a
+finished game and a deployable app.
 Read `CLAUDE.md` and `starfarers-clone-spec.md` first; this file only says
 where the project stands and how to run the next phases.
 
@@ -391,31 +392,111 @@ before sending; no "kick" or host hand-over when the host leaves; the turn
 timer is config only; `replay` has no rate limit. (Rooms are persisted and
 expired since phase 6, §5.18.)
 
-## 8. Phase 6, part 2 — what is left (next)
+## 8. Phase 7 — finish the game, then ship it (next)
 
-Phase 6 items 1–4 of the previous list (persistence, variable set-ups,
-advanced draft + 3-player review, server replay) are done; see §4 and
-§5.17–§5.21. First merge `claude/starfarers-phase-6` to `main` (open the PR
-when asked). Then, each its own commit with tests:
+Spec §15 is complete except two §15.6 items (animations, turn timer) and the
+rule confirmations in §16. Part A closes the spec; part B makes the app safe to
+put in front of strangers; part C is optional. Each numbered item is one
+commit (or a few) with tests, verified green and driven in headless Chromium
+before it is called done (§9). Stop after part A and report if the budget
+looks tight.
 
-1. **Animations** (ship moves along the path, disc flips and tile discovery,
-   VP marker slides) and the cosmetic gaps from §6; keyboard navigation.
-2. **Host controls**: hand host over when the host disconnects for long,
-   kick, room expiry shown in the lobby; turn-timer enforcement if wanted
-   (`RoomConfig.turnTimerSeconds` is still config only).
-3. **Server hardening**: a rate limit or a few checkpoint states for
-   `replay` (a member socket can force a full replay, ~2.5 s for a 700-action
-   game); coalesce persistence writes under bursts (every accepted action
-   rewrites the whole room file today); a Postgres/Supabase `RoomPersistence`
-   (same interface as `FileRoomPersistence`: `save`, `remove`, `loadAll`;
-   table `rooms(code primary key, snapshot jsonb, updated_at)`).
-4. **Rules follow-ups**: let the discoverer orient a discovered system (today
-   `VARIABLE_SETUP_START_LOBE`); confirm the `[VERIFY]` defaults added in
-   phase 6 (`DISCOVERY_ENDS_MOVE`, `WILD_SPACE_SLOT_ORDER`,
-   `DRAFT_3P_REMOVED_UPGRADE`, `DRAFT_3P_BLOCK_FREE_SITES`,
-   `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES`) against the physical rulebook;
-   spectators; code-format validation on the join screen.
-5. Revisit the judgment calls in §5 once real players have played a few games.
+### Part A — close the spec
+
+1. **Animations** (§14): the ship slides along `moveShip.path` node by node;
+   a discovered tile flips (`hidden-<slot>` → sector) and a disc flips on
+   exploration; the VP marker slides along `vp-track`; the mothership shake
+   already animates. Drive them from the accepted action attached to each
+   `state` broadcast (remote) or from the last `actions[]` entry (hot-seat) so
+   replay stays instant: animate only when the shown state is live. CSS
+   transitions on the SVG `transform` are enough; no library. Add a
+   `prefers-reduced-motion` switch and a test that the final positions equal
+   the state (animation is presentation only; the engine is untouched).
+2. **Turn timer** (§13 "optional, off by default"): `RoomConfig.turnTimerSeconds`
+   is stored and shown but unenforced. Server side only: `RoomStore` gets a
+   deadline per room set when `activePlayer` changes (`startWith`, after each
+   accepted action), `attachSockets` arms one `setTimeout` per room (unref'd,
+   re-armed on every `state`, persisted as `deadlineAt` in `RoomSnapshot` so a
+   restart keeps it). On expiry the server submits the minimal legal
+   sequence for the active player through the engine as that player
+   (`rollDice` if not rolled → `takeReserveDraw` is optional, skip → resolve a
+   pending 7 by discarding the first cards / stealing from the first target →
+   `shakeMothership` if ships → encounter: first option / decline → `endTurn`),
+   logging "timer: …" lines; the bot in `server/test/bot.ts` already produces
+   exactly this sequence, so share its `nextAction`. Host sets it in the lobby
+   via `configureRoom({ turnTimerSeconds })` (`timer-select`, `lobby-timer`);
+   the client shows a countdown (`turn-timer`) from `deadlineAt` in the `state`
+   payload. Tests: expiry runs the sequence, a timely action re-arms, a
+   restart keeps the deadline, `null` disables.
+3. **Host controls** (HANDOFF §7 known gaps): `kickPlayer {playerId}` (host,
+   lobby only — a started game keeps every seat), `transferHost {playerId}`
+   (host, any time), automatic hand-over when the host has been disconnected
+   for `HOST_HANDOVER_MS` (config, default 5 min) to the longest-connected
+   player, and the room's expiry shown in the lobby (`lobby-expires`, from
+   `updatedAt` + `idleMs` sent in `LobbyView`). Protocol rows + socket tests.
+4. **Keyboard navigation and the §6 cosmetic gaps**: Tab order through the
+   action bar, dialogs and the board (nodes are `<circle>`s; give the
+   highlighted ones `tabIndex` and Enter/Space handlers), Escape closes
+   dialogs, arrow keys move the log slider; the outpost civ label on the
+   Diplomats tile overlaps the dock row (move the label to the lobe without
+   docks); show the pending trade-ship marker's spaceport-site rule in the UI
+   (today only the log); validate the room code format on the join screen
+   before sending. Component tests for the keyboard paths.
+5. **Rule confirmation checklist** (spec §16 + the phase 6 `[VERIFY]` items).
+   Someone with the physical box reads these off and flips the config where
+   needed; each is pinned by a test so the change is deliberate:
+   `board.json` `sectors[*].stars` (tile backs); `beginner.json` `shipSide`;
+   encounter cards 12–15 shake bands (`config.ts`); `DISCOVERY_ENDS_MOVE`;
+   `WILD_SPACE_SLOT_ORDER`; `VARIABLE_SETUP_START_LOBE` (or let the discoverer
+   orient: a `discoverOrient {sectorId, startLobe}` pending step, only if the
+   rulebook says the discoverer chooses); `STRATEGIC_RETURNED_EMPTY`;
+   `DRAFT_3P_REMOVED_UPGRADE`; `DRAFT_3P_BLOCK_FREE_SITES`;
+   `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES`; judgment calls §5.1–§5.7. Record
+   the outcome in §5 and remove the `[VERIFY]` tag from confirmed items.
+
+### Part B — make it a real multiplayer app
+
+6. **Server hardening**: rate-limit `replay` per socket (e.g. 2/s, burst 5)
+   or keep a checkpoint state every 50 actions per room so a request is at
+   most 50 engine steps; coalesce persistence writes (one write per room per
+   ~250 ms, last snapshot wins, still flushed on SIGTERM); a
+   `PostgresRoomPersistence` behind the same interface (`save`, `remove`,
+   `loadAll`; table `rooms(code text primary key, snapshot jsonb,
+   updated_at timestamptz)`, `DATABASE_URL` selects it over the file store;
+   the Supabase MCP tools are available in the cloud session if that route is
+   chosen); input size limits on every event (names, chat, action payloads
+   are already bounded — check `replay`, `configureRoom`); a `/healthz` that
+   reports persistence health.
+7. **Stable identity**: a seat is a token in localStorage today, so a cleared
+   browser loses it. Smallest step: a "rejoin link" (`#/room/CODE?t=<token>`)
+   the lobby shows once with a copy button, and a host-side "re-invite" that
+   mints a fresh token for a seat (`reissueToken {playerId}`, host only,
+   invalidates the old one). Accounts (magic-link email via Supabase Auth)
+   are a later option; do not block on them.
+8. **Deployment**: the Dockerfile is the unit. Target any Node host (Railway
+   is connected to this workspace but needs authorising in the session;
+   Fly/Render work the same): set `PORT`, `DATA_DIR=/data` on a volume (or
+   `DATABASE_URL` after item 6), `CORS_ORIGIN` unset (same origin), TLS from
+   the host. Add `Scripts/`-style `deploy.md` under `starfarers-online/` with
+   the exact commands, a GitHub Actions `starfarers-deploy` job gated on
+   `starfarers-engine` passing on `main`, structured logs (JSON lines) and
+   a log line per accepted action with room code and player id for
+   debugging. Smoke-test the deployed URL with the drive script (§9) pointed
+   at it instead of a local server.
+9. **Real-play feedback**: play three full games with people (one per board
+   type, one with the draft) and revisit HANDOFF §5 (23 judgment calls) and
+   the `[VERIFY]` list with what felt wrong; file each change as its own
+   commit with the rule reference.
+
+### Part C — nice to have (pick by taste)
+
+10. Spectators (`joinAsSpectator`, redacted as "no seat", no actions); save
+    and load a hot-seat game to a file (`loadGame` + `actions[]` already make
+    it small); an AI opponent that is fun rather than merely legal (the test
+    bot is greedy and rule-complete; start from it, add trade evaluation and
+    target selection); an in-app rules reference generated from the spec; a
+    phone layout (explicitly out of scope in §14 — only if wanted); a
+    tutorial using the replay slider over a scripted game.
 
 ## 9. Working agreements that held so far
 
@@ -435,6 +516,10 @@ when asked). Then, each its own commit with tests:
   open 3 browser contexts, use the test ids listed in §6/§7).
 - Parallel shell calls that `cd` interfere with each other in this harness;
   use absolute paths in scripts (also inside `( … ) &` subshells).
+- Branches: one per phase from `main`, landed by a PR with a merge commit
+  (PR #2, PR #3). After a PR merges, never stack on that branch; start the
+  next one from `main`. The first commit of a session fixes this file's
+  header if it is stale.
 - Phase 6 ran one agent per item in isolated git worktrees and cherry-picked
   the results onto the branch in order; the worktrees are cut from `main`, so
   an agent that must build on the branch has to `git reset --hard` to it
