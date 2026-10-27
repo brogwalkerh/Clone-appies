@@ -7,7 +7,7 @@ in §4. Nothing from phase 6 is merged to `main` yet.
 
 **Starting a new session:** read `CLAUDE.md`, then this file top to bottom, then
 `starfarers-clone-spec.md` §13–§16. Run the commands in §2 to confirm green
-(547 tests), then pick up §8. Everything before §8 is finished and tested.
+(550 tests), then pick up §8. Everything before §8 is finished and tested.
 Read `CLAUDE.md` and `starfarers-clone-spec.md` first; this file only says
 where the project stands and how to run the next phases.
 
@@ -25,8 +25,8 @@ board and set-up / starts with 3–4), redacts the state per socket (hidden
 tiles included), forwards actions through the engine, carries chat, re-binds a
 player by token after a reload, writes every room to a JSON file under
 `DATA_DIR` and restores them on boot, expires idle rooms, and replays the
-action log on request so a resumed client can scrub to turn 1. 547 Vitest
-tests pass (462 engine, 43 server, 42 client), `tsc --noEmit` is clean in all
+action log on request so a resumed client can scrub to turn 1. 550 Vitest
+tests pass (464 engine, 44 server, 42 client), `tsc --noEmit` is clean in all
 three packages, `pnpm build` produces `client/dist` and `server/dist`, and the
 `starfarers-engine` CI job runs all of it. A Dockerfile builds the
 single-process deploy with `/data` as the volume. Verified by hand in headless
@@ -59,7 +59,7 @@ starfarers-online/
     src/found/          colony, station, friendship, freeTradeShip
     src/encounters/     schema, cards (32 as data), engine (resumable interpreter), text (progressive reveal)
     src/index.ts        barrel; the server/client import only from here
-    test/               19 files, 462 tests; test/support/tradeBuild.ts has fixture helpers;
+    test/               19 files, 464 tests; test/support/tradeBuild.ts has fixture helpers;
                         setupVariants / discovery / draft tests are the phase 6 additions
     src/net/redact.ts   redactState(state, viewerId) + redactBoard() (hides undiscovered tiles) + handSize();
                         src/net/protocol.ts: Socket.IO event types
@@ -78,7 +78,7 @@ starfarers-online/
     test/               rooms.test.ts, fullGame.test.ts (whole games to a win: beginner ×3, strategic,
                         explorer, wild, draft+strategic 3p, draft+beginner 4p), socket.test.ts (socket.io-client
                         against an in-process server, incl. a full game over sockets and a replay round trip),
-                        persist.test.ts (file store, restart determinism, sweep), replay.test.ts — 43 tests
+                        persist.test.ts (file store, restart determinism, sweep), replay.test.ts — 44 tests
   client/                                        @starfarers/client, Vite 6 + React 19 + zustand + socket.io-client
     index.html  vite.config.ts (proxies /socket.io to :3000 in dev)  vitest.config.ts (jsdom + testing-library)
     src/main.tsx  src/App.tsx   hash router (#/ #/local #/online #/room/CODE), GameScreen (store-agnostic)
@@ -170,7 +170,19 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
 | 3 Encounters | `9a1dcd3` `867d7d9` | 32 cards as data, resumable effect interpreter with player picks, contests, flee, shake bands, Wear and Tear, redraw, progressive text; one spec-derived test per branch per outcome (zero mismatches found) | 418 |
 | 4 Hot-seat client | `dc3cd18` | `client/` package; store with one rng per game and an action log that replays deterministically; SVG board (hexes, resource-coloured planets, discs sized by dice probability, face-down discs, P/I tokens, outposts with 5 docks, colonies/spaceports/ships in player colours); ship selection → BFS highlight filtered by `validateEndNode`, hover path preview, click to `moveShip`; found-colony buttons and a dock + friendship-card dialog for stations; hand / others' counts, mothership with shake animation, VP track, build menu with affordability and board site picks, supply trade with every ratio the player may use, player trade proposal / counter / accept / reject / withdraw, friendship card actions (Fame for Sale, Helping Hand, Relief Fund), 7 dialog (discard picker, steal target), encounter modal with progressive text and a control per `awaiting.kind` (space jump through board clicks), log pane with replay slider, pass-the-laptop curtain, seat select, error toast with the engine's message; Playwright-driven 12-turn smoke run with zero page errors | 444 |
 | 5 Server, lobby, reconnect | `1ccb53d` `52e5db3` `6b945b7` | `shared/net`: `redactState` (other hands emptied + `handCount`, reserve pile / encounter deck emptied + counts, `seed` blanked, hidden log payloads stripped) and the typed Socket.IO protocol; `shared/flight/reach.ts` (BFS moved out of the client); `server/`: `RoomStore` with 6-char codes, per-player reconnect tokens, colours by join order, host-only start with 3–4, server-generated seed and one `Rng` per room, action validation (`action.playerId` must be the socket's player) before the engine, chat list, `snapshot()/restore()`, `startWithState()`; `attachSockets` emits `lobby` to the room, `state` redacted per socket with the accepted action attached, `error` to the sender only, evicts a stale socket when a token resumes elsewhere, mirrors `connected` into the game state; static serving + `/healthz`; `client/`: hash router, `StoreContext` so every panel runs against either store, `RemoteGameStore` (dispatch → emit with ack, snapshots for replay, viewer fixed, no curtain), localStorage session + auto-resume on `#/room/CODE`, join/create/rejoin screen, room lobby with copyable code, start button and chat, chat panel in the game sidebar, `(offline)` tag on disconnected players; Dockerfile; CI builds both; a greedy bot plays whole games to a win (3 through the store, 1 over sockets) with zero rejections | 472 |
-| 6 Polish, part 1 | `723d7ad` `60bb274` `66d4725` `ea03792` `5784d53` | `server/persist.ts` (`RoomPersistence`, file + memory stores), `RoomStore` writes a snapshot after every change with one write chain per room, `restoreAll()` on boot, `sweep()` for idle/finished rooms, `flush()` on SIGTERM, env `DATA_DIR` / `ROOM_IDLE_HOURS` / `ROOM_FINISHED_HOURS`, Docker `/data` volume; `shared/setup/` `createGame({variant, setup})` with strategic / explorer / wild-space tile and disc shuffles (`[VERIFY]` items in config), `Sector.discovered`, `GameState.discPools`, `flight/discover.ts` (tile flipped + discs drawn per icon at the exploration trigger), undiscovered interiors excluded from paths, `redactBoard` so a hidden tile is indistinguishable from any other, face-down tiles on the SVG board, variant picker in the set-up screen and the lobby (`configureRoom`); `JoinReply.initial` + `replay {index}` with an incremental per-room cache and a client-side cache so a resumed client scrubs to turn 1; the §3.4 snake draft as phase `setup` with `draftColony` / `draftFinish`, `DraftPanel`, bot support, 3-player pool and free-site rules in config; the 3-player blocker review (§5.2) | 547 |
+| 6 Polish, part 1 | `723d7ad` `60bb274` `66d4725` `ea03792` `5784d53` `576190f` | `server/persist.ts` (`RoomPersistence`, file + memory stores), `RoomStore` writes a snapshot after every change with one write chain per room, `restoreAll()` on boot, `sweep()` for idle/finished rooms, `flush()` on SIGTERM, env `DATA_DIR` / `ROOM_IDLE_HOURS` / `ROOM_FINISHED_HOURS`, Docker `/data` volume; `shared/setup/` `createGame({variant, setup})` with strategic / explorer / wild-space tile and disc shuffles (`[VERIFY]` items in config), `Sector.discovered`, `GameState.discPools`, `flight/discover.ts` (tile flipped + discs drawn per icon at the exploration trigger), undiscovered interiors excluded from paths, `redactBoard` so a hidden tile is indistinguishable from any other, face-down tiles on the SVG board, variant picker in the set-up screen and the lobby (`configureRoom`); `JoinReply.initial` + `replay {index}` with an incremental per-room cache and a client-side cache so a resumed client scrubs to turn 1; the §3.4 snake draft as phase `setup` with `draftColony` / `draftFinish`, `DraftPanel`, bot support, 3-player pool and free-site rules in config; the 3-player blocker review (§5.2) | 550 |
+
+Phase 6 review pass fixed: every client could read every face-down number
+disc (label, numbers, pirate/ice specials, even the id) on discovered but
+unexplored systems — pre-existing since phase 5 for beginner, extended to
+strategic by phase 6 — `redactBoard` now blanks face-down discs; the reserve
+discs were sent in draw order, so the next pirate/ice replacement was
+predictable — now sorted with positionless ids; `configureRoom` did not count
+as activity, so a host's variant / start-mode choice was lost on restart. The
+review also ran a property probe (explorer + wild, 3 and 4 players, 8 seeds ×
+700 bot actions): every move the client would offer is accepted by the
+validator and every shortest path it would not offer is rejected, zero
+disagreements across 2,381 flight states and 75 discoveries.
 
 Review passes fixed: non-active Relief Fund holder blocked; bogus card names
 cleared a 7 discard for free; inherited object keys could write junk into the
@@ -293,6 +305,19 @@ reached; pending trade ships not placed as soon as a site freed up.
    `DRAFT_3P_BLOCK_FREE_SITES = true` ([VERIFY]; the three free sites get
    blocker colonies, no blocker spaceport). `redactState` passes `setup` /
    `draft` through; snapshot/restore and `replayState` work mid-draft.
+23. From the phase 6 review: (a) `moveShip` is validated as a whole path
+   against the pre-move hidden set, so a step that discovers a sector cannot
+   enter that sector's interior in the same action; a second `moveShip` with
+   the remaining budget does it, and the client's highlights agree. (b) The
+   room's play rng is `createRng(seed)` with the same seed the set-up
+   consumed, so the first in-game draws repeat the stream that shuffled the
+   deck and piles (and, in strategic, the visible tiles); not exploitable in
+   practice (xoshiro state from ~15 bounded ints) and changing it would move
+   every seeded fixture, but note it before a public deployment. (c)
+   Face-down discs are hidden on the hot-seat board too, like hidden tiles.
+   (d) Log order on a discovering move is "discovered → token claimed →
+   moved" (cosmetic). (e) A no-op `configureRoom({})` writes nothing; any
+   applied key rewrites the room file.
 
 ## 6. Phase 4 — hot-seat client (done)
 
