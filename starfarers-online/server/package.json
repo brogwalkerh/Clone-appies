@@ -1,0 +1,26 @@
+{
+  "name": "@starfarers/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Starfarers Online game server: Socket.IO rooms over the shared engine, serves the built client.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --external:socket.io --outfile=dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@starfarers/shared": "workspace:*",
+    "socket.io": "4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "esbuild": "0.25.12",
+    "socket.io-client": "4.8.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}
