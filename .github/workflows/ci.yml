@@ -99,7 +99,8 @@ jobs:
           done
 
   # ---------------------------------------------------------------------------
-  # Starfarers Online engine (TypeScript, pnpm workspace under starfarers-online/).
+  # Starfarers Online engine + hot-seat client (TypeScript, pnpm workspace under
+  # starfarers-online/): typecheck and Vitest for every package, then the Vite build.
   # ---------------------------------------------------------------------------
   starfarers-engine:
     name: Starfarers engine
@@ -131,6 +132,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build client
+        run: pnpm --filter @starfarers/client build
 
   # ---------------------------------------------------------------------------
   # macOS app build + unit tests.
