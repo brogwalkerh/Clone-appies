@@ -66,7 +66,7 @@ function lobby(hostId: string): LobbyView {
     ],
     hostId,
     started: false,
-    config: { turnTimerSeconds: null, variant: 'beginner' },
+    config: { turnTimerSeconds: null, variant: 'beginner', setup: 'preset' },
     messages: [],
     minPlayers: 3,
     maxPlayers: 4,
@@ -108,7 +108,7 @@ describe('room lobby set-up picker', () => {
     await userEvent.selectOptions(select, 'explorer');
     expect(socket.emitted.at(-1)).toEqual({ event: 'configureRoom', payload: { variant: 'explorer' } });
     // The server answers with a fresh lobby; the picker follows it.
-    act(() => socket.fire('lobby', { ...lobby('p1'), config: { turnTimerSeconds: null, variant: 'explorer' } }));
+    act(() => socket.fire('lobby', { ...lobby('p1'), config: { turnTimerSeconds: null, variant: 'explorer', setup: 'preset' } }));
     expect((screen.getByTestId('variant-select') as HTMLSelectElement).value).toBe('explorer');
     expect(screen.getByTestId('lobby-variant')).toHaveTextContent(/Explorer/);
     unmount();
@@ -116,7 +116,7 @@ describe('room lobby set-up picker', () => {
     // A guest sees the value but cannot change it.
     const guestSocket = new FakeSocket();
     const guest = createRemoteGameStore(guestSocket, { storage: new MemoryStorage() });
-    guest.setState({ session: { roomCode: 'ABC234', playerToken: 't2', playerId: 'p2' }, lobby: { ...lobby('p1'), config: { turnTimerSeconds: null, variant: 'wild' } } });
+    guest.setState({ session: { roomCode: 'ABC234', playerToken: 't2', playerId: 'p2' }, lobby: { ...lobby('p1'), config: { turnTimerSeconds: null, variant: 'wild', setup: 'preset' } } });
     render(<RoomLobby store={guest} />);
     expect(screen.getByTestId('variant-select')).toBeDisabled();
     expect(screen.getByTestId('lobby-variant')).toHaveTextContent(/Wild space/);

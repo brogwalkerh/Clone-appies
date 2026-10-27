@@ -19,6 +19,7 @@ export * from './board/data.js';
 export * from './setup/beginner.js';
 export * from './setup/variants.js';
 export * from './setup/index.js';
+export * from './setup/draft.js';
 
 export * from './flight/stats.js';
 export * from './flight/shake.js';

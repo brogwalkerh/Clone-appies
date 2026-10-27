@@ -20,6 +20,7 @@ import type {
   NetError,
   ServerToClientEvents,
   Session,
+  SetupMode,
 } from '@starfarers/shared';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { GameStoreState } from '../store/gameStore.js';
@@ -67,8 +68,8 @@ export interface RemoteStoreState extends GameStoreState {
   createRoom(roomName: string, playerName: string): Promise<NetResult<JoinReply>>;
   joinRoom(code: string, playerName: string): Promise<NetResult<JoinReply>>;
   resume(session?: Session | null): Promise<NetResult<JoinReply>>;
-  /** Host only, before the start: pick the set-up (spec §3.2). */
-  configureRoom(variant: GameVariant): Promise<NetResult<{ configured: true }>>;
+  /** Host only, before the start: pick the board set-up (spec §3.2) and/or the start mode (§3.3 / §3.4). */
+  configureRoom(patch: { variant?: GameVariant; setup?: SetupMode }): Promise<NetResult<{ configured: true }>>;
   startGame(): Promise<NetResult<{ started: true }>>;
   sendChat(text: string): Promise<NetResult<{ sent: true }>>;
   /** Forget the session and return to the lobby screens. */
@@ -284,8 +285,8 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         if (!s) return Promise.resolve({ ok: false, error: { code: 'badToken', message: 'No saved session' } });
         return joinCall('resume', { roomCode: s.roomCode, playerToken: s.playerToken });
       },
-      async configureRoom(variant) {
-        const reply = await emit('configureRoom', { variant });
+      async configureRoom(patch) {
+        const reply = await emit('configureRoom', patch);
         if (!reply.ok) set({ netError: reply.error.message });
         return reply;
       },

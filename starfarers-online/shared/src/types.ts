@@ -49,6 +49,14 @@ export type Phase =
 
 export type GameVariant = 'beginner' | 'strategic' | 'explorer' | 'wild';
 
+/**
+ * How the players' starting pieces reach the board (independent of the board
+ * variant): `'preset'` = the rulebook's fixed positions (spec §3.3),
+ * `'draft'` = the advanced set-up snake draft on the Catanian sites (§3.4),
+ * played out as actions in phase `'setup'`.
+ */
+export type SetupMode = 'preset' | 'draft';
+
 export type UpgradeKind = 'booster' | 'cannon' | 'freightPod';
 
 export type BuildItem = 'colonyShip' | 'tradeShip' | 'spaceport' | UpgradeKind;
@@ -305,6 +313,26 @@ export interface TurnState {
   productionReceived?: Record<PlayerId, number>;
 }
 
+/**
+ * Advanced set-up draft in progress (spec §3.4; owned by actions/draft.ts).
+ * Present only while `phase === 'setup'` in a `'draft'` game. Public data:
+ * `redactState` passes it through unchanged.
+ */
+export interface DraftState {
+  /** 1–3: place a colony; 4: spaceport + ship + bonus upgrade. */
+  round: 1 | 2 | 3 | 4;
+  /** Pick order of the current round (snake: 1 and 3 clockwise, 2 and 4 counter-clockwise). */
+  order: PlayerId[];
+  /** Index into `order` of the current picker (always `state.activePlayer`). */
+  index: number;
+  /** Winner of the opening 2d6 roll: first picker of round 1 and the first active player once the draft is over. */
+  starter: PlayerId;
+  /** Colony sites drafted per player in rounds 1–3, in pick order. */
+  colonies: Record<PlayerId, NodeId[]>;
+  /** Bonus upgrades still to be taken in round 4. */
+  pool: UpgradeKind[];
+}
+
 export interface LogEntry {
   seq: number;
   turnNumber: number;
@@ -318,6 +346,8 @@ export interface GameState {
   id: string;
   seed: string;
   variant: GameVariant;
+  /** How the starting pieces were (or are being) placed; `'preset'` for every game created before the draft existed. */
+  setup: SetupMode;
   players: Player[];
   turnOrder: PlayerId[];
   activePlayer: PlayerId;
@@ -344,6 +374,8 @@ export interface GameState {
   /** Trade-ship markers owed per player (encounter "free trade ship" when it cannot be placed yet). */
   pendingTradeShips: Record<PlayerId, number>;
   openTrade: TradeProposal | null;
+  /** The advanced set-up draft while it runs (phase `'setup'`, `setup === 'draft'`); removed once the draft is over. */
+  draft?: DraftState;
   turn: TurnState;
   winner: PlayerId | null;
   log: LogEntry[];
@@ -437,6 +469,20 @@ export interface FoundTradeStationAction extends ActionBase {
   friendshipCardId: FriendshipCardId;
 }
 export interface EndTurnAction extends ActionBase { type: 'endTurn' }
+/** Advanced set-up (spec §3.4), rounds 1–3: place a colony on a free Catanian colony site. */
+export interface DraftColonyAction extends ActionBase { type: 'draftColony'; siteId: NodeId }
+/**
+ * Advanced set-up round 4, one action for the whole pick: upgrade one of the
+ * player's drafted colonies to a spaceport, place a colony or trade ship on one
+ * of that spaceport's two sites and take one bonus upgrade from the draft pool.
+ */
+export interface DraftFinishAction extends ActionBase {
+  type: 'draftFinish';
+  spaceportSiteId: NodeId;
+  ship: ShipKind;
+  shipSiteId: NodeId;
+  upgrade: UpgradeKind;
+}
 
 export type Action =
   | RollDiceAction
@@ -454,7 +500,9 @@ export type Action =
   | MoveShipAction
   | FoundColonyAction
   | FoundTradeStationAction
-  | EndTurnAction;
+  | EndTurnAction
+  | DraftColonyAction
+  | DraftFinishAction;
 
 export type ActionType = Action['type'];
 

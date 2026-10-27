@@ -10,7 +10,7 @@ import { beginnerPlacement, boardLayout } from '../board/data.js';
 import { hexKey } from '../board/geometry.js';
 import type { BoardLayout, Placement } from '../board/layout.js';
 import { createRng, type Rng } from '../rng.js';
-import type { Board, DiscIcon, GameState, Sector } from '../types.js';
+import type { Board, DiscIcon, GameState, Sector, SetupMode } from '../types.js';
 import { assembleState, validatePlayers, type PlayerSpec } from './common.js';
 
 export type { PlayerSpec } from './common.js';
@@ -20,6 +20,8 @@ export interface BeginnerGameOptions {
   seed: string;
   /** Game id; defaults to the seed. */
   id?: string;
+  /** Starting pieces: 'preset' (default, spec §3.3) or the §3.4 'draft'. */
+  setup?: SetupMode | undefined;
   /** Override the layout data (tests). */
   layout?: BoardLayout;
   placement?: Placement;
@@ -75,6 +77,7 @@ export function createBeginnerGame(options: BeginnerGameOptions): GameState {
     id: options.id ?? options.seed,
     seed: options.seed,
     variant: 'beginner',
+    setup: options.setup,
     players: options.players,
     board,
     layout,

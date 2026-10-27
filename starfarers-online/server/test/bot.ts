@@ -3,14 +3,19 @@
  * layer: it only ever sends actions it believes legal (founding first,
  * then moving colony ships toward free colony sites, trade ships toward
  * docking points, building whatever it can afford). It is not clever; it is
- * a load generator for the engine + room store integration.
+ * a load generator for the engine + room store integration. In a drafted game
+ * (spec §3.4) it takes the first free Catanian site, upgrades its first drafted
+ * colony, places a colony ship and takes the first upgrade left in the pool.
  */
 
 import {
   BUILD_COSTS,
   canFoundColony,
   discardCountFor,
+  draftSpaceportCandidates,
+  draftableSites,
   handHas,
+  isColonyRound,
   isOccupied,
   legalMoves,
   outpostAtNode,
@@ -52,6 +57,14 @@ export function nextAction(state: GameState, rnd: () => number): Action | null {
   const ships = shipsOf(state, pid);
 
   switch (state.phase) {
+    case 'setup': {
+      const draft = state.draft;
+      if (!draft) return null;
+      if (isColonyRound(draft)) return { type: 'draftColony', playerId: pid, siteId: draftableSites(state)[0] as NodeId };
+      const spaceportSiteId = draftSpaceportCandidates(state, pid)[0] as NodeId;
+      const shipSiteId = spaceportSites(state.board, spaceportSiteId).find((n) => !isOccupied(state.board, n)) as NodeId;
+      return { type: 'draftFinish', playerId: pid, spaceportSiteId, ship: 'colony', shipSiteId, upgrade: draft.pool[0] ?? 'booster' };
+    }
     case 'production': {
       if (state.turn.rolled === undefined) return { type: 'rollDice', playerId: pid };
       const seven = state.turn.seven;

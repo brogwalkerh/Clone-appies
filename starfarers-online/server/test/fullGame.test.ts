@@ -1,4 +1,4 @@
-import { WIN_VP, type GameVariant } from '@starfarers/shared';
+import { WIN_VP, type GameVariant, type SetupMode } from '@starfarers/shared';
 import { describe, expect, it } from 'vitest';
 import { RoomStore } from '../src/rooms.js';
 import { botRandom, nextAction } from './bot.js';
@@ -9,7 +9,7 @@ import { botRandom, nextAction } from './bot.js';
  * the bot's reading of the rules and the engine — those are counted and must
  * be zero, and every game must end with a winner at WIN_VP.
  */
-function playGame(seed: string, botSeed: number, maxActions = 6000, variant: GameVariant = 'beginner') {
+function playGame(seed: string, botSeed: number, maxActions = 6000, variant: GameVariant = 'beginner', setup: SetupMode = 'preset') {
   const store = new RoomStore({ seedFactory: () => seed });
   const created = store.createRoom('bots', 'Ann');
   if (!created.ok) throw new Error('create');
@@ -17,7 +17,7 @@ function playGame(seed: string, botSeed: number, maxActions = 6000, variant: Gam
   store.joinRoom(room.code, 'Bob');
   store.joinRoom(room.code, 'Cid');
   if (botSeed % 2 === 0) store.joinRoom(room.code, 'Dee');
-  expect(store.configureRoom(room, 'p1', { variant }).ok).toBe(true);
+  expect(store.configureRoom(room, 'p1', { variant, setup }).ok).toBe(true);
   expect(store.startGame(room, 'p1').ok).toBe(true);
   const rnd = botRandom(botSeed);
   let rejected = 0;
@@ -96,6 +96,33 @@ describe('full games on the variable set-ups (spec §3.2)', () => {
         const node = game.board.nodes[ship.nodeId]!;
         if (node.sectorId) expect(game.board.sectors[node.sectorId]!.discovered).toBe(true);
       }
+    });
+  }
+});
+
+describe('full games after the advanced set-up draft (spec §3.4)', () => {
+  for (const [variant, players, seed, botSeed] of [
+    ['strategic', 3, 'full-draft-strategic', 7],
+    ['beginner', 4, 'full-draft-beginner', 8],
+  ] as const) {
+    it(`draft + ${variant}, ${players} players: the bot drafts and plays to a win with zero rejections`, () => {
+      const { room, actions, rejected, rejections } = playGame(seed, botSeed, 8000, variant, 'draft');
+      const game = room.game!;
+      expect(rejected, rejections.join('\n')).toBe(0);
+      expect(game.setup).toBe('draft');
+      expect(game.variant).toBe(variant);
+      expect(game.players).toHaveLength(players);
+      expect(room.actions.slice(0, players * 3).every((a) => a.type === 'draftColony')).toBe(true);
+      expect(room.actions.slice(players * 3, players * 4).every((a) => a.type === 'draftFinish')).toBe(true);
+      expect(room.initial!.phase).toBe('setup');
+      expect(game.winner, `no winner after ${actions} actions, turn ${game.turnNumber}`).not.toBeNull();
+      expect(game.players.find((p) => p.id === game.winner)!.vp).toBeGreaterThanOrEqual(WIN_VP);
+      // All 12 Catanian sites were settled by the draft (3 players: the last three by the unused colour).
+      const catanian = Object.values(game.board.settlements).filter((s) => ['alpha', 'beta', 'gamma', 'delta'].includes(game.board.nodes[s.nodeId]!.sectorId ?? ''));
+      expect(catanian).toHaveLength(12);
+      expect(catanian.filter((s) => s.owner === null)).toHaveLength(players === 3 ? 3 : 0);
+      const cards = Object.values(game.supply).reduce((a, b) => a + b, 0) + game.reservePile.length + game.players.reduce((n, p) => n + p.hand.length, 0);
+      expect(cards).toBe(100);
     });
   }
 });

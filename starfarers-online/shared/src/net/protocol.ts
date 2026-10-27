@@ -4,7 +4,7 @@
  * so the sender learns about rejection without a broadcast.
  */
 
-import type { Action, GameError, GameState, GameVariant, PlayerColor, PlayerId } from '../types.js';
+import type { Action, GameError, GameState, GameVariant, PlayerColor, PlayerId, SetupMode } from '../types.js';
 
 export interface LobbyPlayer {
   id: PlayerId;
@@ -27,6 +27,8 @@ export interface RoomConfig {
   turnTimerSeconds: number | null;
   /** Set-up used when the host starts (spec §3.2); default 'beginner'. Host-only, via `configureRoom`. */
   variant: GameVariant;
+  /** Starting pieces (spec §3.3 preset / §3.4 draft); default 'preset'. Host-only, via `configureRoom`. */
+  setup: SetupMode;
 }
 
 /** What every member sees about the room, before and during the game. */
@@ -74,8 +76,8 @@ export interface ClientToServerEvents {
   createRoom(payload: { roomName: string; playerName: string }, ack: Ack<JoinReply>): void;
   joinRoom(payload: { code: string; playerName: string }, ack: Ack<JoinReply>): void;
   resume(payload: { roomCode: string; playerToken: string }, ack: Ack<JoinReply>): void;
-  /** Host only, before the start: change the room's set-up; the room then gets a fresh `lobby`. */
-  configureRoom(payload: { variant: GameVariant }, ack: Ack<{ configured: true }>): void;
+  /** Host only, before the start: change the room's set-up (board variant and/or start mode); the room then gets a fresh `lobby`. */
+  configureRoom(payload: { variant?: GameVariant; setup?: SetupMode }, ack: Ack<{ configured: true }>): void;
   startGame(payload: Record<string, never>, ack: Ack<{ started: true }>): void;
   action(payload: { action: Action }, ack: Ack<{ accepted: true }>): void;
   /** State after the first `index` accepted actions (0 = initial), replayed on the server and redacted for the asker. */

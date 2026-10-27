@@ -41,4 +41,8 @@ export const ACTION_POLICY: Readonly<Record<ActionType, ActionPolicy>> = {
   // 'flight.shake' is never a resting phase (shakeMothership is the transition
   // out of tradeBuild), so endTurn is not listed for it.
   endTurn: { phases: ['tradeBuild', 'flight.move'], activePlayerOnly: true },
+  // Advanced set-up draft (§3.4): `activePlayer` is the current picker, so the
+  // ordinary gating covers the snake order; the handler checks the round.
+  draftColony: { phases: ['setup'], activePlayerOnly: true },
+  draftFinish: { phases: ['setup'], activePlayerOnly: true },
 };

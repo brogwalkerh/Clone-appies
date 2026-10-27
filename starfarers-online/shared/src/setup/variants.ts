@@ -15,8 +15,8 @@
  *               `WILD_SPACE_SLOT_ORDER` (nearest → farthest); the 16th tile is
  *               returned to the box unseen. Discs as in explorer.
  *
- * Starting pieces are the beginner positions (spec §3.3; the advanced draft of
- * §3.4 is a later item). Planet orientation on a placed system is
+ * Starting pieces are the beginner positions (spec §3.3) unless `setup` is
+ * `'draft'` (§3.4, setup/draft.ts). Planet orientation on a placed system is
  * `VARIABLE_SETUP_START_LOBE` (config, judgment call). Every random choice
  * goes through the seeded rng, so the seed reproduces the whole board.
  */
@@ -28,7 +28,7 @@ import { buildBoard } from '../board/graph.js';
 import { assignPlanetsClockwise, type BoardLayout, type Placement, type SlotPlacement, type TileLayout } from '../board/layout.js';
 import { STRATEGIC_RETURNED_EMPTY, VARIABLE_SETUP_START_LOBE, WILD_SPACE_SLOT_ORDER } from '../config.js';
 import { createRng, type Rng } from '../rng.js';
-import type { Board, DiscIcon, GameState, GameVariant, TileId } from '../types.js';
+import type { Board, DiscIcon, GameState, GameVariant, SetupMode, TileId } from '../types.js';
 import { placeUnexploredDiscs } from './beginner.js';
 import { assembleState, validatePlayers, type PlayerSpec } from './common.js';
 
@@ -39,6 +39,8 @@ export interface VariableGameOptions {
   seed: string;
   /** Game id; defaults to the seed. */
   id?: string;
+  /** Starting pieces: 'preset' (default, spec §3.3) or the §3.4 'draft'. */
+  setup?: SetupMode | undefined;
   /** Override the layout data (tests). */
   layout?: BoardLayout;
 }
@@ -139,6 +141,7 @@ export function createVariableGame(variant: VariableVariant, options: VariableGa
     id: options.id ?? options.seed,
     seed: options.seed,
     variant,
+    setup: options.setup,
     players: options.players,
     board,
     layout,

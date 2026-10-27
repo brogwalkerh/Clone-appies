@@ -21,6 +21,7 @@ import {
   createGame,
   createRng,
   isGameVariant,
+  isSetupMode,
   redactState,
   rngFromState,
   type Action,
@@ -34,6 +35,7 @@ import {
   type PlayerId,
   type Rng,
   type RoomConfig,
+  type SetupMode,
 } from '@starfarers/shared';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type { RoomPersistence } from './persist.js';
@@ -98,8 +100,12 @@ function netError(code: NetError['code'], message: string): RoomResult<never> {
   return { ok: false, error: { code, message } };
 }
 
-/** A snapshot as it may come back from storage (written before `updatedAt` existed). */
-export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial'> & { updatedAt?: number; initial?: GameState | null };
+/** A snapshot as it may come back from storage (written before `updatedAt`, `initial` or `config.setup` existed). */
+export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial' | 'config'> & {
+  updatedAt?: number;
+  initial?: GameState | null;
+  config: Omit<RoomConfig, 'setup'> & { setup?: SetupMode };
+};
 
 export const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_FINISHED_MS = 24 * 60 * 60 * 1000;
@@ -188,7 +194,7 @@ export class RoomStore {
       updatedAt: now,
       hostId: player.id,
       players: [player],
-      config: { turnTimerSeconds: null, variant: 'beginner' },
+      config: { turnTimerSeconds: null, variant: 'beginner', setup: 'preset' },
       started: false,
       seed: null,
       game: null,
@@ -269,16 +275,16 @@ export class RoomStore {
     };
   }
 
-  /** Host only, before the start: change the room's set-up (`variant`). Unknown keys are ignored. */
+  /** Host only, before the start: change the room's set-up (`variant` and/or `setup`). Unknown keys are ignored; nothing changes on a bad value. */
   configureRoom(room: Room, byPlayerId: PlayerId, patch: unknown): RoomResult<Room> {
     if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can change the set-up');
     if (room.started) return netError('alreadyStarted', 'The game has already started');
     if (typeof patch !== 'object' || patch === null) return netError('badRequest', 'A room configuration is needed');
-    const variant = (patch as { variant?: unknown }).variant;
-    if (variant !== undefined) {
-      if (!isGameVariant(variant)) return netError('badRequest', `Unknown set-up ${String(variant)}`);
-      room.config.variant = variant;
-    }
+    const { variant, setup } = patch as { variant?: unknown; setup?: unknown };
+    if (variant !== undefined && !isGameVariant(variant)) return netError('badRequest', `Unknown set-up ${String(variant)}`);
+    if (setup !== undefined && !isSetupMode(setup)) return netError('badRequest', `Unknown start mode ${String(setup)}`);
+    if (variant !== undefined && isGameVariant(variant)) room.config.variant = variant;
+    if (setup !== undefined && isSetupMode(setup)) room.config.setup = setup;
     return { ok: true, value: room };
   }
 
@@ -289,6 +295,7 @@ export class RoomStore {
     const seed = this.seedFactory();
     const game = createGame({
       variant: room.config.variant,
+      setup: room.config.setup,
       id: room.code,
       seed,
       players: room.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
@@ -457,7 +464,7 @@ export class RoomStore {
       updatedAt: snapshot.updatedAt ?? snapshot.createdAt,
       hostId: snapshot.hostId,
       players: snapshot.players.map((p) => ({ ...p, socketId: null, connected: false })),
-      config: { ...snapshot.config },
+      config: { ...snapshot.config, setup: snapshot.config.setup ?? 'preset' },
       started: snapshot.started,
       seed: snapshot.seed,
       game: snapshot.game,

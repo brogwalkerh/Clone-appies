@@ -27,6 +27,7 @@ import {
   type PlayerId,
   type PlayerSpec,
   type Rng,
+  type SetupMode,
   type ShipId,
 } from '@starfarers/shared';
 import { createContext, useContext } from 'react';
@@ -38,6 +39,8 @@ export interface GameSetup {
   seed: string;
   /** Set-up (spec §3.2); defaults to 'beginner'. */
   variant?: GameVariant | undefined;
+  /** Start mode (spec §3.3 preset / §3.4 draft); defaults to 'preset'. */
+  setup?: SetupMode | undefined;
 }
 
 /** A board-click request from a panel ("choose a spaceport site"), shown as highlighted nodes. */
@@ -147,7 +150,7 @@ export function createGameStore(): GameStore {
       replayIndex: null,
 
       newGame(setup) {
-        begin(setup, createGame({ variant: setup.variant ?? 'beginner', players: setup.players, seed: setup.seed }), setup.seed);
+        begin(setup, createGame({ variant: setup.variant ?? 'beginner', setup: setup.setup ?? 'preset', players: setup.players, seed: setup.seed }), setup.seed);
       },
 
       loadGame(setup, state) {

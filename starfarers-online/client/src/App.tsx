@@ -11,10 +11,13 @@
  *   - a panel's `nodePick` (build sites) wins over everything else;
  *   - during a space-jump pick, highlighted nodes are `legalJumpTargets`;
  *   - in flight.move, selecting one of the viewer's ships highlights
- *     `legalMoves` and clicking a highlighted node sends `moveShip` with the BFS path.
+ *     `legalMoves` and clicking a highlighted node sends `moveShip` with the BFS path;
+ *   - in phase 'setup' (advanced draft, spec §3.4) rounds 1–3 highlight the free
+ *     Catanian sites for the current drafter and a click sends `draftColony`;
+ *     round 4 opens the `DraftPanel`.
  */
 
-import { WIN_VP, type NodeId, type ShipId } from '@starfarers/shared';
+import { WIN_VP, draftableSites, isColonyRound, type NodeId, type ShipId } from '@starfarers/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { Board } from './board/Board.js';
@@ -25,6 +28,7 @@ import { remoteStore } from './net/socket.js';
 import { ActionBar } from './panels/ActionBar.js';
 import { BuildMenu } from './panels/BuildMenu.js';
 import { ChatPanel } from './panels/ChatPanel.js';
+import { DraftPanel } from './panels/DraftPanel.js';
 import { EncounterModal } from './panels/EncounterModal.js';
 import { FoundStationDialog } from './panels/FoundStationDialog.js';
 import { FriendshipPanel } from './panels/FriendshipPanel.js';
@@ -65,12 +69,18 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
 
   const replaying = replayIndex !== null;
   const awaitingJump = state?.phase === 'flight.encounter' && state.turn.encounter?.awaiting?.kind === 'spaceJump' && state.turn.encounter.awaiting.playerId === viewer;
+  const draftingColony = state?.phase === 'setup' && state.draft !== undefined && isColonyRound(state.draft) && state.activePlayer === viewer;
+  const draftingFinish = state?.phase === 'setup' && state.draft !== undefined && !isColonyRound(state.draft) && state.activePlayer === viewer;
 
   const highlights = useMemo(() => {
     const m = new Map<NodeId, NodeId[] | null>();
     if (!state || replaying) return m;
     if (nodePick) {
       for (const n of nodePick.candidates) m.set(n, null);
+      return m;
+    }
+    if (draftingColony) {
+      for (const n of draftableSites(state)) m.set(n, null);
       return m;
     }
     if (!selectedShip || state.board.ships[selectedShip]?.owner !== viewer) return m;
@@ -80,7 +90,7 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
     }
     if (state.phase === 'flight.move' && state.activePlayer === viewer) return legalMoves(state, selectedShip);
     return m;
-  }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump]);
+  }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump, draftingColony]);
 
   if (!state || !live) return null;
 
@@ -88,6 +98,10 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
     if (replaying || pendingViewer) return;
     if (nodePick) {
       if (nodePick.candidates.includes(nodeId)) nodePick.onPick(nodeId);
+      return;
+    }
+    if (state.phase === 'setup') {
+      if (draftingColony && highlights.has(nodeId)) act({ type: 'draftColony', siteId: nodeId });
       return;
     }
     if (selectedShip && highlights.has(nodeId)) {
@@ -163,6 +177,7 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
       {!replaying && viewer && !hidden && <SevenDialog state={state} viewer={viewer} />}
       {!replaying && viewer && !hidden && <EncounterModal state={state} viewer={viewer} />}
       {!replaying && viewer && !hidden && pendingFound && <FoundStationDialog state={state} viewer={viewer} shipId={pendingFound} />}
+      {!replaying && viewer && !hidden && draftingFinish && <DraftPanel state={state} viewer={viewer} />}
       {winner && (
         <div className="curtain" data-testid="game-over">
           <div className="curtain-card">

@@ -233,6 +233,35 @@ export const VARIABLE_SETUP_START_LOBE = 0;
 export const STRATEGIC_RETURNED_EMPTY: 'random' | string = 'random';
 
 // ---------------------------------------------------------------------------
+// Advanced set-up draft (spec §3.4) and 3-player rules (§3.3, layouts/beginner.json threePlayerRule)
+// ---------------------------------------------------------------------------
+
+/** Bonus upgrades drafted in round 4 of the advanced set-up, one per player (spec §3.4). */
+export const DRAFT_UPGRADE_POOL: readonly UpgradeKind[] = ['booster', 'booster', 'cannon', 'freightPod'];
+
+/** Colony picks per player before round 4 (rounds 1–3 of the snake draft). */
+export const DRAFT_COLONY_ROUNDS = 3;
+
+/**
+ * **[VERIFY]** 3-player advanced set-up: "one upgrade stays out" of the pool
+ * (spec §3.4) but the rulebook does not say which. Default: one of the two
+ * boosters, leaving one of each kind so the three players' bonuses differ;
+ * `'random'` would draw it through the rng instead. The upgrade that stays out
+ * goes back to the tray and can be bought later like any other.
+ */
+export const DRAFT_3P_REMOVED_UPGRADE: UpgradeKind | 'random' = 'booster';
+
+/**
+ * **[VERIFY]** 3-player advanced set-up: the three Catanian colony sites left
+ * free after the draft. Default `true`: the 4th colour's colonies occupy them,
+ * the way the 3-player beginner rule fills the unused colour's sites so nobody
+ * can found there later (spec §3.3, beginner.json `threePlayerRule`). Only
+ * colonies are placed (the draft leaves no spaceport site free), so no blocker
+ * spaceport exists in a drafted 3-player game. `false` leaves the sites open.
+ */
+export const DRAFT_3P_BLOCK_FREE_SITES = true;
+
+// ---------------------------------------------------------------------------
 // Friendship cards (spec §8) — static catalogue
 // ---------------------------------------------------------------------------
 

@@ -5,7 +5,11 @@
  *
  * `assembleState` consumes the rng in a fixed order (encounter deck, reserve
  * discs, reserve pile, starting hands, starting roll) so a seed keeps meaning
- * the same game whichever set-up produced the board.
+ * the same game whichever set-up produced the board. In `'draft'` mode (spec
+ * §3.4) the starting pieces and hands are not placed here: the state is left
+ * in phase `'setup'` with `state.draft` (setup/draft.ts) and the hands are
+ * dealt by the engine when the last pick lands, so the rng order is deck,
+ * discs, pile, starting roll.
  */
 
 import {
@@ -36,9 +40,11 @@ import type {
   PlayerColor,
   PlayerId,
   Resource,
+  SetupMode,
 } from '../types.js';
 import { CIVS, PLAYER_COLORS } from '../types.js';
 import { recomputeAllVp } from '../vp.js';
+import { initialDraftState } from './draft.js';
 
 export interface PlayerSpec {
   id: PlayerId;
@@ -131,6 +137,8 @@ export interface AssembleOptions {
   id: string;
   seed: string;
   variant: GameVariant;
+  /** Starting-piece mode (spec §3.3 preset / §3.4 draft); defaults to 'preset'. */
+  setup?: SetupMode | undefined;
   players: PlayerSpec[];
   /** Board with its sectors and discs already placed. */
   board: Board;
@@ -147,6 +155,7 @@ export interface AssembleOptions {
 /** Players, supply, decks, starting pieces, hands and the starting roll on top of a finished board. */
 export function assembleState(options: AssembleOptions): GameState {
   const { board, layout, placement, rng } = options;
+  const setup: SetupMode = options.setup ?? 'preset';
   const players = options.players.map(makePlayer);
   const n = players.length;
   const usedColors = new Set(players.map((p) => p.color));
@@ -171,6 +180,7 @@ export function assembleState(options: AssembleOptions): GameState {
     id: options.id,
     seed: options.seed,
     variant: options.variant,
+    setup,
     players,
     turnOrder: [],
     activePlayer: '',
@@ -199,17 +209,32 @@ export function assembleState(options: AssembleOptions): GameState {
     log: [],
   };
 
-  for (const p of players) placeStartingPieces(state, placement, p.color, p);
-  if (blockerColor) placeStartingPieces(state, placement, blockerColor, null);
+  if (setup === 'preset') {
+    for (const p of players) placeStartingPieces(state, placement, p.color, p);
+    if (blockerColor) placeStartingPieces(state, placement, blockerColor, null);
+  } else {
+    // §3.4: the fame piece comes with the reserve cards after the draft; the tray keeps it until then.
+    for (const p of players) p.famePieces = 0;
+    state.upgradesTray.famePieces += n * STARTING_FAME_PIECES;
+  }
 
   state.reservePile = buildReservePile(state, rng);
-  for (const p of players) p.hand.push(...drawFromReserve(state, STARTING_HAND_SIZE, rng));
+  if (setup === 'preset') {
+    for (const p of players) p.hand.push(...drawFromReserve(state, STARTING_HAND_SIZE, rng));
+  }
 
   const starter = rollForStart(players, rng);
   const startIdx = players.findIndex((p) => p.id === starter);
   state.turnOrder = [...players.slice(startIdx), ...players.slice(0, startIdx)].map((p) => p.id);
   state.activePlayer = starter;
-  state.phase = 'production';
+  const starterName = players.find((p) => p.id === starter)?.name ?? starter;
+
+  if (setup === 'preset') {
+    state.phase = 'production';
+  } else {
+    state.phase = 'setup';
+    state.draft = initialDraftState(state, starter, rng);
+  }
 
   recomputeAllVp(state);
   state.log.push({
@@ -217,7 +242,10 @@ export function assembleState(options: AssembleOptions): GameState {
     turnNumber: 1,
     playerId: null,
     kind: 'event',
-    message: `${options.label} game set up for ${n} players; ${players.find((p) => p.id === starter)?.name ?? starter} starts.`,
+    message:
+      setup === 'preset'
+        ? `${options.label} game set up for ${n} players; ${starterName} starts.`
+        : `${options.label} board set up for ${n} players; ${starterName} won the opening roll and starts the set-up draft (round 1 of 4).`,
   });
   return state;
 }
