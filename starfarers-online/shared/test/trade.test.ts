@@ -413,6 +413,27 @@ describe('useFriendshipCard: Diplomats', () => {
     fails(noCard, { type: 'useFriendshipCard', playerId: me, cardId: 'raHno', want: 'ore' }, 'ruleViolation');
   });
 
+  it('Galactic Relief Fund: a NON-active holder who produced nothing may claim it on another player\'s roll', () => {
+    const state = tradeBuildState();
+    const me = state.activePlayer;
+    const holder = opponents(state)[0]!.id;
+    player(state, holder).friendshipCards = ['raHno', 'reBah', 'raHna'];
+    setHand(state, holder, ['goods']);
+    state.turn.rolled = 8;
+    state.turn.productionReceived = { [me]: 2, [holder]: 0 };
+    const goods = state.supply.goods;
+
+    const next = ok(state, { type: 'useFriendshipCard', playerId: holder, cardId: 'raHno', want: 'goods' });
+    expect(player(next, holder).hand).toEqual(['goods', 'goods']);
+    expect(next.supply.goods).toBe(goods - 1);
+    expect(next.activePlayer).toBe(me);
+    expect(next.phase).toBe('tradeBuild');
+    fails(next, { type: 'useFriendshipCard', playerId: holder, cardId: 'raHno', want: 'goods' }, 'ruleViolation');
+    // The Trade & Build cards are still the active player's only.
+    fails(next, { type: 'useFriendshipCard', playerId: holder, cardId: 'reBah' }, 'notYourTurn');
+    fails(next, { type: 'useFriendshipCard', playerId: holder, cardId: 'raHna', targets: [me, opponents(state)[1]!.id] }, 'notYourTurn');
+  });
+
   it('rejects passive cards and unknown cards', () => {
     const state = tradeBuildState();
     const me = state.activePlayer;
@@ -422,5 +443,8 @@ describe('useFriendshipCard: Diplomats', () => {
     fails(state, { type: 'useFriendshipCard', playerId: me, cardId: 'axxa' }, 'invalidAction');
     fails(state, { type: 'useFriendshipCard', playerId: me, cardId: 'khaStar' }, 'invalidAction');
     fails(state, { type: 'useFriendshipCard', playerId: me, cardId: 'bogus' as never }, 'invalidAction');
+    for (const cardId of ['__proto__', 'toString', 'constructor']) {
+      fails(state, { type: 'useFriendshipCard', playerId: me, cardId: cardId as never }, 'invalidAction');
+    }
   });
 });

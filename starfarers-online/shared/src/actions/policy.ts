@@ -22,8 +22,11 @@ export const ACTION_POLICY: Readonly<Record<ActionType, ActionPolicy>> = {
   respondTrade: { phases: ['tradeBuild'], activePlayerOnly: false },
   tradeWithSupply: { phases: ['tradeBuild'], activePlayerOnly: true },
   build: { phases: ['tradeBuild'], activePlayerOnly: true },
-  // Galactic Relief Fund resolves right after production; everything else is Trade & Build.
-  useFriendshipCard: { phases: ['production', 'tradeBuild'], activePlayerOnly: true },
+  // Galactic Relief Fund resolves right after production and may be claimed by
+  // ANY holder who produced nothing on the roll (§5.1), so the envelope does not
+  // gate on the active player; the handler rejects non-active players for the
+  // Trade & Build cards (Fame for Sale, A Helping Hand).
+  useFriendshipCard: { phases: ['production', 'tradeBuild'], activePlayerOnly: false },
   // Sent at the end of Trade & Build to enter the flight phase.
   shakeMothership: { phases: ['tradeBuild', 'flight.shake'], activePlayerOnly: true },
   encounterChoice: { phases: ['flight.encounter'], activePlayerOnly: true },

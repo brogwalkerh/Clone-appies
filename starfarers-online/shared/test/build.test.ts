@@ -249,6 +249,10 @@ describe('build: gating', () => {
     const me = state.activePlayer;
     setHand(state, me, ['fuel', 'fuel']);
     fails(state, { type: 'build', playerId: me, item: 'deathStar' as never }, 'invalidAction');
+    // Inherited object keys must not slip through the cost / upgrade lookups.
+    for (const item of ['toString', '__proto__', 'constructor', 'hasOwnProperty']) {
+      fails(state, { type: 'build', playerId: me, item: item as never }, 'invalidAction');
+    }
     fails(state, { type: 'build', playerId: opponents(state)[0]!.id, item: 'booster' }, 'notYourTurn');
     const prod = structuredClone(state);
     prod.phase = 'production';

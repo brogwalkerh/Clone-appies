@@ -365,6 +365,17 @@ describe('rolling a 7 — discard threshold', () => {
     for (const id of ['p1', 'p2', 'p3', 'p4']) expect(hand(after, id)).toEqual(hand(state, id));
   });
 
+  it('a discard must name real resources; bogus names do not clear the obligation', () => {
+    const state = freshGame();
+    setHand(state, 'p2', cards(8));
+    const after = roll(state, 7);
+    expect(after.turn.seven!.awaitingDiscard).toEqual(['p2']);
+    expectError(after, { type: 'discardForSeven', playerId: 'p2', cards: ['x', 'y', 'z', 'w'] as never }, createRng('x'), 'invalidAction');
+    expectError(after, { type: 'discardForSeven', playerId: 'p2', cards: ['ore', 'ore', 'ore', 'toString'] as never }, createRng('x'), 'invalidAction');
+    expect(after.turn.seven!.awaitingDiscard).toEqual(['p2']);
+    expect(hand(after, 'p2')).toHaveLength(8);
+  });
+
   it('a Reduced Tribute holder with 13 cards still discards 6', () => {
     const state = freshGame();
     setHand(state, 'p4', cards(13));

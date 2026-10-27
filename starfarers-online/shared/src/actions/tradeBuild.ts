@@ -286,7 +286,7 @@ const TRAY_KEY: Readonly<Record<UpgradeKind, 'boosters' | 'cannons' | 'freightPo
 };
 
 function isUpgrade(item: string): item is UpgradeKind {
-  return item in UPGRADE_CAPS;
+  return Object.hasOwn(UPGRADE_CAPS, item);
 }
 
 /** Smallest unused `ship:<color>:<n>` (n ≥ 1), matching setup/beginner.ts ids. */
@@ -378,7 +378,8 @@ function buildUpgrade(state: GameState, player: Player, kind: UpgradeKind): Game
 
 const handleBuild: Handler<'build'> = (state, action) => {
   const player = getPlayer(state, action.playerId);
-  const cost = BUILD_COSTS[action.item as keyof typeof BUILD_COSTS] as ResourceBag | undefined;
+  // Own-property lookup: inherited keys such as 'toString' are not build items.
+  const cost = Object.hasOwn(BUILD_COSTS, action.item) ? BUILD_COSTS[action.item] : undefined;
   if (!cost) return gameError('invalidAction', `Unknown build item ${String(action.item)}`);
 
   // Legality first (what may be built), then affordability.
@@ -493,8 +494,14 @@ function galacticReliefFund(state: GameState, player: Player, want: unknown): Ga
 
 const handleUseFriendshipCard: Handler<'useFriendshipCard'> = (state, action, rng) => {
   const player = getPlayer(state, action.playerId);
-  const def = FRIENDSHIP_CARDS[action.cardId];
+  const def = Object.hasOwn(FRIENDSHIP_CARDS, action.cardId) ? FRIENDSHIP_CARDS[action.cardId] : undefined;
   if (!def) return gameError('invalidAction', `Unknown friendship card ${String(action.cardId)}`);
+  // Only the Galactic Relief Fund may be claimed by a non-active player (§5.1);
+  // `ACTION_POLICY` leaves the envelope open so that holder can act on another
+  // player's roll. Everything else is a Trade & Build action of the active player.
+  if (def.effect.kind !== 'galacticReliefFund' && state.activePlayer !== player.id) {
+    return gameError('notYourTurn', `${def.name} may only be used by the active player`);
+  }
   if (!player.friendshipCards.includes(action.cardId)) {
     return gameError('ruleViolation', `You do not hold ${def.name}`, { cardId: action.cardId });
   }

@@ -23,7 +23,7 @@ import {
 } from '../production/seven.js';
 import { drawFromReserve, handHas, handToBag, removeFromHand, returnToSupply } from '../supply.js';
 import type { GameState, PlayerId } from '../types.js';
-import { gameError } from '../types.js';
+import { RESOURCES, gameError } from '../types.js';
 import { logEvent, type ActionModule, type Handler, type HandlerMap } from './handler.js';
 
 export { reliefEligible } from '../production/relief.js';
@@ -77,6 +77,9 @@ const discardForSeven: Handler<'discardForSeven'> = (state, action, rng) => {
     return gameError('ruleViolation', 'You do not have to discard', { awaiting: [...seven.awaitingDiscard] });
   }
   const player = getPlayer(state, action.playerId);
+  if (!Array.isArray(action.cards) || !action.cards.every((c) => (RESOURCES as readonly string[]).includes(c))) {
+    return gameError('invalidAction', 'discardForSeven needs a list of resources', { cards: action.cards });
+  }
   const required = discardCountFor(player.hand.length);
   if (action.cards.length !== required) {
     return gameError('invalidAction', `You must discard exactly ${required} cards`, { required, given: action.cards.length });
