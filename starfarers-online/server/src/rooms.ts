@@ -1,7 +1,10 @@
 /**
- * In-memory room store (spec §13, HANDOFF §7). No sockets in here: every
- * method is a plain function over `Room` so it can be unit-tested directly and
- * swapped for a persistent store later (`snapshot()` is the serialisable form).
+ * Room store (spec §13, HANDOFF §7). No sockets in here: every method is a
+ * plain function over `Room` so it can be unit-tested directly.
+ *
+ * Rooms live in memory; an optional `RoomPersistence` (persist.ts) receives a
+ * `RoomSnapshot` after every mutation that changes it, and `restoreAll()`
+ * reads them back on boot. `sweep()` expires idle and finished rooms.
  *
  * One `Rng` per room is created from a server-generated seed when the game
  * starts and reused across actions; `snapshot()` carries `rng.getState()`.
@@ -32,6 +35,7 @@ import {
   type RoomConfig,
 } from '@starfarers/shared';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import type { RoomPersistence } from './persist.js';
 
 export interface RoomPlayer {
   id: PlayerId;
@@ -47,6 +51,8 @@ export interface Room {
   code: string;
   name: string;
   createdAt: number;
+  /** Last activity: create, join, start, accepted action, chat, socket bind/unbind. Drives `sweep()`. */
+  updatedAt: number;
   hostId: PlayerId;
   players: RoomPlayer[];
   config: RoomConfig;
@@ -59,11 +65,13 @@ export interface Room {
   messages: ChatMessage[];
 }
 
-/** Serialisable form of a room (for a future persistent store). */
+/** Serialisable form of a room: what `RoomPersistence` stores. */
 export interface RoomSnapshot {
   code: string;
   name: string;
   createdAt: number;
+  /** Added in phase 6; older snapshots lack it and `restore()` falls back to `createdAt`. */
+  updatedAt: number;
   hostId: PlayerId;
   players: RoomPlayer[];
   config: RoomConfig;
@@ -85,11 +93,25 @@ function netError(code: NetError['code'], message: string): RoomResult<never> {
   return { ok: false, error: { code, message } };
 }
 
+/** A snapshot as it may come back from storage (written before `updatedAt` existed). */
+export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt'> & { updatedAt?: number };
+
+export const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_FINISHED_MS = 24 * 60 * 60 * 1000;
+
 export interface RoomStoreOptions {
   /** Seed for a new game; defaults to 16 random hex chars. Tests inject a fixed one. */
   seedFactory?: () => string;
   now?: () => number;
   codeFactory?: () => string;
+  /** Where snapshots go after each mutation; none = memory only. */
+  persistence?: RoomPersistence;
+  /** `sweep()` removes rooms with no activity for this long (default 24 h). */
+  idleMs?: number;
+  /** `sweep()` removes finished games this long after their last activity (default 24 h). */
+  finishedMs?: number;
+  /** Persistence failures are logged here, never thrown (default console.warn). */
+  warn?: (message: string) => void;
 }
 
 export function randomRoomCode(): string {
@@ -114,11 +136,21 @@ export class RoomStore {
   private readonly seedFactory: () => string;
   private readonly now: () => number;
   private readonly codeFactory: () => string;
+  private readonly persistence: RoomPersistence | null;
+  private readonly idleMs: number;
+  private readonly finishedMs: number;
+  private readonly warn: (message: string) => void;
+  /** Tail of the write chain per room code: writes for one room never interleave. */
+  private readonly writes = new Map<string, Promise<void>>();
 
   constructor(options: RoomStoreOptions = {}) {
     this.seedFactory = options.seedFactory ?? (() => randomBytes(8).toString('hex'));
     this.now = options.now ?? (() => Date.now());
     this.codeFactory = options.codeFactory ?? randomRoomCode;
+    this.persistence = options.persistence ?? null;
+    this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
+    this.finishedMs = options.finishedMs ?? DEFAULT_FINISHED_MS;
+    this.warn = options.warn ?? ((m) => console.warn(`[rooms] ${m}`));
   }
 
   get size(): number {
@@ -137,10 +169,12 @@ export class RoomStore {
     for (let tries = 0; this.rooms.has(code) && tries < 100; tries++) code = this.codeFactory();
     if (this.rooms.has(code)) return netError('badRequest', 'Could not allocate a room code');
     const player: RoomPlayer = { id: 'p1', name, color: PLAYER_COLORS[0] as PlayerColor, token: randomUUID(), socketId: null, connected: false };
+    const now = this.now();
     const room: Room = {
       code,
       name: title,
-      createdAt: this.now(),
+      createdAt: now,
+      updatedAt: now,
       hostId: player.id,
       players: [player],
       config: { turnTimerSeconds: null },
@@ -152,6 +186,7 @@ export class RoomStore {
       messages: [],
     };
     this.rooms.set(code, room);
+    this.changed(room);
     return { ok: true, value: { room, player } };
   }
 
@@ -171,6 +206,7 @@ export class RoomStore {
     while (usedIds.has(`p${n}`)) n++;
     const player: RoomPlayer = { id: `p${n}`, name, color, token: randomUUID(), socketId: null, connected: false };
     room.players.push(player);
+    this.changed(room);
     return { ok: true, value: { room, player } };
   }
 
@@ -190,6 +226,7 @@ export class RoomStore {
     player.socketId = socketId;
     player.connected = true;
     this.mirrorConnected(room);
+    room.updatedAt = this.now();
     return previous;
   }
 
@@ -201,6 +238,7 @@ export class RoomStore {
         player.socketId = null;
         player.connected = false;
         this.mirrorConnected(room);
+        room.updatedAt = this.now();
         return { room, player };
       }
     }
@@ -245,6 +283,7 @@ export class RoomStore {
     room.started = true;
     room.actions = [];
     this.mirrorConnected(room);
+    this.changed(room);
     return room;
   }
 
@@ -260,6 +299,7 @@ export class RoomStore {
     if (!result.ok) return { ok: false, error: result.error };
     room.game = result.value;
     room.actions.push(a);
+    this.changed(room);
     return { ok: true, value: result.value };
   }
 
@@ -268,6 +308,7 @@ export class RoomStore {
     const message: ChatMessage = { from: player.id, name: player.name, text: text.trim().slice(0, MAX_CHAT), at: this.now() };
     room.messages.push(message);
     if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
+    this.changed(room);
     return { ok: true, value: message };
   }
 
@@ -314,6 +355,7 @@ export class RoomStore {
       code: room.code,
       name: room.name,
       createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
       hostId: room.hostId,
       players: room.players.map((p) => ({ ...p, socketId: null, connected: false })),
       config: { ...room.config },
@@ -326,11 +368,17 @@ export class RoomStore {
     };
   }
 
-  restore(snapshot: RoomSnapshot): Room {
+  /**
+   * Rebuild a room from a snapshot: every player disconnected (and mirrored
+   * into the game state), the rng continued from `rngState`. Does not write to
+   * persistence (the snapshot came from there or from a test).
+   */
+  restore(snapshot: StoredRoomSnapshot): Room {
     const room: Room = {
       code: snapshot.code,
       name: snapshot.name,
       createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt ?? snapshot.createdAt,
       hostId: snapshot.hostId,
       players: snapshot.players.map((p) => ({ ...p, socketId: null, connected: false })),
       config: { ...snapshot.config },
@@ -341,11 +389,93 @@ export class RoomStore {
       actions: [...snapshot.actions],
       messages: [...snapshot.messages],
     };
+    this.mirrorConnected(room);
     this.rooms.set(room.code, room);
     return room;
   }
 
+  /** Remove a room from memory and from persistence. */
   deleteRoom(code: string): boolean {
-    return this.rooms.delete(normalizeCode(code));
+    const key = normalizeCode(code);
+    if (!this.rooms.delete(key)) return false;
+    const persistence = this.persistence;
+    if (persistence) this.enqueue(key, () => persistence.remove(key), `remove ${key}`);
+    return true;
   }
+
+  /** Load every stored room into memory. Returns how many were restored. */
+  async restoreAll(): Promise<number> {
+    if (!this.persistence) return 0;
+    const snapshots = await this.persistence.loadAll();
+    let count = 0;
+    for (const snapshot of snapshots as StoredRoomSnapshot[]) {
+      try {
+        this.restore(snapshot);
+        count++;
+      } catch (err) {
+        this.warn(`could not restore room ${String(snapshot.code)}: ${errMessage(err)}`);
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Expire rooms (memory + persistence): no activity for `idleMs`, or a
+   * finished game with no activity for `finishedMs`. A room with any connected
+   * player is always kept. Returns the removed codes.
+   */
+  sweep(): string[] {
+    const now = this.now();
+    const removed: string[] = [];
+    for (const room of [...this.rooms.values()]) {
+      if (room.players.some((p) => p.connected)) continue;
+      const idle = now - room.updatedAt;
+      const finished = room.game !== null && (room.game.phase === 'gameOver' || room.game.winner !== null);
+      if (idle > this.idleMs || (finished && idle > this.finishedMs)) {
+        this.deleteRoom(room.code);
+        removed.push(room.code);
+      }
+    }
+    return removed;
+  }
+
+  /** Resolves once every write queued so far (and any queued meanwhile) has settled. */
+  async flush(): Promise<void> {
+    while (this.writes.size > 0) await Promise.all([...this.writes.values()]);
+  }
+
+  /** A mutation that changes the snapshot: bump `updatedAt` and persist. */
+  private changed(room: Room): void {
+    room.updatedAt = this.now();
+    this.persist(room);
+  }
+
+  /**
+   * Fire-and-forget save. The snapshot is taken now (the rng state moves on
+   * with the next action); the write is chained behind earlier writes for the
+   * same room so two quick actions cannot interleave their renames.
+   */
+  private persist(room: Room): void {
+    const persistence = this.persistence;
+    if (!persistence) return;
+    // A stale reference to a deleted room must not resurrect its file.
+    if (this.rooms.get(room.code) !== room) return;
+    const snapshot = this.snapshot(room);
+    this.enqueue(room.code, () => persistence.save(snapshot), `save ${room.code}`);
+  }
+
+  private enqueue(code: string, write: () => Promise<void>, what: string): void {
+    const previous = this.writes.get(code) ?? Promise.resolve();
+    const next = previous
+      .then(write)
+      .catch((err: unknown) => this.warn(`${what} failed: ${errMessage(err)}`));
+    this.writes.set(code, next);
+    void next.then(() => {
+      if (this.writes.get(code) === next) this.writes.delete(code);
+    });
+  }
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
