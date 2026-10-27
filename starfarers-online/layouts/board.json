@@ -1,0 +1,64 @@
+{
+  "_comment": "Catan: Starfarers 2019 fixed board, transcribed from Almanac p.16 (strategic set-up picture) and Rulebook pp.2-3. Pointy-top hex grid, odd-r offset coordinates: [row, col], odd rows shifted half a hex to the RIGHT. Row 0 is the victory-point-track edge, column 0 is the Catanian Colonies edge. Neighbours of an even-row hex (r,c): (r,c-1) (r,c+1) (r-1,c-1) (r-1,c) (r+1,c-1) (r+1,c). Neighbours of an odd-row hex: (r,c-1) (r,c+1) (r-1,c) (r-1,c+1) (r+1,c) (r+1,c+1).",
+  "grid": { "orientation": "pointy-top", "offset": "odd-r", "rows": 11, "cols": 16 },
+  "planets": { "ore": "red", "fuel": "orange", "carbon": "blue", "food": "green", "goods": "multicolor" },
+
+  "catanianColonies": {
+    "_comment": "Fixed. Planet colour per lobe hex, Greek-letter disc set per system. Disc values: alpha 4/8/11, beta 8/10/3-12, gamma 3/6/5, delta 2-11/6/9. Beginner set-up assigns them as listed in 'beginnerDisc'; strategic set-up shuffles the 3 discs within the system.",
+    "alpha": { "lobes": { "[0,1]": "food", "[1,0]": "carbon", "[1,1]": "fuel" }, "discs": [4, 8, 11], "beginnerDisc": { "[0,1]": 11, "[1,0]": 8, "[1,1]": 4 } },
+    "beta":  { "lobes": { "[3,0]": "ore", "[3,1]": "fuel", "[4,1]": "goods" }, "discs": [8, 10, "3/12"], "beginnerDisc": { "[3,0]": 8, "[3,1]": 10, "[4,1]": "3/12" } },
+    "gamma": { "lobes": { "[6,1]": "ore", "[7,0]": "food", "[7,1]": "carbon" }, "discs": [3, 6, 5], "beginnerDisc": { "[6,1]": 5, "[7,0]": 3, "[7,1]": 6 } },
+    "delta": { "lobes": { "[9,0]": "fuel", "[9,1]": "goods", "[10,1]": "ore" }, "discs": ["2/11", 6, 9], "beginnerDisc": { "[9,0]": 6, "[9,1]": "2/11", "[10,1]": 9 } }
+  },
+
+  "sectorSlots": {
+    "_comment": "15 vacant tri-lobe slots. Each slot lists its 3 lobe hexes. 'region' is near (before the nebula) or far (beyond it). The nebula band itself has no game effect; it only separates the regions for set-up.",
+    "N1": { "region": "near", "lobes": [[1,4], [1,5], [2,5]] },
+    "N2": { "region": "near", "lobes": [[2,7], [3,6], [3,7]] },
+    "N3": { "region": "near", "lobes": [[1,8], [1,9], [2,9]] },
+    "N4": { "region": "near", "lobes": [[4,4], [4,5], [5,4]] },
+    "N5": { "region": "near", "lobes": [[5,6], [6,6], [6,7]] },
+    "N6": { "region": "near", "lobes": [[8,5], [9,4], [9,5]] },
+    "N7": { "region": "near", "lobes": [[8,7], [8,8], [9,7]] },
+    "N8": { "region": "near", "lobes": [[8,10], [9,9], [9,10]] },
+    "F1": { "region": "far",  "lobes": [[1,11], [2,11], [2,12]] },
+    "F2": { "region": "far",  "lobes": [[1,13], [1,14], [2,14]] },
+    "F3": { "region": "far",  "lobes": [[4,11], [4,12], [5,11]] },
+    "F4": { "region": "far",  "lobes": [[5,13], [5,14], [6,14]] },
+    "F5": { "region": "far",  "lobes": [[5,9], [6,9], [6,10]] },
+    "F6": { "region": "far",  "lobes": [[7,11], [7,12], [8,12]] },
+    "F7": { "region": "far",  "lobes": [[8,14], [9,13], [9,14]] }
+  },
+
+  "sectors": {
+    "_comment": "16 sector tiles (Almanac p.4). Planetary systems list planets in clockwise order; a tile may be rotated freely when placed, so the engine assigns planets to lobe hexes in clockwise order starting from any lobe. 'icon' is the number-disc back icon on that planet (tri = triangle, br = bracket, hex = hex-circle). stars = back of the tile for the strategic/explorer set-up: 1-star tiles go to near slots, 2-star tiles to far slots. The star values are INFERRED (they match the beginner picture and the disc legend on Almanac p.16); confirm against the physical tiles.",
+    "S1": { "type": "system", "stars": 1, "planets": [ { "res": "carbon", "icon": "br" }, { "res": "food", "icon": "tri" }, { "res": "fuel", "icon": "hex" } ] },
+    "S2": { "type": "system", "stars": 1, "planets": [ { "res": "carbon", "icon": "tri" }, { "res": "ore", "icon": "hex" }, { "res": "goods", "icon": "br" } ] },
+    "S3": { "type": "system", "stars": 1, "planets": [ { "res": "fuel", "icon": "br" }, { "res": "ore", "icon": "tri" }, { "res": "goods", "icon": "hex" } ] },
+    "S4": { "type": "system", "stars": 1, "planets": [ { "res": "fuel", "icon": "tri" }, { "res": "food", "icon": "hex" }, { "res": "ore", "icon": "br" } ] },
+    "S5": { "type": "system", "stars": 1, "planets": [ { "res": "food", "icon": "br" }, { "res": "carbon", "icon": "hex" }, { "res": "goods", "icon": "tri" } ] },
+    "S6": { "type": "system", "stars": 2, "planets": [ { "res": "carbon", "icon": "br" }, { "res": "fuel", "icon": "tri" }, { "res": "goods", "icon": "hex" } ] },
+    "S7": { "type": "system", "stars": 2, "planets": [ { "res": "goods", "icon": "tri" }, { "res": "food", "icon": "br" }, { "res": "ore", "icon": "hex" } ] },
+    "S8": { "type": "system", "stars": 2, "planets": [ { "res": "ore", "icon": "hex" }, { "res": "carbon", "icon": "tri" }, { "res": "goods", "icon": "br" } ] },
+    "O_GreenFolk":  { "type": "outpost", "civ": "greenFolk",  "stars": 1 },
+    "O_Merchants":  { "type": "outpost", "civ": "merchants",  "stars": 1 },
+    "O_Scientists": { "type": "outpost", "civ": "scientists", "stars": 2 },
+    "O_Diplomats":  { "type": "outpost", "civ": "diplomats",  "stars": 2 },
+    "E1": { "type": "empty", "stars": 1 },
+    "E2": { "type": "empty", "stars": 1 },
+    "E3": { "type": "empty", "stars": 2 },
+    "E4": { "type": "empty", "stars": 2 }
+  },
+
+  "numberDiscs": {
+    "_comment": "Unexplored discs by back icon. Each planetary system gets exactly one disc of each icon, so pirate bases (P) and ice planets (I) only ever appear on a hex-icon planet.",
+    "tri": [3, 4, 4, 11, 12, 3, 4, 11],
+    "br":  [2, 5, 5, 6, 9, 5, 8, 9],
+    "hex": [10, 10, 10, "P4", "P5", "P6", "I3", "I4"],
+    "reserve": [3, 9, 10, 11, 11]
+  },
+
+  "intersections": {
+    "_comment": "Intersections are hex vertices. In a tri-lobe sector the 3 lobe hexes share one CENTRE vertex and three pairwise edges. Planetary system: the centre vertex is NOT a node (ships cannot cross it); each pairwise edge's OUTER vertex is a colony site, adjacent to the 2 planets of that edge. Outpost: the centre vertex IS a node and is the docking point; the 5 docks are not nodes. Empty sector: the centre vertex is an ordinary node. Spaceport sites: the 2 node-neighbours of a spaceport's vertex (the centre vertex is excluded, so these are the vertices along the two planets' outer edges)."
+  }
+}
