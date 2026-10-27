@@ -187,6 +187,52 @@ export const TRAVELERS_DONATION_BRANCHES: Readonly<Record<28 | 29 | 30, Readonly
 export const BEGINNER_SHIP_SIDE_VERIFIED = false;
 
 // ---------------------------------------------------------------------------
+// Variable set-ups (spec §3.2) — inferred items
+// ---------------------------------------------------------------------------
+
+/**
+ * **[VERIFY]** Explorer / wild space: does discovering a face-down sector end
+ * the discovering ship's movement for the turn? Spec §9.3 says exploration
+ * "may continue" and §3.2 says flipping a face-down sector "works the same",
+ * so the default is `false`: the ship finishes its validated path and keeps
+ * whatever steps remain. With `true` the ship still completes the path it was
+ * sent on but forfeits the rest of its budget (like a space jump).
+ */
+export const DISCOVERY_ENDS_MOVE = false;
+
+/**
+ * Wild space deals the 15 face-down tiles "from the nearest slot to the
+ * farthest" (spec §3.2). The order is INFERRED from `layouts/board.json`: the
+ * eight near slots first, then the seven far slots (the nebula is the game's
+ * own near/far line), each region by the horizontal distance of the slot's
+ * lobes from the Catanian edge (hex-centre x), ties top to bottom. The last
+ * 15 of the 16 shuffled tiles go to these slots in this order; the 16th tile
+ * is returned to the box unseen.
+ */
+export const WILD_SPACE_SLOT_ORDER: readonly string[] = [
+  'N4', 'N1', 'N6', 'N5', 'N2', 'N7', 'N3', 'N8',
+  'F5', 'F1', 'F3', 'F6', 'F2', 'F4', 'F7',
+];
+
+/**
+ * Judgment call: planet orientation of a system tile placed by a variable
+ * set-up. Physically the placer (strategic) or the discoverer (explorer /
+ * wild space) may rotate the tile; the engine assigns the tile's planets
+ * clockwise starting at this index of the slot's clockwise lobe order
+ * (`lobesClockwise`), the same for every tile, so a seed fully determines
+ * the board and a hidden tile needs no orientation input when it is found.
+ */
+export const VARIABLE_SETUP_START_LOBE = 0;
+
+/**
+ * Judgment call: the strategic / explorer set-ups return one 1-star EMPTY
+ * tile to the box (spec §3.1). The two 1-star empties (E1, E2) are identical,
+ * so which one goes back is cosmetic; `'random'` picks through the rng, or
+ * name a tile id to pin it.
+ */
+export const STRATEGIC_RETURNED_EMPTY: 'random' | string = 'random';
+
+// ---------------------------------------------------------------------------
 // Friendship cards (spec §8) — static catalogue
 // ---------------------------------------------------------------------------
 

@@ -18,8 +18,9 @@ import {
   ROOM_MIN_PLAYERS,
   actionRevealsHiddenCards,
   applyAction,
-  createBeginnerGame,
+  createGame,
   createRng,
+  isGameVariant,
   redactState,
   rngFromState,
   type Action,
@@ -177,7 +178,7 @@ export class RoomStore {
       updatedAt: now,
       hostId: player.id,
       players: [player],
-      config: { turnTimerSeconds: null },
+      config: { turnTimerSeconds: null, variant: 'beginner' },
       started: false,
       seed: null,
       game: null,
@@ -257,12 +258,26 @@ export class RoomStore {
     };
   }
 
+  /** Host only, before the start: change the room's set-up (`variant`). Unknown keys are ignored. */
+  configureRoom(room: Room, byPlayerId: PlayerId, patch: unknown): RoomResult<Room> {
+    if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can change the set-up');
+    if (room.started) return netError('alreadyStarted', 'The game has already started');
+    if (typeof patch !== 'object' || patch === null) return netError('badRequest', 'A room configuration is needed');
+    const variant = (patch as { variant?: unknown }).variant;
+    if (variant !== undefined) {
+      if (!isGameVariant(variant)) return netError('badRequest', `Unknown set-up ${String(variant)}`);
+      room.config.variant = variant;
+    }
+    return { ok: true, value: room };
+  }
+
   startGame(room: Room, byPlayerId: PlayerId): RoomResult<Room> {
     if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can start the game');
     if (room.started) return netError('alreadyStarted', 'The game has already started');
     if (room.players.length < ROOM_MIN_PLAYERS) return netError('tooFewPlayers', `Need ${ROOM_MIN_PLAYERS}–${ROOM_MAX_PLAYERS} players, have ${room.players.length}`);
     const seed = this.seedFactory();
-    const game = createBeginnerGame({
+    const game = createGame({
+      variant: room.config.variant,
       id: room.code,
       seed,
       players: room.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),

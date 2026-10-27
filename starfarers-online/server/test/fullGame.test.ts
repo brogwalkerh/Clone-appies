@@ -1,4 +1,4 @@
-import { WIN_VP } from '@starfarers/shared';
+import { WIN_VP, type GameVariant } from '@starfarers/shared';
 import { describe, expect, it } from 'vitest';
 import { RoomStore } from '../src/rooms.js';
 import { botRandom, nextAction } from './bot.js';
@@ -9,7 +9,7 @@ import { botRandom, nextAction } from './bot.js';
  * the bot's reading of the rules and the engine — those are counted and must
  * be zero, and every game must end with a winner at WIN_VP.
  */
-function playGame(seed: string, botSeed: number, maxActions = 6000) {
+function playGame(seed: string, botSeed: number, maxActions = 6000, variant: GameVariant = 'beginner') {
   const store = new RoomStore({ seedFactory: () => seed });
   const created = store.createRoom('bots', 'Ann');
   if (!created.ok) throw new Error('create');
@@ -17,6 +17,7 @@ function playGame(seed: string, botSeed: number, maxActions = 6000) {
   store.joinRoom(room.code, 'Bob');
   store.joinRoom(room.code, 'Cid');
   if (botSeed % 2 === 0) store.joinRoom(room.code, 'Dee');
+  expect(store.configureRoom(room, 'p1', { variant }).ok).toBe(true);
   expect(store.startGame(room, 'p1').ok).toBe(true);
   const rnd = botRandom(botSeed);
   let rejected = 0;
@@ -64,6 +65,37 @@ describe('full games through the room store', () => {
       // Card conservation across the whole game.
       const cards = Object.values(game.supply).reduce((a, b) => a + b, 0) + game.reservePile.length + game.players.reduce((n, p) => n + p.hand.length, 0);
       expect(cards).toBe(100);
+    });
+  }
+});
+
+describe('full games on the variable set-ups (spec §3.2)', () => {
+  for (const [variant, seed, botSeed] of [
+    ['strategic', 'full-strategic', 4],
+    ['explorer', 'full-explorer', 5],
+    ['wild', 'full-wild', 6],
+  ] as const) {
+    it(`${variant}: the bot plays to a win with zero rejections and every tile gets discovered or stays face down consistently`, () => {
+      const { room, actions, rejected, rejections } = playGame(seed, botSeed, 8000, variant);
+      const game = room.game!;
+      expect(rejected, rejections.join('\n')).toBe(0);
+      expect(game.variant).toBe(variant);
+      expect(game.winner, `no winner after ${actions} actions, turn ${game.turnNumber}`).not.toBeNull();
+      expect(game.players.find((p) => p.id === game.winner)!.vp).toBeGreaterThanOrEqual(WIN_VP);
+      // Discs are conserved: every discovered system drew exactly 3 from the pools; hidden systems hold none.
+      const discovered = Object.values(game.board.sectors).filter((s) => s.region !== 'catanian' && s.discovered);
+      if (variant !== 'strategic') {
+        expect(discovered.length).toBeGreaterThan(0);
+        const hiddenSystems = Object.values(game.board.sectors).filter((s) => s.kind === 'system' && !s.discovered);
+        for (const s of hiddenSystems) for (const id of s.planetIds) expect(game.board.planets[id]!.disc).toBeNull();
+        const pooled = game.discPools.tri.length + game.discPools.br.length + game.discPools.hex.length;
+        expect(pooled).toBe(24 - 3 * discovered.filter((s) => s.kind === 'system').length);
+      }
+      // No ship ever rests inside an undiscovered slot.
+      for (const ship of Object.values(game.board.ships)) {
+        const node = game.board.nodes[ship.nodeId]!;
+        if (node.sectorId) expect(game.board.sectors[node.sectorId]!.discovered).toBe(true);
+      }
     });
   }
 });

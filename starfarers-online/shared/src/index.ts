@@ -17,11 +17,14 @@ export * from './board/query.js';
 export * from './board/data.js';
 
 export * from './setup/beginner.js';
+export * from './setup/variants.js';
+export * from './setup/index.js';
 
 export * from './flight/stats.js';
 export * from './flight/shake.js';
 export * from './flight/tokens.js';
 export * from './flight/explore.js';
+export * from './flight/discover.js';
 export * from './flight/movement.js';
 export * from './flight/jump.js';
 export * from './flight/reach.js';

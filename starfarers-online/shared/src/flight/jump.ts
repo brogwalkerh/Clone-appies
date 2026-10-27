@@ -1,15 +1,18 @@
 /**
  * Space jump (spec §9.7): move one ship to ANY unoccupied intersection,
  * obeying every no-blockade rule (§11); a trade ship may not jump to a colony
- * site (already an end-node rule). The ship may explore / claim tokens on
- * arrival and its movement for the turn is over. Encounter cards (phase 3)
+ * site (already an end-node rule). The ship may discover / explore / claim
+ * tokens on arrival (`rng` draws a discovered system's discs) and its
+ * movement for the turn is over. Encounter cards (phase 3)
  * call `validateJumpTarget` then `applySpaceJump`.
  */
 
 import { getPlayer } from '../board/query.js';
 import { logEvent } from '../actions/handler.js';
+import type { Rng } from '../rng.js';
 import type { GameError, GameState, NodeId, ShipId } from '../types.js';
 import { gameError } from '../types.js';
+import { discoverAt } from './discover.js';
 import { exploreAt } from './explore.js';
 import { afterArrival, validateEndNode } from './movement.js';
 
@@ -23,7 +26,7 @@ export function validateJumpTarget(state: GameState, shipId: ShipId, nodeId: Nod
 }
 
 /** Apply an already validated jump; ends the ship's movement for the turn. */
-export function applySpaceJump(state: GameState, shipId: ShipId, nodeId: NodeId): void {
+export function applySpaceJump(state: GameState, shipId: ShipId, nodeId: NodeId, rng?: Rng): void {
   const ship = state.board.ships[shipId];
   if (!ship) throw new Error(`applySpaceJump: unknown ship ${shipId}`);
   const from = ship.nodeId;
@@ -34,6 +37,7 @@ export function applySpaceJump(state: GameState, shipId: ShipId, nodeId: NodeId)
   ship.nodeId = nodeId;
   const owner = getPlayer(state, ship.owner);
   logEvent(state, `${owner.name}'s ship ${shipId} space-jumped ${from} → ${nodeId}`, owner.id);
+  discoverAt(state, nodeId, rng);
   exploreAt(state, nodeId, shipId);
   // A jump ends the ship's movement: spend whatever speed is left.
   state.turn.shipMovesUsed[shipId] = Math.max(state.turn.shipMovesUsed[shipId] ?? 0, state.turn.speed ?? 0);

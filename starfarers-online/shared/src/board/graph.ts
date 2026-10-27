@@ -120,6 +120,8 @@ export function buildBoard(layout: BoardLayout, placement: Placement): Board {
       planetIds: [],
       colonySites: [],
       explored: s.tile.type !== 'system' || s.region === 'catanian',
+      // Face-down tiles (explorer / wild space) are flipped to false by the set-up.
+      discovered: true,
     };
     if (s.tile.type === 'system') {
       removedVertices.add(centre);

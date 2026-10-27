@@ -59,7 +59,7 @@ function lobby(started = false): LobbyView {
     ],
     hostId: 'p1',
     started,
-    config: { turnTimerSeconds: null },
+    config: { turnTimerSeconds: null, variant: 'beginner' },
     messages: [],
     minPlayers: 3,
     maxPlayers: 4,

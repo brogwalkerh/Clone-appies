@@ -97,7 +97,7 @@ const handleEncounterPick: Handler<'encounterPick'> = (state, action, rng) => {
       kind: awaiting.kind,
     });
   }
-  const error = applyEncounterPick(state, action);
+  const error = applyEncounterPick(state, action, rng);
   if (error) return error;
   runEncounterQueue(state, rng);
   return state;

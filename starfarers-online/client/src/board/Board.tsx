@@ -5,11 +5,18 @@
  * through `onNodeClick` / `onShipClick`; `highlights` marks the nodes the
  * current interaction may target (legal move ends, buildable sites, jump
  * targets) and, when a path is known, the preview drawn on hover.
+ *
+ * Face-down sectors (explorer / wild space): the board is drawn through
+ * `redactBoard`, so an undiscovered slot shows as a neutral tile with a "?"
+ * and none of its interior nodes, planets or docks — whether the state came
+ * redacted from the server or is the hot-seat authority. The engine keeps
+ * ships out of those interiors, so highlights match.
  */
 
 import {
   hexCenter,
   hexCorners,
+  redactBoard,
   vertexPosition,
   type GameState,
   type NodeId,
@@ -132,6 +139,21 @@ function EmptySector({ sector }: { sector: Sector }) {
   );
 }
 
+function HiddenSector({ sector }: { sector: Sector }) {
+  const centre = px(vertexPosition(sector.centreVertex));
+  return (
+    <g data-testid={`hidden-${sector.id}`}>
+      {sector.lobes.map((hex) => (
+        <polygon key={hex.join(',')} points={hexPoints(hex)} fill="#1c2233" stroke="#3a4360" strokeWidth={1.6} strokeDasharray="5 3" />
+      ))}
+      <circle cx={centre.x} cy={centre.y} r={SCALE * 0.3} fill="#232b3f" stroke="#4a5578" strokeWidth={1.5} />
+      <text x={centre.x} y={centre.y + 7} textAnchor="middle" fontSize={20} fontWeight={700} fill="#8d97ab">
+        ?
+      </text>
+    </g>
+  );
+}
+
 function ShipGlyph({ ship, state, selected, onClick }: { ship: Ship; state: GameState; selected: boolean; onClick(): void }) {
   const p = px(state.board.nodes[ship.nodeId]?.pos ?? { x: 0, y: 0 });
   const fill = playerColor(state, ship.owner);
@@ -164,7 +186,7 @@ function ShipGlyph({ ship, state, selected, onClick }: { ship: Ship; state: Game
 
 export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick }: BoardProps) {
   const [hover, setHover] = useState<NodeId | null>(null);
-  const board = state.board;
+  const board = useMemo(() => redactBoard(state.board), [state.board]);
 
   const viewBox = useMemo(() => {
     let minX = Infinity;
@@ -213,6 +235,7 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
     <svg className="board" viewBox={viewBox} role="img" aria-label="Game board" data-testid="board">
       <g className="sectors">
         {sectors.map((sector) => {
+          if (sector.kind === 'hidden') return <HiddenSector key={sector.id} sector={sector} />;
           if (sector.kind === 'outpost') return <Outpost key={sector.id} state={state} sector={sector} />;
           if (sector.kind === 'empty') return <EmptySector key={sector.id} sector={sector} />;
           return (

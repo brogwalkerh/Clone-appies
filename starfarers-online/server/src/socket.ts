@@ -95,6 +95,15 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
       if (result.value.room.started) broadcastState(result.value.room, null);
     });
 
+    socket.on('configureRoom', (payload, ack) => {
+      const ctx = current(socket);
+      if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });
+      const result = store.configureRoom(ctx.room, ctx.player.id, payload);
+      if (!result.ok) return ack(result);
+      ack({ ok: true, value: { configured: true } });
+      broadcastLobby(ctx.room);
+    });
+
     socket.on('startGame', (_payload, ack) => {
       const ctx = current(socket);
       if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });

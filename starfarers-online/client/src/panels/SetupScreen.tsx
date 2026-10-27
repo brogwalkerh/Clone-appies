@@ -1,13 +1,14 @@
-import { PLAYER_COLORS, type PlayerColor, type PlayerSpec } from '@starfarers/shared';
+import { GAME_VARIANTS, GAME_VARIANT_DESCRIPTIONS, GAME_VARIANT_LABELS, PLAYER_COLORS, type GameVariant, type PlayerColor, type PlayerSpec } from '@starfarers/shared';
 import { useState } from 'react';
 import { useGame } from '../store/gameStore.js';
 import { PLAYER_COLOR } from '../ui/format.js';
 
 const DEFAULT_NAMES = ['Ann', 'Bob', 'Cid', 'Dee'];
 
-/** New-game form: 3–4 seats, names, colours, seed. */
+/** New-game form: set-up variant, 3–4 seats, names, colours, seed. */
 export function SetupScreen() {
   const newGame = useGame((s) => s.newGame);
+  const [variant, setVariant] = useState<GameVariant>('beginner');
   const [count, setCount] = useState(3);
   const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
   const [colors, setColors] = useState<PlayerColor[]>([...PLAYER_COLORS]);
@@ -18,7 +19,18 @@ export function SetupScreen() {
   return (
     <div className="setup" data-testid="setup-screen">
       <h1>Starfarers Online — hot-seat</h1>
-      <p className="muted">Beginner set-up. Everyone shares this screen; hands are hidden when the seat changes.</p>
+      <p className="muted">Everyone shares this screen; hands are hidden when the seat changes.</p>
+      <label>
+        Set-up{' '}
+        <select value={variant} onChange={(e) => setVariant(e.target.value as GameVariant)} data-testid="variant-select">
+          {GAME_VARIANTS.map((v) => (
+            <option key={v} value={v}>
+              {GAME_VARIANT_LABELS[v]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted small" data-testid="variant-description">{GAME_VARIANT_DESCRIPTIONS[variant]}</p>
       <label>
         Players{' '}
         <select value={count} onChange={(e) => setCount(Number(e.target.value))} data-testid="player-count">
@@ -58,7 +70,7 @@ export function SetupScreen() {
         disabled={duplicateColors || seats.some((i) => !(names[i] ?? '').trim())}
         onClick={() => {
           const players: PlayerSpec[] = seats.map((i) => ({ id: `p${i + 1}`, name: (names[i] ?? '').trim(), color: colors[i] as PlayerColor }));
-          newGame({ players, seed: seed.trim() || 'default' });
+          newGame({ players, seed: seed.trim() || 'default', variant });
         }}
       >
         Start game

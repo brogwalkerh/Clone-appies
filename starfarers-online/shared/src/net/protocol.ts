@@ -4,7 +4,7 @@
  * so the sender learns about rejection without a broadcast.
  */
 
-import type { Action, GameError, GameState, PlayerColor, PlayerId } from '../types.js';
+import type { Action, GameError, GameState, GameVariant, PlayerColor, PlayerId } from '../types.js';
 
 export interface LobbyPlayer {
   id: PlayerId;
@@ -25,6 +25,8 @@ export interface ChatMessage {
 export interface RoomConfig {
   /** Seconds per turn; `null` = no timer (default). Config only in phase 5, not enforced. */
   turnTimerSeconds: number | null;
+  /** Set-up used when the host starts (spec §3.2); default 'beginner'. Host-only, via `configureRoom`. */
+  variant: GameVariant;
 }
 
 /** What every member sees about the room, before and during the game. */
@@ -66,6 +68,8 @@ export interface ClientToServerEvents {
   createRoom(payload: { roomName: string; playerName: string }, ack: Ack<JoinReply>): void;
   joinRoom(payload: { code: string; playerName: string }, ack: Ack<JoinReply>): void;
   resume(payload: { roomCode: string; playerToken: string }, ack: Ack<JoinReply>): void;
+  /** Host only, before the start: change the room's set-up; the room then gets a fresh `lobby`. */
+  configureRoom(payload: { variant: GameVariant }, ack: Ack<{ configured: true }>): void;
   startGame(payload: Record<string, never>, ack: Ack<{ started: true }>): void;
   action(payload: { action: Action }, ack: Ack<{ accepted: true }>): void;
   chat(payload: { text: string }, ack: Ack<{ sent: true }>): void;

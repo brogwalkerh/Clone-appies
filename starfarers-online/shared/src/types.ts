@@ -139,7 +139,14 @@ export interface Planet {
   token: SpecialToken | null;
 }
 
-export type SectorKind = 'system' | 'outpost' | 'empty';
+/** What a tile printed in board.json is. */
+export type TileKind = 'system' | 'outpost' | 'empty';
+/**
+ * A sector's kind. `'hidden'` appears only in a REDACTED state (net/redact.ts):
+ * an undiscovered slot whose tile the viewer may not see. The authoritative
+ * state always holds the real `TileKind`.
+ */
+export type SectorKind = TileKind | 'hidden';
 export type SectorRegion = 'catanian' | 'near' | 'far';
 
 export interface ColonySite {
@@ -166,6 +173,13 @@ export interface Sector {
   docks?: (PlayerId | null)[];
   /** False while any planet disc is face down. Catanian systems start explored. */
   explored: boolean;
+  /**
+   * False for a face-down tile (explorer / wild space set-ups, spec §3.2):
+   * its identity is hidden information until a ship reaches an intersection
+   * touching one of its lobes (flight/discover.ts). Always true in the
+   * beginner and strategic set-ups and for the Catanian systems.
+   */
+  discovered: boolean;
 }
 
 export type SettlementKind = 'colony' | 'spaceport';
@@ -320,6 +334,13 @@ export interface GameState {
   friendshipCards: Record<Civ, FriendshipCardId[]>;
   friendshipMarkers: Record<Civ, PlayerId | null>;
   reserveDiscs: Disc[];
+  /**
+   * Number discs not yet on the board, by back icon (explorer / wild space:
+   * drawn through the rng when a system is discovered). Empty in the beginner
+   * and strategic set-ups. Hidden information: `redactState` empties the
+   * lists and sets `discPoolCounts`.
+   */
+  discPools: Record<DiscIcon, string[]>;
   /** Trade-ship markers owed per player (encounter "free trade ship" when it cannot be placed yet). */
   pendingTradeShips: Record<PlayerId, number>;
   openTrade: TradeProposal | null;
@@ -329,6 +350,8 @@ export interface GameState {
   /** Set by `redactState`: sizes of the hidden `reservePile` / `encounterDeck`. */
   reservePileCount?: number;
   encounterDeckCount?: number;
+  /** Set by `redactState`: sizes of the hidden `discPools`. */
+  discPoolCounts?: Record<DiscIcon, number>;
 }
 
 // ---------------------------------------------------------------------------

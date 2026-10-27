@@ -21,9 +21,12 @@ import { logEvent } from '../actions/handler.js';
 import type { GameState, NodeId, Sector, SectorId, ShipId } from '../types.js';
 import { checkSpecialTokens } from './tokens.js';
 
-/** Flip one system's discs; returns false if it was already explored. */
-export function exploreSector(state: GameState, sector: Sector): boolean {
-  if (sector.kind !== 'system' || sector.explored) return false;
+/**
+ * Flip a system's face-down discs (specials become tokens) and mark it
+ * explored; returns the labels revealed. No log entry — `exploreSector` and
+ * `discoverSector` (flight/discover.ts) word their own.
+ */
+export function flipSystemDiscs(state: GameState, sector: Sector): string[] {
   const revealed: string[] = [];
   for (const planet of planetsOfSector(state.board, sector.id)) {
     const disc = planet.disc;
@@ -36,6 +39,13 @@ export function exploreSector(state: GameState, sector: Sector): boolean {
     }
   }
   sector.explored = true;
+  return revealed;
+}
+
+/** Flip one system's discs; returns false if it was already explored (or is still undiscovered). */
+export function exploreSector(state: GameState, sector: Sector): boolean {
+  if (sector.kind !== 'system' || sector.explored || !sector.discovered) return false;
+  const revealed = flipSystemDiscs(state, sector);
   logEvent(state, `System ${sector.id} explored: discs ${revealed.join(', ')} revealed`);
   return true;
 }

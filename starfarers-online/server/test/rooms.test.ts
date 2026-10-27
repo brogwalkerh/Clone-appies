@@ -139,6 +139,42 @@ describe('RoomStore lifecycle', () => {
     expect(twin.actions).toEqual(room.actions);
   });
 
+  it('configureRoom: host only, before the start, valid variants only; startGame uses it', () => {
+    const store = new RoomStore({ seedFactory: () => 'variant-seed' });
+    const room = filled(store);
+    expect(store.lobbyView(room).config).toEqual({ turnTimerSeconds: null, variant: 'beginner' });
+    expect(store.configureRoom(room, 'p2', { variant: 'strategic' })).toMatchObject({ ok: false, error: { code: 'notHost' } });
+    expect(store.configureRoom(room, 'p1', { variant: 'classic' })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(store.configureRoom(room, 'p1', 'strategic')).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(room.config.variant).toBe('beginner');
+    expect(store.configureRoom(room, 'p1', { variant: 'explorer' }).ok).toBe(true);
+    expect(store.lobbyView(room).config.variant).toBe('explorer');
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', turnTimerSeconds: 99 }).ok).toBe(true);
+    expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'strategic' });
+    expect(store.startGame(room, 'p1').ok).toBe(true);
+    expect(room.game?.variant).toBe('strategic');
+    expect(room.game?.seed).toBe('variant-seed');
+    expect(store.configureRoom(room, 'p1', { variant: 'wild' })).toMatchObject({ ok: false, error: { code: 'alreadyStarted' } });
+    expect(room.config.variant).toBe('strategic');
+    // Every variant starts and is reproduced by the same seed.
+    for (const variant of ['beginner', 'explorer', 'wild'] as const) {
+      const s2 = new RoomStore({ seedFactory: () => 'variant-seed', codeFactory: () => 'ROOM42' });
+      const r2 = filled(s2);
+      expect(s2.configureRoom(r2, 'p1', { variant }).ok).toBe(true);
+      expect(s2.startGame(r2, 'p1').ok).toBe(true);
+      expect(r2.game?.variant).toBe(variant);
+      const s3 = new RoomStore({ seedFactory: () => 'variant-seed', codeFactory: () => 'ROOM42' });
+      const r3 = filled(s3);
+      s3.configureRoom(r3, 'p1', { variant });
+      s3.startGame(r3, 'p1');
+      expect(r3.game).toEqual(r2.game);
+      // Hidden tiles never reach a client.
+      const view = s2.joinReply(r2, r2.players[1]!).state!;
+      expect(Object.values(view.board.sectors).filter((x) => x.kind === 'hidden')).toHaveLength(variant === 'beginner' ? 0 : 15);
+      expect(view.discPools).toEqual({ tri: [], br: [], hex: [] });
+    }
+  });
+
   it('startWithState resumes an arbitrary state', () => {
     const store = new RoomStore();
     const room = filled(store);

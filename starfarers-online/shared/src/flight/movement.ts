@@ -20,9 +20,15 @@
  *     there again — "may only return by founding" is modelled strictly: a ship
  *     that wants to found there founds from where it already stands.
  *
- * `applyMove` walks the path one node at a time, exploring and resolving
- * pirate / ice tokens at every step (§9.3 "at any point in its move", §9.6
- * "immediately"), then does the parking bookkeeping (`afterArrival`, shared
+ *   - never inside an undiscovered slot (explorer / wild space): the slot's
+ *     interior nodes (`undiscoveredInteriorNodes`) can be neither an end node
+ *     nor a step of a path until the tile is discovered; the slot's rim nodes
+ *     are ordinary space.
+ *
+ * `applyMove` walks the path one node at a time, discovering face-down
+ * sectors (flight/discover.ts), exploring and resolving pirate / ice tokens at
+ * every step (§9.3 "at any point in its move", §9.6 "immediately"), then does
+ * the parking bookkeeping (`afterArrival`, shared
  * with space jumps): a docked trade ship sets `turn.pendingFound`, and any
  * trade-ship marker the owner still holds is placed if the move just freed a
  * spaceport site (§7.3 "as soon as possible"; the new ship may move this turn).
@@ -30,10 +36,13 @@
 
 import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { canFoundTradeStation } from '../found/station.js';
-import { areAdjacent, getPlayer, hasNode, settlementAt, shipAt, spaceportSites } from '../board/query.js';
+import { areAdjacent, getPlayer, hasNode, settlementAt, shipAt, spaceportSites, undiscoveredInteriorNodes } from '../board/query.js';
 import { logEvent } from '../actions/handler.js';
+import { DISCOVERY_ENDS_MOVE } from '../config.js';
+import type { Rng } from '../rng.js';
 import type { GameError, GameState, NodeId, Ship } from '../types.js';
 import { gameError } from '../types.js';
+import { discoverAt } from './discover.js';
 import { exploreAt } from './explore.js';
 
 /** Is `nodeId` a spaceport site of a spaceport the player does not own? */
@@ -48,9 +57,11 @@ export function isForeignSpaceportSite(state: GameState, nodeId: NodeId, playerI
 /** Geometry of a path: non-empty, known nodes, a chain of edges from the ship's node. */
 export function validatePath(state: GameState, ship: Ship, path: readonly NodeId[]): GameError | null {
   if (path.length === 0) return gameError('invalidPath', 'A move needs at least one step');
+  const hidden = undiscoveredInteriorNodes(state.board);
   let prev = ship.nodeId;
   for (const [i, node] of path.entries()) {
     if (!hasNode(state.board, node)) return gameError('invalidPath', `Unknown node ${node}`, { node });
+    if (hidden.has(node)) return gameError('invalidPath', `${node} lies inside an undiscovered sector (step ${i + 1})`, { node });
     if (!areAdjacent(state.board, prev, node)) {
       return gameError('invalidPath', `${prev} and ${node} are not joined by an edge (step ${i + 1})`, { from: prev, to: node });
     }
@@ -64,6 +75,9 @@ export function validateEndNode(state: GameState, ship: Ship, nodeId: NodeId): G
   const board = state.board;
   if (!hasNode(board, nodeId)) return gameError('invalidTarget', `Unknown node ${nodeId}`, { nodeId });
   const node = board.nodes[nodeId]!;
+  if (undiscoveredInteriorNodes(board).has(nodeId)) {
+    return gameError('invalidTarget', `${nodeId} lies inside an undiscovered sector`, { nodeId });
+  }
   if (settlementAt(board, nodeId)) {
     return gameError('invalidTarget', `${nodeId} holds a colony or spaceport`, { nodeId });
   }
@@ -104,20 +118,27 @@ export function stepsLeft(state: GameState, shipId: string): number {
 }
 
 /**
- * Move the ship along an already validated path, exploring and claiming
- * tokens at every step, and record the steps in `turn.shipMovesUsed`.
+ * Move the ship along an already validated path, discovering, exploring and
+ * claiming tokens at every step, and record the steps in `turn.shipMovesUsed`.
+ * `rng` draws the number discs of a system discovered on the way.
  */
-export function applyMove(state: GameState, ship: Ship, path: readonly NodeId[]): void {
+export function applyMove(state: GameState, ship: Ship, path: readonly NodeId[], rng?: Rng): void {
   const start = ship.nodeId;
   if (ship.mustFoundOrLeave) {
     ship.mustFoundOrLeave = false;
     ship.leftSite = start;
   }
+  let discovered = false;
   for (const node of path) {
     ship.nodeId = node;
+    if (discoverAt(state, node, rng).length > 0) discovered = true;
     exploreAt(state, node, ship.id);
   }
   state.turn.shipMovesUsed[ship.id] = (state.turn.shipMovesUsed[ship.id] ?? 0) + path.length;
+  if (discovered && DISCOVERY_ENDS_MOVE) {
+    // [VERIFY] config: discovery forfeits the rest of the ship's budget (the validated path is still completed).
+    state.turn.shipMovesUsed[ship.id] = Math.max(state.turn.shipMovesUsed[ship.id] ?? 0, state.turn.speed ?? 0);
+  }
   const owner = getPlayer(state, ship.owner);
   logEvent(state, `${owner.name} moved ${ship.id} ${start} → ${ship.nodeId} (${path.length} step${path.length === 1 ? '' : 's'})`, owner.id);
   afterArrival(state, ship);

@@ -17,7 +17,7 @@ import type {
   Settlement,
   Ship,
 } from '../types.js';
-import { hexKey, sharedSide } from './geometry.js';
+import { hexKey, sharedSide, slotInteriorVertices, vertexHexes } from './geometry.js';
 import { planetId } from './graph.js';
 
 export function getNode(board: Board, id: NodeId): BoardNode {
@@ -72,6 +72,31 @@ export function planetsAdjacentToNode(board: Board, nodeId: NodeId): Planet[] {
 export function sectorsAdjacentToNode(board: Board, nodeId: NodeId): Sector[] {
   const ids = new Set(planetsAdjacentToNode(board, nodeId).map((p) => p.sectorId));
   return [...ids].map((id) => getSector(board, id));
+}
+
+/** Sectors whose tile is still face down (explorer / wild space). */
+export function undiscoveredSectors(board: Board): Sector[] {
+  return Object.values(board.sectors).filter((s) => !s.discovered);
+}
+
+/**
+ * Every node inside an undiscovered slot (centre, colony sites / docking
+ * point): ships may neither end on nor pass through them until the tile is
+ * discovered. Works on authoritative and redacted boards alike (a redacted
+ * board simply has no such nodes).
+ */
+export function undiscoveredInteriorNodes(board: Board): Set<NodeId> {
+  const out = new Set<NodeId>();
+  for (const sector of undiscoveredSectors(board)) {
+    for (const v of slotInteriorVertices(sector.lobes)) if (board.nodes[v]) out.add(v);
+  }
+  return out;
+}
+
+/** Undiscovered sectors one of whose lobe hexes touches the node (discovery trigger). */
+export function undiscoveredSectorsTouchingNode(board: Board, nodeId: NodeId): Sector[] {
+  const hexes = new Set(vertexHexes(nodeId).map(hexKey));
+  return undiscoveredSectors(board).filter((s) => s.lobes.some((lobe) => hexes.has(hexKey(lobe))));
 }
 
 export function colonySiteNodes(board: Board): BoardNode[] {

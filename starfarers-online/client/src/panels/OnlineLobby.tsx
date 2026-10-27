@@ -3,6 +3,7 @@
  * lobby (players, host's Start button, chat) until the game starts.
  */
 
+import { GAME_VARIANTS, GAME_VARIANT_DESCRIPTIONS, GAME_VARIANT_LABELS, type GameVariant } from '@starfarers/shared';
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import type { RemoteStore } from '../net/remoteStore.js';
@@ -122,6 +123,25 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
           </li>
         ))}
       </ul>
+      <label>
+        Set-up{' '}
+        <select
+          value={lobby.config.variant}
+          disabled={!isHost}
+          data-testid="variant-select"
+          onChange={(e) => void store.getState().configureRoom(e.target.value as GameVariant)}
+        >
+          {GAME_VARIANTS.map((v) => (
+            <option key={v} value={v}>
+              {GAME_VARIANT_LABELS[v]}
+            </option>
+          ))}
+        </select>{' '}
+        <span className="muted" data-testid="lobby-variant">
+          {GAME_VARIANT_LABELS[lobby.config.variant]} — {GAME_VARIANT_DESCRIPTIONS[lobby.config.variant]}
+          {isHost ? '' : ' (the host chooses)'}
+        </span>
+      </label>
       {isHost ? (
         <button type="button" data-testid="start-online" disabled={!canStart} onClick={() => void store.getState().startGame()}>
           Start game ({lobby.players.length} players)

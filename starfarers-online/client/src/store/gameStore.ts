@@ -16,12 +16,13 @@
 
 import {
   applyAction,
-  createBeginnerGame,
+  createGame,
   createRng,
   rngFromState,
   type Action,
   type GameError,
   type GameState,
+  type GameVariant,
   type NodeId,
   type PlayerId,
   type PlayerSpec,
@@ -35,6 +36,8 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 export interface GameSetup {
   players: PlayerSpec[];
   seed: string;
+  /** Set-up (spec §3.2); defaults to 'beginner'. */
+  variant?: GameVariant | undefined;
 }
 
 /** A board-click request from a panel ("choose a spaceport site"), shown as highlighted nodes. */
@@ -48,7 +51,7 @@ export interface GameStoreState {
   /** 'local' = hot-seat authority in this tab; 'remote' = a server owns the state (net/remoteStore.ts). */
   mode: 'local' | 'remote';
   setup: GameSetup | null;
-  /** State the action log starts from (a fresh beginner game, or a loaded one). */
+  /** State the action log starts from (a fresh game, or a loaded one). */
   initial: GameState | null;
   /** Live state. */
   game: GameState | null;
@@ -138,7 +141,7 @@ export function createGameStore(): GameStore {
       replayIndex: null,
 
       newGame(setup) {
-        begin(setup, createBeginnerGame({ players: setup.players, seed: setup.seed }), setup.seed);
+        begin(setup, createGame({ variant: setup.variant ?? 'beginner', players: setup.players, seed: setup.seed }), setup.seed);
       },
 
       loadGame(setup, state) {

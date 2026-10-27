@@ -12,6 +12,7 @@ import type {
   ClientToServerEvents,
   GameError,
   GameState,
+  GameVariant,
   JoinReply,
   LobbyView,
   NetError,
@@ -55,6 +56,8 @@ export interface RemoteStoreState extends GameStoreState {
   createRoom(roomName: string, playerName: string): Promise<NetResult<JoinReply>>;
   joinRoom(code: string, playerName: string): Promise<NetResult<JoinReply>>;
   resume(session?: Session | null): Promise<NetResult<JoinReply>>;
+  /** Host only, before the start: pick the set-up (spec §3.2). */
+  configureRoom(variant: GameVariant): Promise<NetResult<{ configured: true }>>;
   startGame(): Promise<NetResult<{ started: true }>>;
   sendChat(text: string): Promise<NetResult<{ sent: true }>>;
   /** Forget the session and return to the lobby screens. */
@@ -206,6 +209,11 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         const s = session ?? get().session;
         if (!s) return Promise.resolve({ ok: false, error: { code: 'badToken', message: 'No saved session' } });
         return joinCall('resume', { roomCode: s.roomCode, playerToken: s.playerToken });
+      },
+      async configureRoom(variant) {
+        const reply = await emit('configureRoom', { variant });
+        if (!reply.ok) set({ netError: reply.error.message });
+        return reply;
       },
       async startGame() {
         const reply = await emit('startGame', {});

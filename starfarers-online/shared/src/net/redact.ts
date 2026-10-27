@@ -10,14 +10,25 @@
  *   - `log[*].action` payloads that reveal cards other players chose
  *     (`discardForSeven.cards`, `encounterPick.resources` for `payResources` /
  *     `giveOne`), stripped unless the viewer is the actor; the human-readable
- *     `message` stays.
+ *     `message` stays,
+ *   - the per-icon number-disc pools (emptied; `discPoolCounts` kept),
+ *   - every UNDISCOVERED sector's tile (explorer / wild space, `redactBoard`):
+ *     the sector becomes `kind: 'hidden'` with no planets, colony sites, civ,
+ *     docks or docking point; its planets leave `board.planets`; the slot's
+ *     interior nodes (centre + the three pairwise-side vertices, see
+ *     `slotInteriorVertices`) and the edges touching them leave the graph and
+ *     the rim nodes lose their `adjacentPlanets`. What remains is the same for
+ *     a system, an outpost and an empty tile, so nothing in the view tells them
+ *     apart; the engine's own reachability already keeps ships out of those
+ *     interiors, so client highlights still agree with the validator.
  *
  * The result keeps the `GameState` shape so every pure helper that only reads
  * public data (board queries, VP, action policy, movement validation) works on
  * it unchanged.
  */
 
-import type { Action, GameState, LogEntry, PlayerId } from '../types.js';
+import { slotInteriorVertices } from '../board/geometry.js';
+import type { Action, Board, BoardNode, Edge, GameState, LogEntry, NodeId, PlayerId, Sector } from '../types.js';
 
 /** Actions whose payload names cards that opponents should not see. */
 export function actionRevealsHiddenCards(action: Action): boolean {
@@ -37,10 +48,59 @@ function redactLogEntry(entry: LogEntry, viewerId: PlayerId): LogEntry {
   return rest;
 }
 
+/** A face-down sector as every viewer sees it: the slot, nothing about the tile. */
+function hiddenSector(sector: Sector): Sector {
+  return {
+    id: sector.id,
+    tileId: '',
+    kind: 'hidden',
+    region: sector.region,
+    lobes: sector.lobes,
+    centreVertex: sector.centreVertex,
+    planetIds: [],
+    colonySites: [],
+    explored: false,
+    discovered: false,
+  };
+}
+
+/**
+ * Hide every undiscovered sector's tile. Returns the board itself when all
+ * sectors are discovered; idempotent on an already redacted board.
+ */
+export function redactBoard(board: Board): Board {
+  const hidden = Object.values(board.sectors).filter((s) => !s.discovered);
+  if (hidden.length === 0) return board;
+  const hiddenIds = new Set(hidden.map((s) => s.id));
+  const dropNodes = new Set<NodeId>();
+  for (const s of hidden) for (const v of slotInteriorVertices(s.lobes)) dropNodes.add(v);
+
+  const planets = Object.fromEntries(Object.entries(board.planets).filter(([, p]) => !hiddenIds.has(p.sectorId)));
+  const nodes: Record<NodeId, BoardNode> = {};
+  for (const [id, node] of Object.entries(board.nodes)) {
+    if (dropNodes.has(id)) continue;
+    const adjacentPlanets = node.adjacentPlanets.filter((p) => planets[p] !== undefined);
+    nodes[id] = adjacentPlanets.length === node.adjacentPlanets.length ? node : { ...node, adjacentPlanets };
+  }
+  const edges: Edge[] = board.edges.filter(([a, b]) => !dropNodes.has(a) && !dropNodes.has(b));
+  const adjacency: Record<NodeId, NodeId[]> = {};
+  for (const id of Object.keys(nodes)) adjacency[id] = [];
+  for (const [a, b] of edges) {
+    (adjacency[a] as NodeId[]).push(b);
+    (adjacency[b] as NodeId[]).push(a);
+  }
+  const sectors: Record<string, Sector> = {};
+  for (const [id, s] of Object.entries(board.sectors)) sectors[id] = s.discovered ? s : hiddenSector(s);
+  return { ...board, nodes, edges, adjacency, sectors, planets };
+}
+
 export function redactState(state: GameState, viewerId: PlayerId): GameState {
   return {
     ...state,
     seed: '',
+    board: redactBoard(state.board),
+    discPools: { tri: [], br: [], hex: [] },
+    discPoolCounts: { tri: state.discPools.tri.length, br: state.discPools.br.length, hex: state.discPools.hex.length },
     players: state.players.map((p) => ({
       ...p,
       hand: p.id === viewerId ? [...p.hand] : [],
