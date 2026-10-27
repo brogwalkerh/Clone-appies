@@ -1,18 +1,21 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after commit `867d7d9` on branch `claude/optimistic-mayer-4n6h9p`.
+Last updated after phase 4 on branch `claude/dreamy-babbage-d8h1cd` (which
+contains all of `claude/optimistic-mayer-4n6h9p`).
 Read `CLAUDE.md` and `starfarers-clone-spec.md` first; this file only says
 where the project stands and how to run the next phases.
 
 ## 1. Current state in one paragraph
 
-Phases 1–3 of spec §15 are done: the pure engine in `shared/` plays a complete
+Phases 1–4 of spec §15 are done: the pure engine in `shared/` plays a complete
 beginner game from set-up to a 15-VP win, including the 7, trade, build, the
 flight phase, exploration, pirate/ice tokens, founding, friendship cards, and
-all 32 encounter cards. 418 Vitest tests pass; `tsc --noEmit` is clean; a
-`starfarers-engine` job runs both on every push in `.github/workflows/ci.yml`.
-`server/` and `client/` do not exist yet (the workspace file already lists
-them). Nothing has been merged to `main`.
+all 32 encounter cards; the hot-seat React client in `client/` plays that game
+in one browser tab against the local engine (no network). 444 Vitest tests pass
+(418 engine + 26 client); `tsc --noEmit` is clean in both packages; the
+`starfarers-engine` CI job runs typecheck, tests and the Vite build on every
+push. `server/` does not exist yet (the workspace file already lists it).
+Nothing has been merged to `main`.
 
 ## 2. Layout
 
@@ -36,11 +39,28 @@ starfarers-online/
     src/encounters/     schema, cards (32 as data), engine (resumable interpreter), text (progressive reveal)
     src/index.ts        barrel; the server/client import only from here
     test/               15 files, 418 tests; test/support/tradeBuild.ts has fixture helpers
+  client/                                        @starfarers/client, Vite 6 + React 19 + zustand, hot-seat UI
+    index.html  vite.config.ts  vitest.config.ts (jsdom + testing-library)
+    src/main.tsx  src/App.tsx   app shell: board interaction rules, overlays, seat select, error toast
+    src/styles.css              dark theme, one file
+    src/store/gameStore.ts      GameStore (zustand vanilla + hook): state, one Rng per game, action log,
+                                viewer / pendingViewer, nodePick, replayState(k), useAct()
+    src/board/Board.tsx         SVG board from state.board + board/geometry; VpTrack.tsx; legalMoves.ts (BFS)
+    src/panels/                 HandPanel, MothershipPanel, BuildMenu, TradePanel, FriendshipPanel,
+                                SevenDialog, EncounterModal, FoundStationDialog, ActionBar, LogPane,
+                                PassBanner, SetupScreen, ResourcePicker (BagPicker)
+    src/ui/format.ts            colours, labels, bag/hand helpers (no rules)
+    test/                       4 files, 26 tests (legal-move highlight vs engine, encounter modal per
+                                awaiting.kind, viewer switch, scripted full turn + replay)
 ```
 
 Toolchain: Node 22, pnpm 10.28, TypeScript 5.9.2 (strict,
-`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Vitest 3.2.4, ESM.
-`pnpm install && pnpm typecheck && pnpm test` from `starfarers-online/`.
+`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Vitest 3.2.4, Vite
+6.4.5 (pinned through a root `pnpm.overrides` so vitest and the client share one
+Vite), React 19, zustand 5, ESM.
+`pnpm install && pnpm typecheck && pnpm test` from `starfarers-online/`;
+`pnpm --filter @starfarers/client dev` opens the hot-seat game on :5173,
+`pnpm --filter @starfarers/client build` produces `client/dist/`.
 
 ## 3. Engine API the client and server build on
 
@@ -89,6 +109,7 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
 | 1 Engine core | `2ee1cdf` `45ab3c9` `e99b274` `cc0f01d` `2a72c1e` | types, config, rng, board graph (394 nodes / 545 edges, 36 colony sites, 4 docking points, no edge through a system centre), beginner set-up incl. 3-player blockers, production incl. the 7, Green Folk +1, supply-shortage rule, reserve draws by VP, Relief Fund, supply and player trades, all builds with limits and caps, Fame for Sale, Helping Hand, endTurn, win at 15 on own turn, CI job | 136 |
 | 2 Flight | `f4b72e4` `c4ac534` | uniform two-ball shake (40 % encounter), speed and combat incl. Scientists cards, moveShip validator (§9.2/§11: pass-through, backtrack, cumulative budget, no-blockade rules, must-found-or-leave), exploration flips discs into numbers or tokens, immediate pirate defeat / ice terraform with reserve discs, foundColony (3p cap), foundTradeStation (freight threshold, docks, card pick, marker on strict majority), free trade ships with pending markers, space-jump helpers | 226 |
 | 3 Encounters | `9a1dcd3` `867d7d9` | 32 cards as data, resumable effect interpreter with player picks, contests, flee, shake bands, Wear and Tear, redraw, progressive text; one spec-derived test per branch per outcome (zero mismatches found) | 418 |
+| 4 Hot-seat client | (this branch) | `client/` package; store with one rng per game and an action log that replays deterministically; SVG board (hexes, resource-coloured planets, discs sized by dice probability, face-down discs, P/I tokens, outposts with 5 docks, colonies/spaceports/ships in player colours); ship selection → BFS highlight filtered by `validateEndNode`, hover path preview, click to `moveShip`; found-colony buttons and a dock + friendship-card dialog for stations; hand / others' counts, mothership with shake animation, VP track, build menu with affordability and board site picks, supply trade with every ratio the player may use, player trade proposal / counter / accept / reject / withdraw, friendship card actions (Fame for Sale, Helping Hand, Relief Fund), 7 dialog (discard picker, steal target), encounter modal with progressive text and a control per `awaiting.kind` (space jump through board clicks), log pane with replay slider, pass-the-laptop curtain, seat select, error toast with the engine's message; Playwright-driven 12-turn smoke run with zero page errors | 444 |
 
 Review passes fixed: non-active Relief Fund holder blocked; bogus card names
 cleared a 7 discard for free; inherited object keys could write junk into the
@@ -116,66 +137,57 @@ reached; pending trade ships not placed as soon as a site freed up.
 8. Not yet implemented and deferred by spec to phase 6: strategic / explorer /
    wild-space set-ups (the loader already takes any placement), advanced
    set-up draft (§3.4), turn timer, persistence.
+9. Client (phase 4): the "viewer" is one seat; `requiredViewer` picks the
+   encounter picker, then a 7-discarder (current viewer first), then the open
+   trade's recipient, else the active player. Any seat can also be taken from
+   the header (`takeSeat`) so a non-active player can propose a trade. The
+   curtain hides hands only while `pendingViewer` is set; hot-seat players are
+   trusted not to peek.
+10. Client replay keeps no snapshots: `actions[]` + the initial state + the rng
+   seed string reproduce every state (`replayState(k)`, cached incrementally).
+   `loadGame` derives a fresh rng seed (`seed:turn:logLength`) because a loaded
+   state has consumed an unknown part of the stream.
+11. The encounter modal stays open after the card resolves (stage `done`) until
+   "Continue" is clicked, so the result text is not lost when the phase flips.
+12. Build site picks: with one candidate the build is sent immediately; with
+   several the board highlights them (`nodePick`) and the click sends `build`.
 
-## 6. Phase 4 — hot-seat client (next)
+## 6. Phase 4 — hot-seat client (done)
 
-Goal (spec §14, §15.4): a React + Vite app in `client/` that plays a full
-3–4 player game in one browser tab against the local engine, no network.
+Delivered as described in §4. How to run and verify:
 
-Instructions for the implementing agent:
+```sh
+cd starfarers-online && pnpm install
+pnpm typecheck && pnpm test                      # shared + client
+pnpm --filter @starfarers/client dev             # http://localhost:5173
+pnpm --filter @starfarers/client build           # client/dist (CI runs this too)
+```
 
-1. Create `client/` as workspace package `@starfarers/client`: Vite 6, React 18
-   or 19, TypeScript strict, Vitest + `@testing-library/react` for component
-   tests, `vitest.config.ts` so the root `pnpm test` picks it up, scripts
-   `dev`, `build`, `typecheck`, `test`. Depend on `@starfarers/shared` via
-   `workspace:*`. No official Catan art, names or logos; placeholder shapes.
-2. State layer: a `GameStore` (zustand or useReducer) holding `GameState`,
-   `seed`, a per-game `Rng` created with `createRng(seed)` and reused across
-   actions (the hot-seat is the only authority), an `error` slot, and a
-   `dispatch(action)` that calls `applyAction` and keeps the previous state for
-   undo-less replay of the log. Hot-seat: the "current viewer" is the player
-   whose input is pending (active player, or `awaiting.playerId`, or a player
-   in `awaitingDiscard`, or the `openTrade` recipient); show a "pass the laptop"
-   banner on viewer change and hide other hands.
-3. Board (SVG): render all hexes from `state.board.sectors[*].lobes` and
-   `Planet.hex` using `board/geometry` (`hexCorners`, `vertexPosition`);
-   planets coloured by resource (`board.json → planets` colour map), disc
-   number with font size scaled by dice probability (6/8 largest), face-down
-   discs as blank, tokens as P/I badges; outposts with 5 dock slots around the
-   docking point; nodes as clickable circles; settlements (colony/spaceport by
-   shape) and ships (colony/trade) in player colours. Selecting a ship
-   highlights legal end nodes = BFS over `board.adjacency` with budget
-   `turn.speed − turn.shipMovesUsed[shipId]` filtered by
-   `validateEndNode(state, ship, nodeId)` from `flight/movement.ts`; clicking a
-   highlighted node sends `moveShip` with the BFS path. Also "found colony" /
-   "found trade station" buttons when `canFoundColony` / `canFoundTradeStation`
-   return null.
-4. Panels: hand (own cards grouped by type, others as counts), mothership
-   (boosters/cannons/pods, shake animation revealing `turn.shake`), VP track
-   along the board edge, build menu with affordability from `BUILD_COSTS`,
-   trade panel (supply trade with ratio hints incl. Merchants cards; player
-   trade proposal/counter/accept driven by `openTrade`), friendship card
-   panel, encounter modal that shows `visibleEncounterText(state)` box by box
-   and renders the right control for `awaiting.kind`, a 7-resolution dialog
-   (discard picker, steal target), and a log pane rendering `state.log`.
-5. Phase-driven action bar: only show actions whose `ACTION_POLICY` phase
-   matches and whose preconditions hold; always show the engine's `GameError`
-   message on rejection.
-6. Tests: component tests for the board BFS highlight (legal nodes equal the
-   engine's answer), the encounter modal control for each `awaiting.kind`, the
-   viewer switch, and one "scripted full turn" test that plays
-   roll → build → shake → move → endTurn through the store with a seeded rng.
-   Add `pnpm --filter @starfarers/client build` and the client tests to the CI
-   job in `.github/workflows/ci.yml`.
-7. Done when: `pnpm dev` in `client/` opens a game that can be played to a win
-   by hand, all tests pass, typecheck is clean, nothing in `shared/` changed
-   except additive helpers (list them).
+Engine API the client relies on (all pre-existing, plus the additive barrel
+exports `production/seven.ts` and `production/relief.ts` for the 7 dialog and
+the Relief Fund button): `createBeginnerGame`, `applyAction`, `createRng`,
+`rngFromState`, `ACTION_POLICY`, `validateEndNode`, `validateJumpTarget`,
+`stepsLeft`, `canFoundColony`, `canFoundTradeStation`, `outpostAtNode`,
+`pickableFriendshipCards`, `reliefEligible`, `discardCountFor`, `stealTargets`,
+`reserveDrawFor`, `speedOf`, `visibleEncounterText`, `encounterCard`,
+`hexCorners`, `hexCenter`, `vertexPosition`, `handHas`, `shipsOf`,
+`spaceportsOf`, `spaceportSites`, `isOccupied`, config constants.
 
-Recommended agents: one Opus implementer for the store + board, one Opus
-implementer for the panels + modals (parallel, disjoint folders under
-`client/src/board` and `client/src/panels`, shared contract = the store
-file written first), then a reviewer that plays a full game with Playwright
-(Chromium is pre-installed in the cloud container).
+Test ids worth knowing for Playwright or further component tests: `board`,
+`node-<id>` (`data-highlight="true"` when targetable), `ship-<id>`,
+`settlement-<node>`, `dock-<sector>-<i>`, `action-roll|reserve|shake|end`,
+`action-found-<ship>`, `build-<item>`, `supply-rate-<n>`, `trade-propose|accept|
+reject|counter|withdraw`, `seven-dialog`, `discard-confirm`, `steal-<pid>`,
+`encounter-modal`, `encounter-box`, `choice-offer|yes|no`, `offer-confirm`,
+`pick-<kind>`, `pick-option-<value>`, `pick-confirm`, `pick-decline`,
+`found-station-dialog`, `found-station-confirm`, `pass-banner`, `take-seat`,
+`seat-select`, `error-toast`, `vp-track`, `log-pane`.
+
+Known gaps to pick up in phase 6 (none block play): no keyboard navigation; the
+outpost civ label can overlap the dock row on the Diplomats tile; the
+spaceport-site rule for a *pending* trade-ship marker is shown only through the
+log; no save/load of a game to a file (the store's `loadGame` + action log make
+it a small addition); phones are not a target (spec §14).
 
 ## 7. Phase 5 — server, lobby, reconnect
 
@@ -199,7 +211,12 @@ Socket.IO 4, TypeScript), one process, in-memory room store.
    server only forwards. Chat: `chat` event appended to a room-level message
    list (not game state). Turn timer: off by default, config only.
 5. Client: add a lobby screen and a `RemoteGameStore` implementing the same
-   store interface as the hot-seat store, selected by route.
+   `GameStoreState` interface as `client/src/store/gameStore.ts` (dispatch →
+   socket emit; `game` ← redacted `state` events; `viewer` fixed to the
+   socket's player, `pendingViewer` always null; `replayState` from the
+   server's action log or disabled), selected by route. The panels only use
+   `useGame` / `useAct` / `useShownState`, so swapping the store instance is
+   enough.
 6. Tests: server unit tests with `socket.io-client` against an in-process
    server: create/join/start, action round trip, redaction per socket,
    rejection to sender only, reconnect with token, full scripted game over
