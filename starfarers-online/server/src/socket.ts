@@ -127,6 +127,13 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
       broadcastState(ctx.room, payload.action);
     });
 
+    // Log replay for clients that joined or resumed mid-game: the server re-runs the engine, the asker gets its redacted view.
+    socket.on('replay', (payload, ack) => {
+      const ctx = current(socket);
+      if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });
+      ack(store.replayFor(ctx.room, ctx.player.id, payload?.index));
+    });
+
     socket.on('chat', (payload, ack) => {
       const ctx = current(socket);
       if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });

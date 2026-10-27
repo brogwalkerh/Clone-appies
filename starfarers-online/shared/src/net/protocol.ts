@@ -62,6 +62,12 @@ export interface JoinReply {
   state: GameState | null;
   /** Accepted actions so far (redacted), for the client's replay slider. */
   actions: Action[];
+  /**
+   * The state the game started from, redacted for this player; `null` before
+   * the start or for a room stored before replay existed. With it and the
+   * `replay` query a resumed client can scrub back to the first turn.
+   */
+  initial: GameState | null;
 }
 
 export interface ClientToServerEvents {
@@ -72,6 +78,8 @@ export interface ClientToServerEvents {
   configureRoom(payload: { variant: GameVariant }, ack: Ack<{ configured: true }>): void;
   startGame(payload: Record<string, never>, ack: Ack<{ started: true }>): void;
   action(payload: { action: Action }, ack: Ack<{ accepted: true }>): void;
+  /** State after the first `index` accepted actions (0 = initial), replayed on the server and redacted for the asker. */
+  replay(payload: { index: number }, ack: Ack<GameState>): void;
   chat(payload: { text: string }, ack: Ack<{ sent: true }>): void;
 }
 

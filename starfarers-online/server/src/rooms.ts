@@ -60,6 +60,8 @@ export interface Room {
   started: boolean;
   seed: string | null;
   game: GameState | null;
+  /** State the game started from (unredacted); `null` before the start or for a room stored before replay existed. */
+  initial: GameState | null;
   rng: Rng | null;
   /** Accepted actions since the start, authoritative (unredacted). */
   actions: Action[];
@@ -79,6 +81,8 @@ export interface RoomSnapshot {
   started: boolean;
   seed: string | null;
   game: GameState | null;
+  /** Added in phase 6 for server-side replay; older snapshots lack it and restore with `null` (replay unavailable). */
+  initial: GameState | null;
   rngState: [number, number, number, number] | null;
   actions: Action[];
   messages: ChatMessage[];
@@ -95,7 +99,7 @@ function netError(code: NetError['code'], message: string): RoomResult<never> {
 }
 
 /** A snapshot as it may come back from storage (written before `updatedAt` existed). */
-export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt'> & { updatedAt?: number };
+export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial'> & { updatedAt?: number; initial?: GameState | null };
 
 export const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_FINISHED_MS = 24 * 60 * 60 * 1000;
@@ -143,6 +147,12 @@ export class RoomStore {
   private readonly warn: (message: string) => void;
   /** Tail of the write chain per room code: writes for one room never interleave. */
   private readonly writes = new Map<string, Promise<void>>();
+  /**
+   * Last replayed position per room (one entry each): a later index continues
+   * from it, an earlier one restarts from `initial`. The log only grows and a
+   * prefix never changes, so nothing invalidates it except a new start.
+   */
+  private readonly replayCache = new WeakMap<Room, { index: number; state: GameState; rngState: [number, number, number, number] }>();
 
   constructor(options: RoomStoreOptions = {}) {
     this.seedFactory = options.seedFactory ?? (() => randomBytes(8).toString('hex'));
@@ -182,6 +192,7 @@ export class RoomStore {
       started: false,
       seed: null,
       game: null,
+      initial: null,
       rng: null,
       actions: [],
       messages: [],
@@ -294,6 +305,8 @@ export class RoomStore {
   private startWith(room: Room, game: GameState, rngSeed: string): Room {
     room.seed = rngSeed;
     room.game = game;
+    room.initial = game;
+    this.replayCache.delete(room);
     room.rng = createRng(rngSeed);
     room.started = true;
     room.actions = [];
@@ -362,7 +375,54 @@ export class RoomStore {
       lobby: this.lobbyView(room),
       state: room.game ? redactState(room.game, player.id) : null,
       actions: room.actions.map((a) => this.redactAction(a, player.id)),
+      initial: room.initial ? redactState(room.initial, player.id) : null,
     };
+  }
+
+  /**
+   * Authoritative state after the first `index` accepted actions (0 =
+   * initial): `initial` + `actions[0..index)` through the engine with a fresh
+   * `createRng(room.seed)`, so the live `room.rng` is never touched. Throws
+   * when the room has no initial state or the index is out of range; use
+   * `replayFor` for the validated, redacted form.
+   */
+  replayState(room: Room, index: number): GameState {
+    if (!room.initial || room.seed === null) throw new Error(`Room ${room.code} has no initial state to replay from`);
+    if (!Number.isInteger(index) || index < 0 || index > room.actions.length) throw new Error(`Replay index ${index} is outside 0–${room.actions.length}`);
+    const cached = this.replayCache.get(room);
+    let state = room.initial;
+    let rng = createRng(room.seed);
+    let from = 0;
+    if (cached && cached.index <= index) {
+      state = cached.state;
+      rng = rngFromState(cached.rngState);
+      from = cached.index;
+    }
+    for (let i = from; i < index; i++) {
+      const result = applyAction(state, room.actions[i] as Action, rng);
+      if (!result.ok) throw new Error(`Replay diverged at action ${i}: ${result.error.message}`);
+      state = result.value;
+    }
+    this.replayCache.set(room, { index, state, rngState: rng.getState() });
+    return state;
+  }
+
+  /** `replayState` for a player: validated, with today's connection flags, redacted for `playerId`. */
+  replayFor(room: Room, playerId: PlayerId, index: unknown): RoomResult<GameState> {
+    if (!room.started || !room.game) return netError('notStarted', 'The game has not started');
+    if (typeof index !== 'number' || !Number.isInteger(index)) return netError('badRequest', 'Replay index must be an integer');
+    if (index < 0 || index > room.actions.length) return netError('badRequest', `Replay index must be 0–${room.actions.length}`);
+    if (!room.initial) return netError('badRequest', 'Replay is unavailable for this room: it was saved without its initial state');
+    let state: GameState;
+    try {
+      // The live end needs no engine run (a backward jump restarts from `initial`, ~ms per action).
+      state = index === room.actions.length ? room.game : this.replayState(room, index);
+    } catch (err) {
+      return netError('badRequest', `Replay failed: ${errMessage(err)}`);
+    }
+    const connected = new Map(room.players.map((p) => [p.id, p.connected]));
+    const shown = { ...state, players: state.players.map((p) => ({ ...p, connected: connected.get(p.id) ?? p.connected })) };
+    return { ok: true, value: redactState(shown, playerId) };
   }
 
   snapshot(room: Room): RoomSnapshot {
@@ -377,6 +437,7 @@ export class RoomStore {
       started: room.started,
       seed: room.seed,
       game: room.game,
+      initial: room.initial,
       rngState: room.rng ? room.rng.getState() : null,
       actions: [...room.actions],
       messages: [...room.messages],
@@ -400,6 +461,7 @@ export class RoomStore {
       started: snapshot.started,
       seed: snapshot.seed,
       game: snapshot.game,
+      initial: snapshot.initial ?? null,
       rng: snapshot.rngState ? rngFromState(snapshot.rngState) : null,
       actions: [...snapshot.actions],
       messages: [...snapshot.messages],

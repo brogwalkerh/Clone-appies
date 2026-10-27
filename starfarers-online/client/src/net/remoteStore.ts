@@ -4,7 +4,9 @@
  * and returns true optimistically; a rejection arrives through the ack (and the
  * server's `error` event) and lands in `error`. The viewer is fixed to the
  * socket's player, so `pendingViewer` is always null and the curtain never
- * shows. Replay uses the redacted states received since joining.
+ * shows. Replay uses the redacted states received since joining; positions
+ * before the join are asked from the server (`replay`), which re-runs the
+ * engine and answers with this player's redacted view (HANDOFF §8.4).
  */
 
 import type {
@@ -22,6 +24,9 @@ import type {
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { GameStoreState } from '../store/gameStore.js';
 import { loadSession, saveSession, type SessionStorageLike } from './session.js';
+
+/** Server-replayed states kept per store (most recently used last). */
+export const REPLAY_CACHE_SIZE = 50;
 
 type AckOf<E extends keyof ClientToServerEvents> = Parameters<Parameters<ClientToServerEvents[E]>[1]>[0];
 
@@ -51,6 +56,12 @@ export interface RemoteStoreState extends GameStoreState {
   snapshots: GameState[];
   /** Number of accepted actions that happened before the first snapshot (resumed games). */
   snapshotBase: number;
+  /** Lowest replayable index: 0 when the server sent the initial state (or we saw the start), else `snapshotBase`. */
+  replayMin: number;
+  /** Bumped whenever a server-replayed state lands in the cache. */
+  replayVersion: number;
+  /** Ask the server for the state after `k` actions unless it is known locally; one request per index. */
+  ensureReplay(k: number): Promise<void>;
 
   connect(): void;
   createRoom(roomName: string, playerName: string): Promise<NetResult<JoinReply>>;
@@ -81,8 +92,20 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         socket.emit(event, payload, resolve);
       });
 
+    /** States before `snapshotBase`, fetched with `replay`; cleared on every join / leave. */
+    const replays = new Map<number, GameState>();
+    const inflight = new Map<number, Promise<void>>();
+    let replayGeneration = 0;
+    const resetReplays = () => {
+      replays.clear();
+      inflight.clear();
+      replayGeneration++;
+    };
+
     const applyJoin = (reply: JoinReply) => {
       persist(reply.session);
+      resetReplays();
+      const serverInitial = reply.initial ?? null;
       set({
         session: reply.session,
         lobby: reply.lobby,
@@ -90,10 +113,11 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         viewer: reply.session.playerId,
         pendingViewer: null,
         game: reply.state,
-        initial: reply.state,
+        initial: serverInitial ?? reply.state,
         actions: reply.actions,
         snapshots: reply.state ? [reply.state] : [],
         snapshotBase: reply.actions.length,
+        replayMin: serverInitial || reply.actions.length === 0 ? 0 : reply.actions.length,
         error: null,
         netError: null,
         replayIndex: null,
@@ -124,7 +148,8 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         game: state,
         initial: get().initial ?? state,
         actions: action ? [...actions, action] : actions,
-        snapshots: [...snapshots, state],
+        // A state without an action (someone (re)connected) replaces the latest snapshot so indexes stay aligned with `actions`.
+        snapshots: action || snapshots.length === 0 ? [...snapshots, state] : [...snapshots.slice(0, -1), state],
         error: null,
         selectedShip: null,
         nodePick: null,
@@ -152,6 +177,8 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
       netError: null,
       snapshots: [],
       snapshotBase: 0,
+      replayMin: 0,
+      replayVersion: 0,
 
       newGame() {
         throw new Error('newGame is a hot-seat action; online games start from the lobby');
@@ -188,9 +215,56 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         set({ replayIndex: index, selectedShip: null, nodePick: null });
       },
       replayState(k) {
-        const { snapshots, snapshotBase, game } = get();
-        const i = Math.max(0, Math.min(k - snapshotBase, snapshots.length - 1));
-        return snapshots[i] ?? (game as GameState);
+        const { snapshots, snapshotBase, game, actions, initial, replayMin } = get();
+        const target = Math.max(0, Math.min(k, actions.length));
+        if (snapshots.length > 0 && target >= snapshotBase) return snapshots[Math.min(target - snapshotBase, snapshots.length - 1)] ?? (game as GameState);
+        if (target === 0 && replayMin === 0 && initial) return initial;
+        const hit = replays.get(target);
+        if (hit) return hit;
+        // Not fetched yet (ensureReplay is on its way): show the nearest known position meanwhile.
+        const known: [number, GameState | null | undefined][] = [[0, replayMin === 0 ? initial : null], ...replays, [snapshotBase, snapshots[0]]];
+        let best: GameState | null = null;
+        let distance = Infinity;
+        for (const [index, state] of known) {
+          if (state && Math.abs(index - target) < distance) {
+            best = state;
+            distance = Math.abs(index - target);
+          }
+        }
+        return best ?? (game as GameState);
+      },
+      ensureReplay(k) {
+        const { snapshots, snapshotBase, game, actions, initial, replayMin, session } = get();
+        const target = Math.max(0, Math.min(k, actions.length));
+        if (!session || !game || target < replayMin) return Promise.resolve();
+        if (snapshots.length > 0 && target >= snapshotBase) return Promise.resolve();
+        if (target === 0 && initial) return Promise.resolve();
+        const hit = replays.get(target);
+        if (hit) {
+          replays.delete(target);
+          replays.set(target, hit);
+          return Promise.resolve();
+        }
+        const pending = inflight.get(target);
+        if (pending) return pending;
+        const generation = replayGeneration;
+        const request = emit('replay', { index: target }).then((reply) => {
+          if (generation !== replayGeneration) return;
+          inflight.delete(target);
+          if (!reply.ok) {
+            set({ netError: reply.error.message });
+            return;
+          }
+          replays.set(target, reply.value);
+          while (replays.size > REPLAY_CACHE_SIZE) {
+            const oldest = replays.keys().next().value;
+            if (oldest === undefined) break;
+            replays.delete(oldest);
+          }
+          set({ replayVersion: get().replayVersion + 1 });
+        });
+        inflight.set(target, request);
+        return request;
       },
 
       connect() {
@@ -227,7 +301,8 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
       },
       leaveRoom() {
         persist(null);
-        set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, viewer: null, error: null, netError: null });
+        resetReplays();
+        set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, replayMin: 0, viewer: null, error: null, netError: null });
         socket.disconnect();
         set({ connection: 'idle' });
       },

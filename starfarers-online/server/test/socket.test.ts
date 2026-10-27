@@ -225,6 +225,42 @@ describe('socket transport', () => {
     expect(log.length).toBe(steps);
   }, 120_000);
 
+  it('a late resume gets the initial state and can replay the log; a non-member cannot', async () => {
+    const { a, b, c, code, rb } = await threePlayerRoom();
+    await Promise.all([once(a, 'state'), once(b, 'state'), once(c, 'state'), call(a, 'startGame', {})]);
+    const room = store.getRoom(code)!;
+    // Some play happens before Bob reloads (applied through the store; the broadcasts are not needed here).
+    const rnd = botRandom(21);
+    for (let i = 0; i < 12; i++) {
+      const action = nextAction(room.game!, rnd)!;
+      expect(store.applyAction(room, action.playerId, action).ok).toBe(true);
+    }
+    b.disconnect();
+    const b2 = client();
+    const back = expectOk(await call(b2, 'resume', { roomCode: code, playerToken: rb.session.playerToken }));
+    expect(back.actions).toHaveLength(12);
+    const initial = back.initial!;
+    expect(initial).not.toBeNull();
+    expect(initial.seed).toBe('');
+    expect(initial.players.find((p) => p.id === 'p1')?.hand).toEqual([]);
+    expect(initial.players.find((p) => p.id === 'p2')?.hand.length).toBe(room.initial!.players.find((p) => p.id === 'p2')!.hand.length);
+
+    const first = expectOk(await call(b2, 'replay', { index: 0 }));
+    const offline = (st: GameState) => ({ ...st, players: st.players.map((p) => ({ ...p, connected: false })) });
+    expect(offline(first)).toEqual(offline(initial));
+    // The replay shows today's connection flags.
+    expect(first.players.find((p) => p.id === 'p2')?.connected).toBe(true);
+    const last = expectOk(await call(b2, 'replay', { index: 12 }));
+    expect(last).toEqual(back.state);
+    const mid = expectOk(await call(b2, 'replay', { index: 5 }));
+    expect(mid.log.length).toBeGreaterThan(initial.log.length);
+    expect(mid.players.find((p) => p.id === 'p3')?.hand).toEqual([]);
+    expect(await call(b2, 'replay', { index: 13 })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+
+    // A socket that never joined this room gets an error, not a state.
+    expect(await call(client(), 'replay', { index: 0 })).toMatchObject({ ok: false, error: { code: 'notInRoom' } });
+  });
+
   it('startWithState lets a test resume any position over sockets', async () => {
     const { a, b, c, code } = await threePlayerRoom();
     const room = store.getRoom(code)!;

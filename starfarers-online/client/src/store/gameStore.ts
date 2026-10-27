@@ -81,6 +81,12 @@ export interface GameStoreState {
   setReplayIndex(index: number | null): void;
   /** State after the first `k` accepted actions (0 = initial). */
   replayState(k: number): GameState;
+  /** Lowest index the replay slider offers (remote store: the join point when the server sent no initial state). Absent = 0. */
+  replayMin?: number;
+  /** Bumped when a replay state arrives asynchronously (remote store), so `useShownState` re-renders. */
+  replayVersion?: number;
+  /** Fetch the state for `k` if `replayState(k)` cannot answer locally yet (remote store only). */
+  ensureReplay?(k: number): Promise<void>;
 }
 
 export type GameStore = StoreApi<GameStoreState>;
@@ -244,6 +250,7 @@ export function useShownState(): GameState | null {
   const game = useGame((s) => s.game);
   const replayIndex = useGame((s) => s.replayIndex);
   const replayState = useGame((s) => s.replayState);
+  useGame((s) => s.replayVersion);
   if (replayIndex === null) return game;
   return replayState(replayIndex);
 }

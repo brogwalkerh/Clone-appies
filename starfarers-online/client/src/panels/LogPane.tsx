@@ -3,15 +3,26 @@ import { useEffect, useRef } from 'react';
 import { useGame } from '../store/gameStore.js';
 import { playerColor } from '../ui/format.js';
 
+/** Debounce for remote replay fetches while the slider is dragged. */
+export const REPLAY_FETCH_DELAY_MS = 150;
+
 /** `state.log` newest at the bottom, plus a replay slider over the accepted-action history. */
 export function LogPane({ state }: { state: GameState }) {
   const actions = useGame((s) => s.actions);
   const replayIndex = useGame((s) => s.replayIndex);
   const setReplayIndex = useGame((s) => s.setReplayIndex);
+  const replayMin = useGame((s) => Math.min(s.replayMin ?? 0, s.actions.length));
+  const ensureReplay = useGame((s) => s.ensureReplay);
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: 'nearest' });
   }, [state.log.length]);
+  // Ask only once the slider rests: every server-side backward jump replays from the initial state.
+  useEffect(() => {
+    if (replayIndex === null || !ensureReplay) return;
+    const timer = setTimeout(() => void ensureReplay(replayIndex), REPLAY_FETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [replayIndex, ensureReplay]);
   const shown = replayIndex ?? actions.length;
   return (
     <section className="panel log" data-testid="log-pane">
@@ -19,7 +30,7 @@ export function LogPane({ state }: { state: GameState }) {
       <div className="replay">
         <input
           type="range"
-          min={0}
+          min={replayMin}
           max={actions.length}
           value={shown}
           aria-label="Replay position"
