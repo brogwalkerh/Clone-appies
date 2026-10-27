@@ -99,6 +99,40 @@ jobs:
           done
 
   # ---------------------------------------------------------------------------
+  # Starfarers Online engine (TypeScript, pnpm workspace under starfarers-online/).
+  # ---------------------------------------------------------------------------
+  starfarers-engine:
+    name: Starfarers engine
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: starfarers-online
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: starfarers-online/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  # ---------------------------------------------------------------------------
   # macOS app build + unit tests.
   # TODO: pin to the macOS 27 / Xcode 27 runner image (e.g. `macos-27` or
   # `macos-27-arm64`) once GitHub publishes it. `macos-latest` may lag behind and
