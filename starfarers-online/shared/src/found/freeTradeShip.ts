@@ -7,9 +7,10 @@
  * `MAX_SHIPS_ON_BOARD` ships, a trade station piece and an unoccupied site of
  * one of their own spaceports. Otherwise a trade-ship marker is held in
  * `state.pendingTradeShips[playerId]` and is placed as soon as possible
- * (`tryPlacePendingTradeShips`: start of the player's turn, after a build, or
- * after a ship leaves the board by founding). A free ship placed during the
- * owner's flight phase may move the same turn.
+ * (`tryPlacePendingTradeShips`: start of the player's turn, after a spaceport
+ * build, after a ship leaves the board by founding, and after a ship comes to
+ * rest having freed a spaceport site). A free ship placed during the owner's
+ * flight phase may move the same turn.
  *
  * Site choice: the real game lets the player pick the spaceport site; the
  * engine places deterministically on the first free own site (spaceports in

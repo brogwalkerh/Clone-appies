@@ -611,6 +611,33 @@ describe('pirate bases and ice planets (§9.6)', () => {
     expect(checkSpecialTokens(state, SHIP)).toEqual([]); // nothing left to claim
   });
 
+  it('a ship already adjacent when its owner reaches the threshold claims the token at the start of the flight phase, and a parked colony ship may then found (§9.6)', () => {
+    const state = flightState();
+    state.turn.speed = 6;
+    const parked = move(state, [...N4_APPROACH, N4_SITE]);
+    expect(parked.board.planets[PIRATE_PLANET]!.token).toEqual({ kind: 'pirateBase', value: 5 });
+    fails(parked, { type: 'foundColony', playerId: 'p1', shipId: SHIP }, 'ruleViolation');
+    const next = cycleTo(ok(parked, { type: 'endTurn', playerId: 'p1' }), 'p1');
+    expect(ship(next).mustFoundOrLeave).toBe(true);
+    // Cannons built during Trade & Build; the ship does not move.
+    next.phase = 'tradeBuild';
+    delete next.turn.baseSpeed;
+    delete next.turn.speed;
+    const tooFew = structuredClone(next);
+    player(tooFew, 'p1').mothership.cannons = 4;
+    const stillThere = ok(tooFew, { type: 'shakeMothership', playerId: 'p1' }, shakeRng(['yellow', 'red']));
+    expect(stillThere.board.planets[PIRATE_PLANET]!.token).not.toBeNull();
+    fails(stillThere, { type: 'foundColony', playerId: 'p1', shipId: SHIP }, 'ruleViolation');
+
+    player(next, 'p1').mothership.cannons = 5;
+    const shaken = ok(next, { type: 'shakeMothership', playerId: 'p1' }, shakeRng(['yellow', 'red']));
+    expect(shaken.board.planets[PIRATE_PLANET]!.token).toBeNull();
+    expect(player(shaken, 'p1').medals.pirate).toBe(1);
+    expect(ship(shaken).nodeId).toBe(N4_SITE);
+    const founded = ok(shaken, { type: 'foundColony', playerId: 'p1', shipId: SHIP });
+    expect(founded.board.settlements[N4_SITE]).toMatchObject({ kind: 'colony', owner: 'p1' });
+  });
+
   it('leaves the planet discless when no reserve disc remains', () => {
     const state = flightState();
     state.reserveDiscs = [];

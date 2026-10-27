@@ -6,7 +6,12 @@
  *                     anything. Otherwise draw 2 balls: black → baseSpeed 3 and
  *                     an encounter (top card of `encounterDeck` → `turn.encounter`,
  *                     phase 'flight.encounter'); else baseSpeed = sum, phase
- *                     'flight.move'. `turn.speed` is set from `speedOf`.
+ *                     'flight.move'. `turn.speed` is set from `speedOf`. Before
+ *                     the balls are drawn, every ship already adjacent to a
+ *                     pirate base / ice planet whose threshold the player now
+ *                     meets (upgrades built this Trade & Build) claims it —
+ *                     §9.6 is "immediately", at the latest when flight starts,
+ *                     and a parked colony ship may then found there.
  *   moveShip        — move one of your ships along `path` (nodes after the
  *                     current one), see flight/movement.ts.
  *   encounterChoice / encounterPick — placeholders until the encounter module
@@ -31,6 +36,7 @@ import { gameError } from '../types.js';
 import { applyMove, stepsLeft, validateEndNode, validatePath } from '../flight/movement.js';
 import { evaluateShake, drawBalls } from '../flight/shake.js';
 import { refreshSpeed } from '../flight/stats.js';
+import { checkSpecialTokensForPlayer } from '../flight/tokens.js';
 import type { ActionModule, Handler, HandlerMap } from './handler.js';
 import { logEvent } from './handler.js';
 
@@ -68,6 +74,9 @@ const handleShakeMothership: Handler<'shakeMothership'> = (state, action, rng) =
     logEvent(state, `${player.name} has no ships on the board; flight is skipped`, player.id);
     return state;
   }
+
+  // Ships already next to a pirate base / ice planet claim it now (§9.6).
+  checkSpecialTokensForPlayer(state, player.id);
 
   const result = evaluateShake(drawBalls(rng));
   state.turn.shake = result.balls;

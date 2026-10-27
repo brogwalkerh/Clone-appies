@@ -25,6 +25,7 @@ import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { pickableFriendshipCards, updateFriendshipMarker } from '../found/friendship.js';
 import { canFoundTradeStation, placeTradeStation } from '../found/station.js';
 import { refreshSpeed } from '../flight/stats.js';
+import { checkSpecialTokensForPlayer } from '../flight/tokens.js';
 import type { ActionModule, Handler, HandlerMap } from './handler.js';
 import { logEvent } from './handler.js';
 
@@ -99,9 +100,11 @@ const handleFoundTradeStation: Handler<'foundTradeStation'> = (state, action) =>
   }
 
   // Effects start immediately (§8): a Scientists speed card taken mid-flight
-  // raises this turn's remaining speed, so re-derive `turn.speed`.
-  if (card.effect.kind === 'combatBonus' && state.turn.speed !== undefined) {
-    refreshSpeed(state);
+  // raises this turn's remaining speed, so re-derive `turn.speed`; a combat
+  // bonus may let another ship already next to a pirate base defeat it (§9.6).
+  if (card.effect.kind === 'combatBonus') {
+    if (state.turn.speed !== undefined) refreshSpeed(state);
+    checkSpecialTokensForPlayer(state, player.id);
   }
 
   tryPlacePendingTradeShips(state, player.id);

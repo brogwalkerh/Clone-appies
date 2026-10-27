@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { getSector, settlementAt, shipsOf, spaceportSites, spaceportsOf, stationsAt } from '../src/board/query.js';
+import { getSector, isOccupied, neighborsOf, settlementAt, shipsOf, spaceportSites, spaceportsOf, stationsAt } from '../src/board/query.js';
 import { MAX_COLONIES_PER_SYSTEM_3P, MAX_STATIONS_PER_OUTPOST, friendshipCardsOf } from '../src/config.js';
 import { canFoundColony, nodeTouchesSpecialToken, settlementsInSystem } from '../src/found/colony.js';
 import { freeTradeShipSite, grantFreeTradeShip, tryPlacePendingTradeShips } from '../src/found/freeTradeShip.js';
@@ -20,7 +20,7 @@ import { canFoundTradeStation } from '../src/found/station.js';
 import { createBeginnerGame } from '../src/setup/beginner.js';
 import type { GameState, NodeId, PlayerId, ShipId } from '../src/types.js';
 import { computeVp } from '../src/vp.js';
-import { THREE, fails, ok, opponents, player } from './support/tradeBuild.js';
+import { THREE, fails, ok, opponents, player, setHand } from './support/tradeBuild.js';
 
 const FOUR = [...THREE, { id: 'p4', name: 'Dee', color: 'white' as const }];
 
@@ -392,6 +392,22 @@ describe('foundTradeStation', () => {
     expect(after.turn.speed).toBe(4);
   });
 
+  it('a Scientists combat card taken mid-flight lets another ship already next to a pirate base defeat it (§9.6)', () => {
+    const state = moveState();
+    const me = state.activePlayer;
+    const ship = parkTradeShip(state, SCIENTISTS, 1);
+    const site = N2_SITES[0]!;
+    const planet = state.board.planets[state.board.nodes[site]!.adjacentPlanets[0]!]!;
+    planet.token = { kind: 'pirateBase', value: 2 };
+    state.board.ships['ship:x:1'] = { id: 'ship:x:1', owner: me, kind: 'colony', nodeId: site, mustFoundOrLeave: false };
+    player(state, me).pieces.transportsLeft -= 1;
+    expect(player(state, me).mothership.cannons).toBe(0);
+    const next = ok(state, { type: 'foundTradeStation', playerId: me, shipId: ship, dockIndex: 0, friendshipCardId: 'khaStar' });
+    expect(next.board.planets[planet.id]!.token).toBeNull();
+    expect(player(next, me).medals.pirate).toBe(1);
+    expect(canFoundColony(next, 'ship:x:1')).toBeNull();
+  });
+
   it('places a pending trade-ship marker once the transport comes back', () => {
     const state = moveState();
     const me = state.activePlayer;
@@ -460,6 +476,46 @@ describe('free trade ship (§10)', () => {
     expect(shipsOf(state, me)).toHaveLength(shipsBefore);
     expect(grantFreeTradeShip(state, me)).toBe('pending');
     expect(state.pendingTradeShips[me]).toBe(2);
+  });
+
+  it('a pending marker is placed as soon as a spaceport build offers a free site (§7.3)', () => {
+    const state = createBeginnerGame({ players: THREE, seed: 'found' });
+    state.phase = 'tradeBuild';
+    const me = state.activePlayer;
+    const sp = spaceportsOf(state, me)[0]!;
+    for (const site of spaceportSites(state.board, sp.nodeId)) {
+      if (!isOccupied(state.board, site)) state.board.settlements[site] = { nodeId: site, kind: 'colony', color: 'white', owner: null };
+    }
+    state.pendingTradeShips[me] = 1;
+    expect(freeTradeShipSite(state, me)).toBeNull();
+    setHand(state, me, ['carbon', 'carbon', 'carbon', 'food', 'food']);
+    const colony = Object.values(state.board.settlements).find((s) => s.owner === me && s.kind === 'colony')!;
+    const next = ok(state, { type: 'build', playerId: me, item: 'spaceport', siteId: colony.nodeId });
+    expect(next.pendingTradeShips[me]).toBe(0);
+    const trade = shipsOf(next, me).filter((s) => s.kind === 'trade');
+    expect(trade).toHaveLength(1);
+    expect(spaceportSites(next.board, colony.nodeId)).toContain(trade[0]!.nodeId);
+  });
+
+  it('a pending marker is placed as soon as a move frees a spaceport site, and the new ship may move this turn (§7.3)', () => {
+    const state = moveState();
+    const me = state.activePlayer;
+    const ship = activeShip(state);
+    const from = state.board.ships[ship]!.nodeId;
+    const sp = spaceportsOf(state, me)[0]!;
+    for (const site of spaceportSites(state.board, sp.nodeId)) {
+      if (!isOccupied(state.board, site)) state.board.settlements[site] = { nodeId: site, kind: 'colony', color: 'white', owner: null };
+    }
+    state.pendingTradeShips[me] = 1;
+    expect(freeTradeShipSite(state, me)).toBeNull();
+    const away = neighborsOf(state.board, from).find((n) => n !== sp.nodeId && state.board.nodes[n]!.siteType === 'plain' && !isOccupied(state.board, n))!;
+    const next = ok(state, { type: 'moveShip', playerId: me, shipId: ship, path: [away] });
+    expect(next.pendingTradeShips[me]).toBe(0);
+    const trade = shipsOf(next, me).find((s) => s.kind === 'trade')!;
+    expect(trade.nodeId).toBe(from);
+    expect(next.turn.shipMovesUsed[trade.id]).toBeUndefined();
+    const back = neighborsOf(next.board, from).find((n) => n !== sp.nodeId && n !== away && state.board.nodes[n]!.siteType === 'plain' && !isOccupied(next.board, n))!;
+    ok(next, { type: 'moveShip', playerId: me, shipId: trade.id, path: [back] });
   });
 
   it('tryPlacePendingTradeShips places as many markers as now possible', () => {

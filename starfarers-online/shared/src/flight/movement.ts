@@ -22,9 +22,13 @@
  *
  * `applyMove` walks the path one node at a time, exploring and resolving
  * pirate / ice tokens at every step (§9.3 "at any point in its move", §9.6
- * "immediately"), then does the parking bookkeeping.
+ * "immediately"), then does the parking bookkeeping (`afterArrival`, shared
+ * with space jumps): a docked trade ship sets `turn.pendingFound`, and any
+ * trade-ship marker the owner still holds is placed if the move just freed a
+ * spaceport site (§7.3 "as soon as possible"; the new ship may move this turn).
  */
 
+import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { canFoundTradeStation } from '../found/station.js';
 import { areAdjacent, getPlayer, hasNode, settlementAt, shipAt, spaceportSites } from '../board/query.js';
 import { logEvent } from '../actions/handler.js';
@@ -126,4 +130,5 @@ export function afterArrival(state: GameState, ship: Ship): void {
     state.turn.pendingFound = ship.id;
     logEvent(state, `${ship.id} docked at ${ship.nodeId} and must found a trade station now`, ship.owner);
   }
+  tryPlacePendingTradeShips(state, ship.owner);
 }

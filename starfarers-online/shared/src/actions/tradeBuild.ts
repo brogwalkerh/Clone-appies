@@ -32,6 +32,7 @@ import {
   SUPPLY_TRADE,
   UPGRADE_CAPS,
 } from '../config.js';
+import { tryPlacePendingTradeShips } from '../found/freeTradeShip.js';
 import { reliefEligible } from '../production/relief.js';
 import type { Rng } from '../rng.js';
 import {
@@ -356,6 +357,8 @@ function buildSpaceport(state: GameState, player: Player, siteId: string | undef
       logEvent(state, `${owner.name}'s ship ${ship.id} sits on ${player.name}'s new spaceport site and must leave next turn`, owner.id);
     }
   }
+  // §7.3: a trade-ship marker is placed as soon as possible — the new spaceport may offer the first free site.
+  tryPlacePendingTradeShips(state, player.id);
   return null;
 }
 

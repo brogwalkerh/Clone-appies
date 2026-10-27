@@ -11,11 +11,21 @@
  * draw) is placed face up on the planet so it produces from the next roll, and
  * an event is logged. If no reserve disc is left the planet stays discless.
  * No ball sum is involved: encounters are the only place balls add to combat.
+ *
+ * `checkSpecialTokensForPlayer(state, playerId)` runs the same check for every
+ * ship the player has on the board without moving any of them. A ship that is
+ * ALREADY adjacent to a token when its owner reaches the threshold (cannons or
+ * freight pods built in Trade & Build, a Scientists combat card taken by
+ * another ship mid-flight) claims it as well: `shakeMothership` calls this at
+ * the start of the flight phase and `foundTradeStation` after a combat card.
+ * Without it a colony ship parked on the adjacent site could never found
+ * there (§9.6 "a colony ship already on the adjacent colony site may found
+ * immediately after"): must-found-or-leave would force it off the site.
  */
 
-import { getPlayer, planetsAdjacentToNode } from '../board/query.js';
+import { getPlayer, planetsAdjacentToNode, shipsOf } from '../board/query.js';
 import { logEvent } from '../actions/handler.js';
-import type { GameState, NodeId, Planet, ShipId, SpecialToken } from '../types.js';
+import type { GameState, NodeId, Planet, PlayerId, ShipId, SpecialToken } from '../types.js';
 import { combatStrengthOf } from './stats.js';
 
 /** True when any planet touching the node still carries a pirate-base / ice-planet token. */
@@ -62,5 +72,12 @@ export function checkSpecialTokens(state: GameState, shipId: ShipId): SpecialTok
     claimToken(state, planet, token, shipId);
     claimed.push(token);
   }
+  return claimed;
+}
+
+/** Resolve tokens next to every ship of the player (ships in board order); returns all tokens claimed. */
+export function checkSpecialTokensForPlayer(state: GameState, playerId: PlayerId): SpecialToken[] {
+  const claimed: SpecialToken[] = [];
+  for (const ship of shipsOf(state, playerId)) claimed.push(...checkSpecialTokens(state, ship.id));
   return claimed;
 }
