@@ -1,0 +1,345 @@
+[
+  {
+    "id": "userCaches",
+    "category": "cleanup.userCaches",
+    "relativePaths": [
+      "Library/Caches"
+    ],
+    "risk": "safe",
+    "description": "Temporary files that apps keep to load faster next time. Apps rebuild them automatically, so removing them only costs a slightly slower first launch."
+  },
+  {
+    "id": "userCaches.safari",
+    "category": "cleanup.userCaches",
+    "relativePaths": [
+      "Library/Caches/com.apple.Safari"
+    ],
+    "risk": "caution",
+    "description": "Safari's web cache and favicons. Removing it is safe but pages load slower the first time and some sites may ask you to sign in again."
+  },
+  {
+    "id": "userCaches.spotify",
+    "category": "cleanup.userCaches",
+    "relativePaths": [
+      "Library/Caches/com.spotify.client"
+    ],
+    "risk": "caution",
+    "description": "Spotify's offline song cache. Removing it frees space but downloaded tracks must be fetched again and you may need to sign in."
+  },
+  {
+    "id": "userCaches.slack",
+    "category": "cleanup.userCaches",
+    "relativePaths": [
+      "Library/Caches/com.tinyspeck.slackmacgap",
+      "Library/Caches/Slack"
+    ],
+    "risk": "caution",
+    "description": "Slack's message and image cache. Removing it is safe but Slack reloads your workspaces and may sign you out."
+  },
+  {
+    "id": "userCaches.teams",
+    "category": "cleanup.userCaches",
+    "relativePaths": [
+      "Library/Caches/com.microsoft.teams",
+      "Library/Caches/com.microsoft.teams2",
+      "Library/Caches/Microsoft Teams"
+    ],
+    "risk": "caution",
+    "description": "Microsoft Teams cache. Removing it is safe but Teams will rebuild it and usually asks you to sign in again."
+  },
+  {
+    "id": "protected.bird",
+    "category": "cleanup.protected",
+    "relativePaths": [
+      "Library/Caches/com.apple.bird"
+    ],
+    "risk": "risky",
+    "description": "iCloud Drive's sync cache. Removing it can stall uploads and re-download every iCloud file, so it is never offered for cleanup."
+  },
+  {
+    "id": "protected.cloudKit",
+    "category": "cleanup.protected",
+    "relativePaths": [
+      "Library/Caches/CloudKit",
+      "Library/Caches/com.apple.cloudd",
+      "Library/Caches/com.apple.cloudphotod"
+    ],
+    "risk": "risky",
+    "description": "CloudKit and iCloud Photos sync state. Removing it forces a full re-sync and can lose pending changes, so it is never offered for cleanup."
+  },
+  {
+    "id": "protected.nsurlsessiond",
+    "category": "cleanup.protected",
+    "relativePaths": [
+      "Library/Caches/com.apple.nsurlsessiond"
+    ],
+    "risk": "risky",
+    "description": "In-progress background downloads managed by macOS. Removing it breaks transfers that apps are waiting on, so it is never offered for cleanup."
+  },
+  {
+    "id": "protected.accounts",
+    "category": "cleanup.protected",
+    "relativePaths": [
+      "Library/Caches/com.apple.akd",
+      "Library/Caches/com.apple.iCloudHelper",
+      "Library/Caches/com.apple.Spotlight",
+      "Library/Caches/FamilyCircle",
+      "Library/Caches/com.apple.HomeKit"
+    ],
+    "risk": "risky",
+    "description": "Apple ID, Spotlight and HomeKit working data. Removing it can sign you out of iCloud or break search, so it is never offered for cleanup."
+  },
+  {
+    "id": "logs",
+    "category": "cleanup.logs",
+    "relativePaths": [
+      "Library/Logs"
+    ],
+    "risk": "safe",
+    "description": "Diagnostic logs written by apps and system services. They are only useful for troubleshooting and apps start new ones automatically."
+  },
+  {
+    "id": "logs.containers",
+    "category": "cleanup.logs",
+    "relativePaths": [
+      "Library/Containers/*/Data/Library/Logs"
+    ],
+    "risk": "safe",
+    "description": "Log files kept by sandboxed apps. They are only useful for troubleshooting and the app writes new ones as it runs."
+  },
+  {
+    "id": "crashReports",
+    "category": "cleanup.crashReports",
+    "relativePaths": [
+      "Library/Logs/DiagnosticReports"
+    ],
+    "risk": "safe",
+    "description": "Crash and hang reports collected when an app misbehaved. They help developers debug but have no effect on your apps if removed."
+  },
+  {
+    "id": "xcode.derivedData",
+    "category": "cleanup.xcode",
+    "relativePaths": [
+      "Library/Developer/Xcode/DerivedData"
+    ],
+    "risk": "safe",
+    "description": "Xcode build products and indexes. Xcode regenerates them on the next build, so removing them only makes the next build slower."
+  },
+  {
+    "id": "xcode.archives",
+    "category": "cleanup.xcode",
+    "relativePaths": [
+      "Library/Developer/Xcode/Archives"
+    ],
+    "risk": "risky",
+    "description": "Contains dSYMs for shipped builds. Without them you cannot symbolicate crash reports from released apps, so keep archives you may still need."
+  },
+  {
+    "id": "xcode.deviceSupport",
+    "category": "cleanup.xcode",
+    "relativePaths": [
+      "Library/Developer/Xcode/iOS DeviceSupport",
+      "Library/Developer/Xcode/watchOS DeviceSupport",
+      "Library/Developer/Xcode/tvOS DeviceSupport",
+      "Library/Developer/Xcode/visionOS DeviceSupport"
+    ],
+    "risk": "safe",
+    "description": "Debug symbols copied from devices you plugged in. Xcode copies them again the next time that device is connected."
+  },
+  {
+    "id": "xcode.simulatorCaches",
+    "category": "cleanup.xcode",
+    "relativePaths": [
+      "Library/Developer/CoreSimulator/Caches"
+    ],
+    "risk": "safe",
+    "description": "Simulator runtime caches. The simulator rebuilds them on next launch, so removing them is safe."
+  },
+  {
+    "id": "xcode.caches",
+    "category": "cleanup.xcode",
+    "relativePaths": [
+      "Library/Caches/com.apple.dt.Xcode"
+    ],
+    "risk": "safe",
+    "description": "Xcode's download and documentation cache. Xcode re-downloads whatever it needs, so removing it is safe."
+  },
+  {
+    "id": "trash",
+    "category": "cleanup.trash",
+    "relativePaths": [
+      ".Trash",
+      "/Volumes/*/.Trashes"
+    ],
+    "risk": "safe",
+    "description": "Items you already moved to the Trash. Emptying it deletes them permanently and frees their space."
+  },
+  {
+    "id": "brokenDownloads",
+    "category": "cleanup.brokenDownloads",
+    "relativePaths": [
+      "Downloads/*.download",
+      "Downloads/*.crdownload",
+      "Downloads/*.part",
+      "Downloads/*.partial"
+    ],
+    "risk": "safe",
+    "description": "Partial downloads that were interrupted and never finished. They cannot be opened; start the download again if you still need the file."
+  },
+  {
+    "id": "oldInstallers",
+    "category": "cleanup.oldInstallers",
+    "relativePaths": [
+      "Downloads/*.dmg",
+      "Downloads/*.pkg",
+      "Downloads/*.zip"
+    ],
+    "risk": "caution",
+    "description": "Installer images and archives downloaded more than a month ago. The app is usually already installed; keep any archive you have not unpacked yet."
+  },
+  {
+    "id": "ai.ollama",
+    "category": "cleanup.aiLeftovers",
+    "relativePaths": [
+      ".ollama/models"
+    ],
+    "risk": "risky",
+    "description": "Downloaded Ollama models, re-download to restore. Each model can be several gigabytes and must be pulled again before Ollama can use it."
+  },
+  {
+    "id": "ai.huggingface",
+    "category": "cleanup.aiLeftovers",
+    "relativePaths": [
+      ".cache/huggingface"
+    ],
+    "risk": "caution",
+    "description": "Hugging Face model and dataset cache. Libraries download these again on demand, which can take a long time for large models."
+  },
+  {
+    "id": "ai.lmStudio",
+    "category": "cleanup.aiLeftovers",
+    "relativePaths": [
+      ".lmstudio/models",
+      ".cache/lm-studio"
+    ],
+    "risk": "risky",
+    "description": "LM Studio models and cache. Removing them deletes every downloaded model; you must download them again inside LM Studio."
+  },
+  {
+    "id": "ai.torch",
+    "category": "cleanup.aiLeftovers",
+    "relativePaths": [
+      ".cache/torch"
+    ],
+    "risk": "safe",
+    "description": "PyTorch pretrained weights cache. PyTorch downloads the weights again when a script asks for them."
+  },
+  {
+    "id": "ai.pip",
+    "category": "cleanup.aiLeftovers",
+    "relativePaths": [
+      ".cache/pip"
+    ],
+    "risk": "safe",
+    "description": "pip's download cache for Python packages. pip fetches packages again on the next install, so removing it is safe."
+  },
+  {
+    "id": "dev.homebrew",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      "Library/Caches/Homebrew"
+    ],
+    "risk": "safe",
+    "description": "Homebrew's downloaded bottles and casks. Homebrew re-downloads anything it needs, so removing them is safe."
+  },
+  {
+    "id": "dev.npm",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      ".npm/_cacache"
+    ],
+    "risk": "safe",
+    "description": "npm's package tarball cache. npm fetches packages again on the next install."
+  },
+  {
+    "id": "dev.yarn",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      ".cache/yarn"
+    ],
+    "risk": "safe",
+    "description": "Yarn's package cache. Yarn fetches packages again on the next install."
+  },
+  {
+    "id": "dev.gradle",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      ".gradle/caches"
+    ],
+    "risk": "caution",
+    "description": "Gradle's dependency and build cache. Gradle downloads dependencies again on the next build, which can take a while on slow connections."
+  },
+  {
+    "id": "dev.maven",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      ".m2/repository"
+    ],
+    "risk": "caution",
+    "description": "Maven's local repository of downloaded dependencies. Maven re-downloads them on the next build, which can take a while for large projects."
+  },
+  {
+    "id": "dev.cargo",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      ".cargo/registry/cache"
+    ],
+    "risk": "safe",
+    "description": "Cargo's cache of downloaded Rust crates. Cargo fetches crates again on the next build."
+  },
+  {
+    "id": "dev.cocoapods",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      "Library/Caches/CocoaPods"
+    ],
+    "risk": "safe",
+    "description": "CocoaPods spec and pod cache. CocoaPods downloads pods again on the next install."
+  },
+  {
+    "id": "dev.swiftpm",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      "Library/Caches/org.swift.swiftpm"
+    ],
+    "risk": "safe",
+    "description": "Swift Package Manager's repository cache. SwiftPM clones packages again on the next resolve."
+  },
+  {
+    "id": "dev.pipLibraryCache",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      "Library/Caches/pip"
+    ],
+    "risk": "safe",
+    "description": "pip's download cache for Python packages. pip fetches packages again on the next install, so removing it is safe."
+  },
+  {
+    "id": "dev.dockerDesktop",
+    "category": "cleanup.devCaches",
+    "relativePaths": [
+      "Library/Containers/com.docker.docker/Data/vms/*/data/Docker.raw"
+    ],
+    "risk": "risky",
+    "description": "Docker Desktop's virtual disk holding every image, container and volume. Removing it deletes all local Docker data; use 'docker system prune' to reclaim space safely instead."
+  },
+  {
+    "id": "purgeable",
+    "category": "cleanup.purgeable",
+    "relativePaths": [
+      "/"
+    ],
+    "risk": "safe",
+    "description": "Purgeable space macOS can reclaim: local Time Machine snapshots and files already in iCloud. macOS frees it automatically when needed; this reclaims it now."
+  }
+]
