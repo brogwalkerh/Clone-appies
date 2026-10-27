@@ -1,4 +1,4 @@
-import { RESOURCES, type GameState, type PlayerId } from '@starfarers/shared';
+import { RESOURCES, handSize, type GameState, type PlayerId } from '@starfarers/shared';
 import { PLAYER_COLOR, RESOURCE_COLOR, RESOURCE_LABEL, handBag } from '../ui/format.js';
 
 /** Own cards grouped by type; opponents as counts (spec §14 "Hand"). */
@@ -27,9 +27,12 @@ export function HandPanel({ state, viewer, hidden }: { state: GameState; viewer:
         {state.players.map((p) => (
           <li key={p.id} data-testid={`player-row-${p.id}`}>
             <span className="swatch" style={{ background: PLAYER_COLOR[p.color] }} />
-            <span className={p.id === state.activePlayer ? 'name active' : 'name'}>{p.name}</span>
+            <span className={p.id === state.activePlayer ? 'name active' : 'name'}>
+              {p.name}
+              {!p.connected && <span className="muted"> (offline)</span>}
+            </span>
             <span className="muted">
-              {p.hand.length} cards · {p.vp} VP · fame {p.famePieces} · medals {p.medals.pirate}P/{p.medals.ice}I
+              {handSize(p)} cards · {p.vp} VP · fame {p.famePieces} · medals {p.medals.pirate}P/{p.medals.ice}I
             </span>
           </li>
         ))}

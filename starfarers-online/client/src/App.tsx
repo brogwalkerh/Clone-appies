@@ -1,6 +1,13 @@
 /**
- * App shell: wires the store to the board and the panels. Board interaction
- * rules live here (HANDOFF §6.3):
+ * App shell with hash routing:
+ *   #/            home: hot-seat or online
+ *   #/local       hot-seat game (store: gameStore)
+ *   #/online      create / join / rejoin a room
+ *   #/room/CODE   room lobby, then the online game (store: remoteStore)
+ *
+ * `GameScreen` is store-agnostic: it reads through the StoreContext, so the
+ * same board and panels serve both modes. Board interaction rules live here
+ * (HANDOFF §6.3):
  *   - a panel's `nodePick` (build sites) wins over everything else;
  *   - during a space-jump pick, highlighted nodes are `legalJumpTargets`;
  *   - in flight.move, selecting one of the viewer's ships highlights
@@ -8,28 +15,41 @@
  */
 
 import { WIN_VP, type NodeId, type ShipId } from '@starfarers/shared';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useStore } from 'zustand';
 import { Board } from './board/Board.js';
 import { legalJumpTargets, legalMoves } from './board/legalMoves.js';
 import { VpTrack } from './board/VpTrack.js';
+import type { RemoteStore } from './net/remoteStore.js';
+import { remoteStore } from './net/socket.js';
 import { ActionBar } from './panels/ActionBar.js';
 import { BuildMenu } from './panels/BuildMenu.js';
+import { ChatPanel } from './panels/ChatPanel.js';
 import { EncounterModal } from './panels/EncounterModal.js';
 import { FoundStationDialog } from './panels/FoundStationDialog.js';
 import { FriendshipPanel } from './panels/FriendshipPanel.js';
 import { HandPanel } from './panels/HandPanel.js';
 import { LogPane } from './panels/LogPane.js';
 import { MothershipPanel } from './panels/MothershipPanel.js';
+import { JoinScreen, RoomLobby, navigate } from './panels/OnlineLobby.js';
 import { PassBanner } from './panels/PassBanner.js';
 import { SetupScreen } from './panels/SetupScreen.js';
 import { SevenDialog } from './panels/SevenDialog.js';
 import { TradePanel } from './panels/TradePanel.js';
-import { useAct, useGame, useShownState } from './store/gameStore.js';
+import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
 
-export function App() {
+export interface GameScreenProps {
+  /** Extra sidebar content (the online chat). */
+  extraPanels?: React.ReactNode;
+  /** Header text instead of the seed (the room code online). */
+  subtitle?: string | undefined;
+}
+
+export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
   const state = useShownState();
   const live = useGame((s) => s.game);
+  const mode = useGame((s) => s.mode);
   const viewer = useGame((s) => s.viewer);
   const pendingViewer = useGame((s) => s.pendingViewer);
   const error = useGame((s) => s.error);
@@ -62,7 +82,7 @@ export function App() {
     return m;
   }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump]);
 
-  if (!state || !live) return <SetupScreen />;
+  if (!state || !live) return null;
 
   const onNodeClick = (nodeId: NodeId) => {
     if (replaying || pendingViewer) return;
@@ -85,27 +105,38 @@ export function App() {
   const pendingFound = state.turn.pendingFound;
   const winner = state.winner;
   const hidden = pendingViewer !== null;
+  const restart = () => setup && newGame({ ...setup, seed: `${setup.seed}-${Date.now().toString(36)}` });
 
   return (
     <div className="app">
       <header className="topbar">
         <strong>Starfarers Online</strong>
-        <span className="muted">seed {state.seed}</span>
+        <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
         <span className="spacer" />
-        <label>
-          Seat{' '}
-          <select value={viewer ?? ''} onChange={(e) => takeSeat(e.target.value)} data-testid="seat-select" disabled={hidden}>
-            {state.players.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {mode === 'local' ? (
+          <label>
+            Seat{' '}
+            <select value={viewer ?? ''} onChange={(e) => takeSeat(e.target.value)} data-testid="seat-select" disabled={hidden}>
+              {state.players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span data-testid="viewer-name">You are {playerName(state, viewer)}</span>
+        )}
         <span className="swatch" style={{ background: PLAYER_COLOR[state.players.find((p) => p.id === viewer)?.color ?? 'white'] }} />
-        <button type="button" className="link" onClick={() => setup && newGame({ ...setup, seed: `${setup.seed}-${Date.now().toString(36)}` })}>
-          New game
-        </button>
+        {mode === 'local' ? (
+          <button type="button" className="link" onClick={restart}>
+            New game
+          </button>
+        ) : (
+          <button type="button" className="link" onClick={() => navigate('#/online')}>
+            Lobby
+          </button>
+        )}
       </header>
       {error && (
         <div className="toast error" role="alert" data-testid="error-toast" onClick={clearError}>
@@ -125,6 +156,7 @@ export function App() {
           {viewer && !replaying && <BuildMenu state={state} viewer={viewer} />}
           {viewer && !replaying && <TradePanel state={state} viewer={viewer} />}
           {viewer && !replaying && <FriendshipPanel state={state} viewer={viewer} />}
+          {extraPanels}
           <LogPane state={state} />
         </aside>
       </main>
@@ -134,14 +166,102 @@ export function App() {
       {winner && (
         <div className="curtain" data-testid="game-over">
           <div className="curtain-card">
-            <h2>{playerName(state, winner)} wins with {state.players.find((p) => p.id === winner)?.vp ?? WIN_VP} VP</h2>
-            <button type="button" onClick={() => setup && newGame({ ...setup, seed: `${setup.seed}-${Date.now().toString(36)}` })}>
-              Play again
-            </button>
+            <h2>
+              {playerName(state, winner)} wins with {state.players.find((p) => p.id === winner)?.vp ?? WIN_VP} VP
+            </h2>
+            {mode === 'local' ? (
+              <button type="button" onClick={restart}>
+                Play again
+              </button>
+            ) : (
+              <button type="button" onClick={() => navigate('#/online')}>
+                Back to the lobby
+              </button>
+            )}
           </div>
         </div>
       )}
       <PassBanner state={state} />
     </div>
   );
+}
+
+function LocalRoute() {
+  const game = useStore(gameStore, (s) => s.game);
+  return (
+    <StoreContext.Provider value={gameStore}>
+      {game ? <GameScreen /> : <SetupScreen />}
+      {!game && (
+        <p className="centered">
+          <button type="button" className="link" onClick={() => navigate('#/')}>
+            back
+          </button>
+        </p>
+      )}
+    </StoreContext.Provider>
+  );
+}
+
+function RoomRoute({ store, code }: { store: RemoteStore; code: string }) {
+  const session = useStore(store, (s) => s.session);
+  const lobby = useStore(store, (s) => s.lobby);
+  const game = useStore(store, (s) => s.game);
+  const [tried, setTried] = useState(false);
+  const inThisRoom = session?.roomCode === code && lobby !== null;
+
+  // Page load / reload: resume with the saved token when it belongs to this room.
+  useEffect(() => {
+    if (inThisRoom || tried) return;
+    setTried(true);
+    if (session && session.roomCode === code) void store.getState().resume(session);
+  }, [inThisRoom, tried, session, code, store]);
+
+  if (!inThisRoom) {
+    if (session && session.roomCode === code && !tried) return <p className="centered muted">Rejoining {code}…</p>;
+    return <JoinScreen store={store} prefillCode={code} />;
+  }
+  if (!lobby.started || !game) return <RoomLobby store={store} />;
+  return (
+    <StoreContext.Provider value={store as unknown as GameStore}>
+      <GameScreen subtitle={`room ${code}`} extraPanels={<ChatPanel store={store} />} />
+    </StoreContext.Provider>
+  );
+}
+
+function Home() {
+  return (
+    <div className="setup" data-testid="home">
+      <h1>Starfarers Online</h1>
+      <p className="muted">A space-colonisation board game. No official art, names or logos; working title.</p>
+      <div className="row">
+        <button type="button" data-testid="go-local" onClick={() => navigate('#/local')}>
+          Hot-seat (one screen)
+        </button>
+        <button type="button" data-testid="go-online" onClick={() => navigate('#/online')}>
+          Play online
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function useHash(): string {
+  const [hash, setHash] = useState(() => window.location.hash || '#/');
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash || '#/');
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
+  return hash;
+}
+
+export function App() {
+  const hash = useHash();
+  if (hash.startsWith('#/local')) return <LocalRoute />;
+  if (hash.startsWith('#/room/')) {
+    const code = decodeURIComponent(hash.slice('#/room/'.length)).toUpperCase().slice(0, 6);
+    return <RoomRoute store={remoteStore()} code={code} />;
+  }
+  if (hash.startsWith('#/online')) return <JoinScreen store={remoteStore()} />;
+  return <Home />;
 }

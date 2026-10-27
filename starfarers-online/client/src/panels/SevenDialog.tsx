@@ -1,4 +1,4 @@
-import { discardCountFor, stealTargets, type GameState, type PlayerId, type ResourceBag } from '@starfarers/shared';
+import { discardCountFor, handSize, type GameState, type PlayerId, type ResourceBag } from '@starfarers/shared';
 import { useState } from 'react';
 import { useAct } from '../store/gameStore.js';
 import { handBag, playerName } from '../ui/format.js';
@@ -46,7 +46,8 @@ export function SevenDialog({ state, viewer }: { state: GameState; viewer: Playe
   }
 
   if (!seven.stealDone && state.activePlayer === viewer) {
-    const targets = stealTargets(state, viewer);
+    // Not the engine's `stealTargets`: opponents' hands are empty in a redacted state, so use the counts.
+    const targets = state.players.filter((p) => p.id !== viewer && handSize(p) > 0).map((p) => p.id);
     return (
       <div className="modal" data-testid="seven-dialog">
         <h3>A 7 was rolled — steal a card</h3>

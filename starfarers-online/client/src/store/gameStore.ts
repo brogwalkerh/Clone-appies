@@ -28,6 +28,7 @@ import {
   type Rng,
   type ShipId,
 } from '@starfarers/shared';
+import { createContext, useContext } from 'react';
 import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
@@ -44,6 +45,8 @@ export interface NodePick {
 }
 
 export interface GameStoreState {
+  /** 'local' = hot-seat authority in this tab; 'remote' = a server owns the state (net/remoteStore.ts). */
+  mode: 'local' | 'remote';
   setup: GameSetup | null;
   /** State the action log starts from (a fresh beginner game, or a loaded one). */
   initial: GameState | null;
@@ -121,6 +124,7 @@ export function createGameStore(): GameStore {
     };
 
     return {
+      mode: 'local',
       setup: null,
       initial: null,
       game: null,
@@ -214,11 +218,22 @@ export function createGameStore(): GameStore {
   });
 }
 
-/** The app-wide store instance. Tests create their own with `createGameStore()`. */
+/** The app-wide hot-seat store instance. Tests create their own with `createGameStore()`. */
 export const gameStore = createGameStore();
 
+/**
+ * Which store the panels talk to. The hot-seat store is the default; the
+ * online routes wrap the game screen in a provider holding the remote store,
+ * so every panel works unchanged against either (HANDOFF §7.5).
+ */
+export const StoreContext = createContext<GameStore | null>(null);
+
+export function useGameStore(): GameStore {
+  return useContext(StoreContext) ?? gameStore;
+}
+
 export function useGame<T>(selector: (s: GameStoreState) => T): T {
-  return useStore(gameStore, selector);
+  return useStore(useGameStore(), selector);
 }
 
 /** The state currently shown: the live game, or a replay snapshot. */

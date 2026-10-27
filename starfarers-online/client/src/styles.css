@@ -109,3 +109,11 @@ h4 { font-size: 13px; }
 
 .setup { max-width: 560px; margin: 60px auto; background: var(--panel); border: 1px solid #222a3a; border-radius: 12px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px; }
 .seats td { padding: 4px 8px; }
+
+.centered { text-align: center; }
+fieldset { border: 1px solid #222a3a; border-radius: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+legend { color: var(--muted); font-size: 12px; }
+.chat-list { list-style: none; padding: 0; margin: 0 0 6px; max-height: 180px; overflow-y: auto; font-size: 13px; }
+.chat-list li { padding: 2px 0; }
+.chat-list li.mine strong { color: var(--accent); }
+.chat form input { flex: 1; }
