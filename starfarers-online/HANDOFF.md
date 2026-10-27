@@ -4,17 +4,17 @@ Last updated after phase 6. Everything is on `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
 review, server-side replay) via PR #3 (`e473ca2`). No open branches.
 
-**Starting a new session:** read `CLAUDE.md`, then this file top to bottom, then
-`starfarers-clone-spec.md` §13–§16. Branch from `main`, run the commands in §2
-to confirm green (550 tests), then work §8 (phase 7) in order. Everything
+**Starting a new session:** paste the prompt in §10 into the new session. It
+says to read `CLAUDE.md`, then this file top to bottom, then
+`starfarers-clone-spec.md` §13–§16; branch from `main`; run the commands in §2
+to confirm green (550 tests); then work §8 (phase 7) in order. Everything
 before §8 is finished and tested; §8 is what separates the project from a
 finished game and a deployable app.
-Read `CLAUDE.md` and `starfarers-clone-spec.md` first; this file only says
-where the project stands and how to run the next phases.
 
 ## 1. Current state in one paragraph
 
-Phases 1–6 of spec §15 are done except animations and host controls: the pure
+Phases 1–6 of spec §15 are done except animations and turn-timer enforcement
+(§8 part A also adds host controls and keyboard navigation): the pure
 engine in `shared/` plays a complete game from set-up to a 15-VP win on any of
 the four boards (beginner, strategic, explorer, wild space — the last two with
 face-down tiles discovered by ships) starting either from the preset pieces or
@@ -51,10 +51,11 @@ starfarers-online/
     src/supply.ts       hand / supply / reserve-pile helpers
     src/vp.ts           computeVp, recomputeAllVp (spec §12.3)
     src/board/          geometry (pointy-top odd-r, N/S vertex ids), layout parsing, graph builder, query helpers
-    src/setup/           index.ts: createGame({ variant, players, seed }) dispatches to beginner.ts (preset
-                         pieces, 3p blockers), variants.ts (strategic / explorer / wild space tile + disc
-                         shuffles), common.ts (shared placement helpers); GAME_VARIANTS + labels
-    src/actions/        applyAction + per-phase handler modules (see §3)
+    src/setup/           index.ts: createGame({ variant, setup, players, seed }) dispatches to beginner.ts
+                         (preset pieces, 3p blockers), variants.ts (strategic / explorer / wild space tile +
+                         disc shuffles), draft.ts (§3.4 snake draft: draftable sites, finishDraft),
+                         common.ts (shared placement helpers); GAME_VARIANTS, SETUP_MODES + labels
+    src/actions/        applyAction + per-phase handler modules (see §3); draft.ts handles the setup phase
     src/production/     produce.ts, seven.ts, relief.ts
     src/flight/         stats, shake, movement, explore, discover (face-down tiles), tokens, jump
     src/found/          colony, station, friendship, freeTradeShip
@@ -90,7 +91,8 @@ starfarers-online/
     src/board/Board.tsx         SVG board from state.board + board/geometry; VpTrack.tsx; legalMoves.ts re-exports shared
     src/panels/                 HandPanel, MothershipPanel, BuildMenu, TradePanel, FriendshipPanel, SevenDialog,
                                 EncounterModal, FoundStationDialog, ActionBar, LogPane, PassBanner, SetupScreen,
-                                ResourcePicker (BagPicker), OnlineLobby (JoinScreen, RoomLobby), ChatPanel
+                                ResourcePicker (BagPicker), OnlineLobby (JoinScreen, RoomLobby), ChatPanel,
+                                DraftPanel (round 4 of the advanced set-up)
     src/ui/format.ts            colours, labels, bag/hand helpers (no rules)
     test/                       7 files, 42 tests (legal-move highlight vs engine incl. explorer and 3p
                                 boards, encounter modal per awaiting.kind, viewer switch, scripted full
@@ -351,11 +353,10 @@ reject|counter|withdraw`, `seven-dialog`, `discard-confirm`, `steal-<pid>`,
 `found-station-dialog`, `found-station-confirm`, `pass-banner`, `take-seat`,
 `seat-select`, `error-toast`, `vp-track`, `log-pane`.
 
-Known gaps to pick up in phase 6 (none block play): no keyboard navigation; the
-outpost civ label can overlap the dock row on the Diplomats tile; the
-spaceport-site rule for a *pending* trade-ship marker is shown only through the
-log; no save/load of a game to a file (the store's `loadGame` + action log make
-it a small addition); phones are not a target (spec §14).
+Known gaps, now scheduled in §8 (none block play): no keyboard navigation and
+the Diplomats label overlap (§8.4); the pending trade-ship marker's
+spaceport-site rule is shown only through the log (§8.4); no save/load of a
+game to a file (§8.10); phones are not a target (spec §14).
 
 ## 7. Phase 5 — server, lobby, reconnect (done)
 
@@ -387,10 +388,10 @@ Phase 6 added `variant-select`, `variant-description`, `lobby-variant`,
 `node-<id>` like build picks), and `JoinReply.initial` (the redacted initial
 state) next to `actions`.
 
-Known gaps: no spectators; the join screen does not validate the code format
-before sending; no "kick" or host hand-over when the host leaves; the turn
-timer is config only; `replay` has no rate limit. (Rooms are persisted and
-expired since phase 6, §5.18.)
+Known gaps, now scheduled in §8: no "kick" or host hand-over (§8.3); the turn
+timer is config only (§8.2); the join screen does not validate the code format
+(§8.4); `replay` has no rate limit (§8.6); no spectators (§8.10). Rooms are
+persisted and expired since phase 6 (§5.18).
 
 ## 8. Phase 7 — finish the game, then ship it (next)
 
@@ -531,3 +532,56 @@ looks tight.
   the server on the same `DATA_DIR`, and scrubs the log slider to 0 and to
   the middle, checking the log pane shrinks accordingly (the action bar is
   hidden while replaying).
+
+## 10. Kickoff prompt for the next session
+
+Paste this as the first message of a new Claude Code session on
+`brogwalkerh/Clone-appies`:
+
+```
+The Starfarers Online project lives in starfarers-online/ on main of
+brogwalkerh/Clone-appies (phases 1–6 merged; PR #3 is phase 6). Read, in
+this order:
+1. starfarers-online/CLAUDE.md
+2. starfarers-online/HANDOFF.md (all of it; §8 is your work list)
+3. starfarers-online/starfarers-clone-spec.md §3, §9, §13, §14, §15, §16
+
+Confirm the baseline is green before changing code:
+cd starfarers-online && pnpm install && pnpm typecheck && pnpm test && pnpm build
+Expect 550 tests passing across shared, server and client.
+
+Create one branch from main for phase 7. If HANDOFF.md's header is stale,
+fix it in the first commit.
+
+Then phase 7 (HANDOFF §8) in order, one commit per item with tests,
+verified green before each commit:
+Part A: 1 animations, 2 turn timer, 3 host controls, 4 keyboard navigation
+and cosmetic gaps, 5 rule-confirmation checklist (prepare the checklist and
+leave the config values unchanged unless I give you the physical readings).
+Stop after part A and report if the budget looks tight; part B (6 server
+hardening, 7 stable identity, 8 deployment, 9 real-play feedback) can wait.
+
+Rules that held so far and must keep holding: engine in shared/ stays pure
+with all randomness through the injected Rng; every rule gets a test; every
+[VERIFY] item lives in config.ts with a comment; the engine never sees a
+redacted state; commits are "starfarers: <imperative subject>" with a body
+explaining why; push only to your branch; do not open a pull request unless
+asked.
+
+Verification before you call an item done: pnpm typecheck && pnpm test &&
+pnpm build, then a headless-Chromium drive of the built app (Playwright is
+at /opt/node-tools/node_modules/playwright; write a fresh script in your
+scratchpad as HANDOFF §9 describes, start node server/dist/index.js on a
+spare port, open three browser contexts, use the test ids in HANDOFF
+§6–§7). Use absolute paths in shell calls; parallel calls that cd interfere
+with each other.
+
+When finished, update HANDOFF.md the same way the previous sessions did
+(state paragraph, layout, phase table row, judgment calls, next-phase list,
+this kickoff prompt), commit it, push, and end with a short report: what
+was built, what passes, what is next.
+
+You are the project manager: delegate each item to an agent in its own
+worktree (reset it to your branch first, see HANDOFF §9), review and
+cherry-pick the results in order, and run a review agent at the end.
+```
