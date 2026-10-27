@@ -118,6 +118,14 @@ export const BALLS_PER_SHAKE = 2;
 // ---------------------------------------------------------------------------
 
 export const MAX_STATIONS_PER_OUTPOST = 5;
+/**
+ * TEMPORARY phase-2 testing switch. While the encounter module (phase 3) is not
+ * built, a black-ball shake with `value: false` skips the encounter: base speed
+ * is still 3, the drawn card goes straight to the discard pile and the turn
+ * continues in 'flight.move'. Default `true` = real behaviour (phase →
+ * 'flight.encounter'). Mutable object so tests and hot-seat can flip it.
+ */
+export const ENCOUNTERS_ENABLED: { value: boolean } = { value: true };
 /** 3-player game: max colonies that may be founded per unexplored planetary system. */
 export const MAX_COLONIES_PER_SYSTEM_3P = 2;
 export const PIRATE_BASE_TOKENS: readonly number[] = [4, 5, 6];

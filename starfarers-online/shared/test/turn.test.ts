@@ -29,6 +29,7 @@ describe('endTurn', () => {
     state.turn.speed = 4;
     const withTrade = ok(state, { type: 'proposeTrade', playerId: me, to: x, give: { ore: 1 }, want: { fuel: 1 } });
     expect(withTrade.openTrade).not.toBeNull();
+    withTrade.phase = 'flight.move'; // ships on the board: endTurn comes after the flight phase
 
     const after = ok(withTrade, { type: 'endTurn', playerId: me });
     expect(after.activePlayer).toBe(next);
@@ -49,7 +50,7 @@ describe('endTurn', () => {
     const start = state.activePlayer;
     for (let i = 0; i < order.length; i++) {
       expect(state.activePlayer).toBe(order[(order.indexOf(start) + i) % order.length]);
-      state.phase = 'tradeBuild';
+      state.phase = 'flight.move';
       state = ok(state, { type: 'endTurn', playerId: state.activePlayer });
     }
     expect(state.activePlayer).toBe(start);
@@ -107,13 +108,14 @@ describe('win check (15 VP on your own turn)', () => {
     expect(afterBuild.phase).toBe('tradeBuild');
 
     // me → x: x is not at 15, so still no winner.
+    afterBuild.phase = 'flight.move';
     const xTurn = ok(afterBuild, { type: 'endTurn', playerId: me });
     expect(xTurn.activePlayer).toBe(x);
     expect(xTurn.winner).toBeNull();
     expect(xTurn.phase).toBe('production');
 
     // x → y: y starts their turn with 15 VP and wins immediately.
-    xTurn.phase = 'tradeBuild';
+    xTurn.phase = 'flight.move';
     const yTurn = ok(xTurn, { type: 'endTurn', playerId: x });
     expect(yTurn.activePlayer).toBe(y);
     expect(yTurn.winner).toBe(y);

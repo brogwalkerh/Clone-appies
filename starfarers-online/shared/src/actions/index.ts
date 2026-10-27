@@ -15,15 +15,17 @@ import { err, gameError, isGameError, ok } from '../types.js';
 import { recomputeAllVp } from '../vp.js';
 import type { ActionModule, Handler, HandlerMap, PostActionHook } from './handler.js';
 import { ACTION_POLICY } from './policy.js';
+import { flightModule } from './flight.js';
 import { productionModule } from './production.js';
 import { tradeBuildModule } from './tradeBuild.js';
 import { turnModule } from './turn.js';
+import { foundModule } from './found.js';
 
 export type { ActionModule, Handler, HandlerMap, PostActionHook } from './handler.js';
 export { logEvent } from './handler.js';
 export { ACTION_POLICY } from './policy.js';
 
-const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, turnModule];
+const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, flightModule, turnModule, foundModule];
 
 function assembleHandlers(modules: readonly ActionModule[]): HandlerMap {
   const map: HandlerMap = {};

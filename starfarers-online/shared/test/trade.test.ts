@@ -104,7 +104,7 @@ describe('tradeWithSupply: Merchants friendship cards', () => {
 
     // Next own turn: cycle the turn back around to `me`.
     for (let i = 0; i < state.turnOrder.length; i++) {
-      state.phase = 'tradeBuild';
+      state.phase = 'flight.move';
       state = ok(state, { type: 'endTurn', playerId: state.activePlayer });
     }
     expect(state.activePlayer).toBe(me);

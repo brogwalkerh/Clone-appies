@@ -6,6 +6,8 @@
  * stored verbatim.
  */
 
+import type { Ball } from './config.js';
+
 // ---------------------------------------------------------------------------
 // Primitive identifiers
 // ---------------------------------------------------------------------------
@@ -182,6 +184,12 @@ export interface Ship {
   nodeId: NodeId;
   /** Colony ship parked on a colony site must found or leave next turn (§9.2). */
   mustFoundOrLeave: boolean;
+  /**
+   * Site a `mustFoundOrLeave` ship moved off during the current turn; it may not
+   * end a move there again this turn (§9.2 "may only return by founding").
+   * Cleared by `endTurn` (owned by flight/movement.ts).
+   */
+  leftSite?: NodeId;
 }
 
 export interface Board {
@@ -260,6 +268,13 @@ export interface TurnState {
   shipMovesUsed: Record<ShipId, number>;
   immobilized: ShipId[];
   encounter?: EncounterCtx;
+  /** The two balls revealed by this turn's mothership shake (flight/shake.ts). */
+  shake?: Ball[];
+  /**
+   * Trade ship that just ended its move on a docking point and must found a
+   * trade station now (§9.2); while set, only `foundTradeStation` is legal.
+   */
+  pendingFound?: ShipId;
   /** Ids of once-per-turn abilities already used (e.g. friendship card ids). */
   usedOncePerTurn: string[];
   /** Pending bookkeeping while resolving a 7 (owned by actions/production.ts). */

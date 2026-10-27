@@ -34,6 +34,9 @@ export const ACTION_POLICY: Readonly<Record<ActionType, ActionPolicy>> = {
   moveShip: { phases: ['flight.move'], activePlayerOnly: true },
   foundColony: { phases: ['flight.move'], activePlayerOnly: true },
   foundTradeStation: { phases: ['flight.move'], activePlayerOnly: true },
-  // From tradeBuild when the player has no ships on the board (§5 3a), else after moving.
-  endTurn: { phases: ['tradeBuild', 'flight.shake', 'flight.move'], activePlayerOnly: true },
+  // From tradeBuild only when the player has no ships on the board (§5 3a — the
+  // handler rejects otherwise: "shake the mothership first"), else after moving.
+  // 'flight.shake' is never a resting phase (shakeMothership is the transition
+  // out of tradeBuild), so endTurn is not listed for it.
+  endTurn: { phases: ['tradeBuild', 'flight.move'], activePlayerOnly: true },
 };
