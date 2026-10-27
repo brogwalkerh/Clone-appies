@@ -16,16 +16,18 @@
 
 import {
   applyAction,
-  createBeginnerGame,
+  createGame,
   createRng,
   rngFromState,
   type Action,
   type GameError,
   type GameState,
+  type GameVariant,
   type NodeId,
   type PlayerId,
   type PlayerSpec,
   type Rng,
+  type SetupMode,
   type ShipId,
 } from '@starfarers/shared';
 import { createContext, useContext } from 'react';
@@ -35,6 +37,10 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 export interface GameSetup {
   players: PlayerSpec[];
   seed: string;
+  /** Set-up (spec §3.2); defaults to 'beginner'. */
+  variant?: GameVariant | undefined;
+  /** Start mode (spec §3.3 preset / §3.4 draft); defaults to 'preset'. */
+  setup?: SetupMode | undefined;
 }
 
 /** A board-click request from a panel ("choose a spaceport site"), shown as highlighted nodes. */
@@ -48,7 +54,7 @@ export interface GameStoreState {
   /** 'local' = hot-seat authority in this tab; 'remote' = a server owns the state (net/remoteStore.ts). */
   mode: 'local' | 'remote';
   setup: GameSetup | null;
-  /** State the action log starts from (a fresh beginner game, or a loaded one). */
+  /** State the action log starts from (a fresh game, or a loaded one). */
   initial: GameState | null;
   /** Live state. */
   game: GameState | null;
@@ -78,6 +84,12 @@ export interface GameStoreState {
   setReplayIndex(index: number | null): void;
   /** State after the first `k` accepted actions (0 = initial). */
   replayState(k: number): GameState;
+  /** Lowest index the replay slider offers (remote store: the join point when the server sent no initial state). Absent = 0. */
+  replayMin?: number;
+  /** Bumped when a replay state arrives asynchronously (remote store), so `useShownState` re-renders. */
+  replayVersion?: number;
+  /** Fetch the state for `k` if `replayState(k)` cannot answer locally yet (remote store only). */
+  ensureReplay?(k: number): Promise<void>;
 }
 
 export type GameStore = StoreApi<GameStoreState>;
@@ -138,7 +150,7 @@ export function createGameStore(): GameStore {
       replayIndex: null,
 
       newGame(setup) {
-        begin(setup, createBeginnerGame({ players: setup.players, seed: setup.seed }), setup.seed);
+        begin(setup, createGame({ variant: setup.variant ?? 'beginner', setup: setup.setup ?? 'preset', players: setup.players, seed: setup.seed }), setup.seed);
       },
 
       loadGame(setup, state) {
@@ -241,6 +253,7 @@ export function useShownState(): GameState | null {
   const game = useGame((s) => s.game);
   const replayIndex = useGame((s) => s.replayIndex);
   const replayState = useGame((s) => s.replayState);
+  useGame((s) => s.replayVersion);
   if (replayIndex === null) return game;
   return replayState(replayIndex);
 }

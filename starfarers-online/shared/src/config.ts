@@ -187,6 +187,96 @@ export const TRAVELERS_DONATION_BRANCHES: Readonly<Record<28 | 29 | 30, Readonly
 export const BEGINNER_SHIP_SIDE_VERIFIED = false;
 
 // ---------------------------------------------------------------------------
+// Variable set-ups (spec §3.2) — inferred items
+// ---------------------------------------------------------------------------
+
+/**
+ * **[VERIFY]** Explorer / wild space: does discovering a face-down sector end
+ * the discovering ship's movement for the turn? Spec §9.3 says exploration
+ * "may continue" and §3.2 says flipping a face-down sector "works the same",
+ * so the default is `false`: the ship finishes its validated path and keeps
+ * whatever steps remain. With `true` the ship still completes the path it was
+ * sent on but forfeits the rest of its budget (like a space jump).
+ */
+export const DISCOVERY_ENDS_MOVE = false;
+
+/**
+ * Wild space deals the 15 face-down tiles "from the nearest slot to the
+ * farthest" (spec §3.2). The order is INFERRED from `layouts/board.json`: the
+ * eight near slots first, then the seven far slots (the nebula is the game's
+ * own near/far line), each region by the horizontal distance of the slot's
+ * lobes from the Catanian edge (hex-centre x), ties top to bottom. The last
+ * 15 of the 16 shuffled tiles go to these slots in this order; the 16th tile
+ * is returned to the box unseen.
+ */
+export const WILD_SPACE_SLOT_ORDER: readonly string[] = [
+  'N4', 'N1', 'N6', 'N5', 'N2', 'N7', 'N3', 'N8',
+  'F5', 'F1', 'F3', 'F6', 'F2', 'F4', 'F7',
+];
+
+/**
+ * Judgment call: planet orientation of a system tile placed by a variable
+ * set-up. Physically the placer (strategic) or the discoverer (explorer /
+ * wild space) may rotate the tile; the engine assigns the tile's planets
+ * clockwise starting at this index of the slot's clockwise lobe order
+ * (`lobesClockwise`), the same for every tile, so a seed fully determines
+ * the board and a hidden tile needs no orientation input when it is found.
+ */
+export const VARIABLE_SETUP_START_LOBE = 0;
+
+/**
+ * Judgment call: the strategic / explorer set-ups return one 1-star EMPTY
+ * tile to the box (spec §3.1). The two 1-star empties (E1, E2) are identical,
+ * so which one goes back is cosmetic; `'random'` picks through the rng, or
+ * name a tile id to pin it.
+ */
+export const STRATEGIC_RETURNED_EMPTY: 'random' | string = 'random';
+
+// ---------------------------------------------------------------------------
+// Advanced set-up draft (spec §3.4) and 3-player rules (§3.3, layouts/beginner.json threePlayerRule)
+// ---------------------------------------------------------------------------
+
+/** Bonus upgrades drafted in round 4 of the advanced set-up, one per player (spec §3.4). */
+export const DRAFT_UPGRADE_POOL: readonly UpgradeKind[] = ['booster', 'booster', 'cannon', 'freightPod'];
+
+/** Colony picks per player before round 4 (rounds 1–3 of the snake draft). */
+export const DRAFT_COLONY_ROUNDS = 3;
+
+/**
+ * **[VERIFY]** 3-player advanced set-up: "one upgrade stays out" of the pool
+ * (spec §3.4) but the rulebook does not say which. Default: one of the two
+ * boosters, leaving one of each kind so the three players' bonuses differ;
+ * `'random'` would draw it through the rng instead. The upgrade that stays out
+ * goes back to the tray and can be bought later like any other.
+ */
+export const DRAFT_3P_REMOVED_UPGRADE: UpgradeKind | 'random' = 'booster';
+
+/**
+ * **[VERIFY]** 3-player advanced set-up: the three Catanian colony sites left
+ * free after the draft. Default `true`: the 4th colour's colonies occupy them,
+ * the way the 3-player beginner rule fills the unused colour's sites so nobody
+ * can found there later (spec §3.3, beginner.json `threePlayerRule`). Only
+ * colonies are placed (the draft leaves no spaceport site free), so no blocker
+ * spaceport exists in a drafted 3-player game. `false` leaves the sites open.
+ */
+export const DRAFT_3P_BLOCK_FREE_SITES = true;
+
+/**
+ * **[VERIFY]** 3-player games: do the two spaceport sites of the unused
+ * colour's blocker spaceport forbid other players' ships from ending a move
+ * there, like a real player's spaceport sites (spec §9.2 / §11 "may not end
+ * on another player's spaceport site")? The layout's `threePlayerRule` says
+ * the blocker pieces "only block the sites", and both §7.2 ("an opponent's
+ * ship … that opponent must move it away") and §9.2 / §11 are written about
+ * players and opponents; the blocker colour is nobody's. Default `false`: the
+ * blockers only occupy the Catanian sites they stand on (nothing can be
+ * founded or built there) and have no spaceport privileges. `true` restores
+ * the phase-2 reading (HANDOFF §5.2) in which the blocker spaceport's two
+ * sites are off limits as end nodes for every ship.
+ */
+export const BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES = false;
+
+// ---------------------------------------------------------------------------
 // Friendship cards (spec §8) — static catalogue
 // ---------------------------------------------------------------------------
 

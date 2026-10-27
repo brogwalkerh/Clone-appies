@@ -3,3 +3,6 @@ dist/
 coverage/
 *.tsbuildinfo
 .vitest-cache/
+# Room snapshots (DATA_DIR): `pnpm start` writes data/, `pnpm dev:server` writes server/data/
+/data/
+/server/data/

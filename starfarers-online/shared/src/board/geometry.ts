@@ -155,3 +155,18 @@ export function lobesClockwise(lobes: readonly HexCoord[]): HexCoord[] {
     return Math.atan2(cp.y - centre.y, cp.x - centre.x) - Math.atan2(cq.y - centre.y, cq.x - centre.x);
   });
 }
+
+/**
+ * The vertices that lie INSIDE a tri-lobe slot and are not shared with any
+ * neighbouring space: the centre vertex plus the outer vertex of each pairwise
+ * lobe side (a system's colony sites, an outpost's docking point, an empty
+ * sector's centre). The slot's other 9 vertices sit on its rim and belong to
+ * outside hexes as well. Purely geometric, so it is identical for every tile
+ * type — that is what keeps an undiscovered slot's redacted shape neutral.
+ */
+export function slotInteriorVertices(lobes: readonly HexCoord[]): NodeId[] {
+  const centre = sharedVertex(lobes);
+  const [a, b, c] = lobes as [HexCoord, HexCoord, HexCoord];
+  const outer = ([[a, b], [b, c], [a, c]] as const).map(([p, q]) => sharedSide(p, q).find((v) => v !== centre) as NodeId);
+  return [centre, ...outer];
+}

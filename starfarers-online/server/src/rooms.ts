@@ -1,7 +1,10 @@
 /**
- * In-memory room store (spec §13, HANDOFF §7). No sockets in here: every
- * method is a plain function over `Room` so it can be unit-tested directly and
- * swapped for a persistent store later (`snapshot()` is the serialisable form).
+ * Room store (spec §13, HANDOFF §7). No sockets in here: every method is a
+ * plain function over `Room` so it can be unit-tested directly.
+ *
+ * Rooms live in memory; an optional `RoomPersistence` (persist.ts) receives a
+ * `RoomSnapshot` after every mutation that changes it, and `restoreAll()`
+ * reads them back on boot. `sweep()` expires idle and finished rooms.
  *
  * One `Rng` per room is created from a server-generated seed when the game
  * starts and reused across actions; `snapshot()` carries `rng.getState()`.
@@ -15,8 +18,10 @@ import {
   ROOM_MIN_PLAYERS,
   actionRevealsHiddenCards,
   applyAction,
-  createBeginnerGame,
+  createGame,
   createRng,
+  isGameVariant,
+  isSetupMode,
   redactState,
   rngFromState,
   type Action,
@@ -30,8 +35,10 @@ import {
   type PlayerId,
   type Rng,
   type RoomConfig,
+  type SetupMode,
 } from '@starfarers/shared';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import type { RoomPersistence } from './persist.js';
 
 export interface RoomPlayer {
   id: PlayerId;
@@ -47,29 +54,37 @@ export interface Room {
   code: string;
   name: string;
   createdAt: number;
+  /** Last activity: create, join, start, accepted action, chat, socket bind/unbind. Drives `sweep()`. */
+  updatedAt: number;
   hostId: PlayerId;
   players: RoomPlayer[];
   config: RoomConfig;
   started: boolean;
   seed: string | null;
   game: GameState | null;
+  /** State the game started from (unredacted); `null` before the start or for a room stored before replay existed. */
+  initial: GameState | null;
   rng: Rng | null;
   /** Accepted actions since the start, authoritative (unredacted). */
   actions: Action[];
   messages: ChatMessage[];
 }
 
-/** Serialisable form of a room (for a future persistent store). */
+/** Serialisable form of a room: what `RoomPersistence` stores. */
 export interface RoomSnapshot {
   code: string;
   name: string;
   createdAt: number;
+  /** Added in phase 6; older snapshots lack it and `restore()` falls back to `createdAt`. */
+  updatedAt: number;
   hostId: PlayerId;
   players: RoomPlayer[];
   config: RoomConfig;
   started: boolean;
   seed: string | null;
   game: GameState | null;
+  /** Added in phase 6 for server-side replay; older snapshots lack it and restore with `null` (replay unavailable). */
+  initial: GameState | null;
   rngState: [number, number, number, number] | null;
   actions: Action[];
   messages: ChatMessage[];
@@ -85,11 +100,29 @@ function netError(code: NetError['code'], message: string): RoomResult<never> {
   return { ok: false, error: { code, message } };
 }
 
+/** A snapshot as it may come back from storage (written before `updatedAt`, `initial` or `config.setup` existed). */
+export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial' | 'config'> & {
+  updatedAt?: number;
+  initial?: GameState | null;
+  config: Omit<RoomConfig, 'setup'> & { setup?: SetupMode };
+};
+
+export const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_FINISHED_MS = 24 * 60 * 60 * 1000;
+
 export interface RoomStoreOptions {
   /** Seed for a new game; defaults to 16 random hex chars. Tests inject a fixed one. */
   seedFactory?: () => string;
   now?: () => number;
   codeFactory?: () => string;
+  /** Where snapshots go after each mutation; none = memory only. */
+  persistence?: RoomPersistence;
+  /** `sweep()` removes rooms with no activity for this long (default 24 h). */
+  idleMs?: number;
+  /** `sweep()` removes finished games this long after their last activity (default 24 h). */
+  finishedMs?: number;
+  /** Persistence failures are logged here, never thrown (default console.warn). */
+  warn?: (message: string) => void;
 }
 
 export function randomRoomCode(): string {
@@ -114,11 +147,27 @@ export class RoomStore {
   private readonly seedFactory: () => string;
   private readonly now: () => number;
   private readonly codeFactory: () => string;
+  private readonly persistence: RoomPersistence | null;
+  private readonly idleMs: number;
+  private readonly finishedMs: number;
+  private readonly warn: (message: string) => void;
+  /** Tail of the write chain per room code: writes for one room never interleave. */
+  private readonly writes = new Map<string, Promise<void>>();
+  /**
+   * Last replayed position per room (one entry each): a later index continues
+   * from it, an earlier one restarts from `initial`. The log only grows and a
+   * prefix never changes, so nothing invalidates it except a new start.
+   */
+  private readonly replayCache = new WeakMap<Room, { index: number; state: GameState; rngState: [number, number, number, number] }>();
 
   constructor(options: RoomStoreOptions = {}) {
     this.seedFactory = options.seedFactory ?? (() => randomBytes(8).toString('hex'));
     this.now = options.now ?? (() => Date.now());
     this.codeFactory = options.codeFactory ?? randomRoomCode;
+    this.persistence = options.persistence ?? null;
+    this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
+    this.finishedMs = options.finishedMs ?? DEFAULT_FINISHED_MS;
+    this.warn = options.warn ?? ((m) => console.warn(`[rooms] ${m}`));
   }
 
   get size(): number {
@@ -137,21 +186,25 @@ export class RoomStore {
     for (let tries = 0; this.rooms.has(code) && tries < 100; tries++) code = this.codeFactory();
     if (this.rooms.has(code)) return netError('badRequest', 'Could not allocate a room code');
     const player: RoomPlayer = { id: 'p1', name, color: PLAYER_COLORS[0] as PlayerColor, token: randomUUID(), socketId: null, connected: false };
+    const now = this.now();
     const room: Room = {
       code,
       name: title,
-      createdAt: this.now(),
+      createdAt: now,
+      updatedAt: now,
       hostId: player.id,
       players: [player],
-      config: { turnTimerSeconds: null },
+      config: { turnTimerSeconds: null, variant: 'beginner', setup: 'preset' },
       started: false,
       seed: null,
       game: null,
+      initial: null,
       rng: null,
       actions: [],
       messages: [],
     };
     this.rooms.set(code, room);
+    this.changed(room);
     return { ok: true, value: { room, player } };
   }
 
@@ -171,6 +224,7 @@ export class RoomStore {
     while (usedIds.has(`p${n}`)) n++;
     const player: RoomPlayer = { id: `p${n}`, name, color, token: randomUUID(), socketId: null, connected: false };
     room.players.push(player);
+    this.changed(room);
     return { ok: true, value: { room, player } };
   }
 
@@ -190,6 +244,7 @@ export class RoomStore {
     player.socketId = socketId;
     player.connected = true;
     this.mirrorConnected(room);
+    room.updatedAt = this.now();
     return previous;
   }
 
@@ -201,6 +256,7 @@ export class RoomStore {
         player.socketId = null;
         player.connected = false;
         this.mirrorConnected(room);
+        room.updatedAt = this.now();
         return { room, player };
       }
     }
@@ -219,12 +275,29 @@ export class RoomStore {
     };
   }
 
+  /** Host only, before the start: change the room's set-up (`variant` and/or `setup`). Unknown keys are ignored; nothing changes on a bad value. */
+  configureRoom(room: Room, byPlayerId: PlayerId, patch: unknown): RoomResult<Room> {
+    if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can change the set-up');
+    if (room.started) return netError('alreadyStarted', 'The game has already started');
+    if (typeof patch !== 'object' || patch === null) return netError('badRequest', 'A room configuration is needed');
+    const { variant, setup } = patch as { variant?: unknown; setup?: unknown };
+    if (variant !== undefined && !isGameVariant(variant)) return netError('badRequest', `Unknown set-up ${String(variant)}`);
+    if (setup !== undefined && !isSetupMode(setup)) return netError('badRequest', `Unknown start mode ${String(setup)}`);
+    if (variant !== undefined && isGameVariant(variant)) room.config.variant = variant;
+    if (setup !== undefined && isSetupMode(setup)) room.config.setup = setup;
+    // Configuring is activity (HANDOFF §5.18): without a write the choice is lost on restart.
+    if (variant !== undefined || setup !== undefined) this.changed(room);
+    return { ok: true, value: room };
+  }
+
   startGame(room: Room, byPlayerId: PlayerId): RoomResult<Room> {
     if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can start the game');
     if (room.started) return netError('alreadyStarted', 'The game has already started');
     if (room.players.length < ROOM_MIN_PLAYERS) return netError('tooFewPlayers', `Need ${ROOM_MIN_PLAYERS}–${ROOM_MAX_PLAYERS} players, have ${room.players.length}`);
     const seed = this.seedFactory();
-    const game = createBeginnerGame({
+    const game = createGame({
+      variant: room.config.variant,
+      setup: room.config.setup,
       id: room.code,
       seed,
       players: room.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
@@ -241,10 +314,13 @@ export class RoomStore {
   private startWith(room: Room, game: GameState, rngSeed: string): Room {
     room.seed = rngSeed;
     room.game = game;
+    room.initial = game;
+    this.replayCache.delete(room);
     room.rng = createRng(rngSeed);
     room.started = true;
     room.actions = [];
     this.mirrorConnected(room);
+    this.changed(room);
     return room;
   }
 
@@ -260,6 +336,7 @@ export class RoomStore {
     if (!result.ok) return { ok: false, error: result.error };
     room.game = result.value;
     room.actions.push(a);
+    this.changed(room);
     return { ok: true, value: result.value };
   }
 
@@ -268,6 +345,7 @@ export class RoomStore {
     const message: ChatMessage = { from: player.id, name: player.name, text: text.trim().slice(0, MAX_CHAT), at: this.now() };
     room.messages.push(message);
     if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
+    this.changed(room);
     return { ok: true, value: message };
   }
 
@@ -306,7 +384,54 @@ export class RoomStore {
       lobby: this.lobbyView(room),
       state: room.game ? redactState(room.game, player.id) : null,
       actions: room.actions.map((a) => this.redactAction(a, player.id)),
+      initial: room.initial ? redactState(room.initial, player.id) : null,
     };
+  }
+
+  /**
+   * Authoritative state after the first `index` accepted actions (0 =
+   * initial): `initial` + `actions[0..index)` through the engine with a fresh
+   * `createRng(room.seed)`, so the live `room.rng` is never touched. Throws
+   * when the room has no initial state or the index is out of range; use
+   * `replayFor` for the validated, redacted form.
+   */
+  replayState(room: Room, index: number): GameState {
+    if (!room.initial || room.seed === null) throw new Error(`Room ${room.code} has no initial state to replay from`);
+    if (!Number.isInteger(index) || index < 0 || index > room.actions.length) throw new Error(`Replay index ${index} is outside 0–${room.actions.length}`);
+    const cached = this.replayCache.get(room);
+    let state = room.initial;
+    let rng = createRng(room.seed);
+    let from = 0;
+    if (cached && cached.index <= index) {
+      state = cached.state;
+      rng = rngFromState(cached.rngState);
+      from = cached.index;
+    }
+    for (let i = from; i < index; i++) {
+      const result = applyAction(state, room.actions[i] as Action, rng);
+      if (!result.ok) throw new Error(`Replay diverged at action ${i}: ${result.error.message}`);
+      state = result.value;
+    }
+    this.replayCache.set(room, { index, state, rngState: rng.getState() });
+    return state;
+  }
+
+  /** `replayState` for a player: validated, with today's connection flags, redacted for `playerId`. */
+  replayFor(room: Room, playerId: PlayerId, index: unknown): RoomResult<GameState> {
+    if (!room.started || !room.game) return netError('notStarted', 'The game has not started');
+    if (typeof index !== 'number' || !Number.isInteger(index)) return netError('badRequest', 'Replay index must be an integer');
+    if (index < 0 || index > room.actions.length) return netError('badRequest', `Replay index must be 0–${room.actions.length}`);
+    if (!room.initial) return netError('badRequest', 'Replay is unavailable for this room: it was saved without its initial state');
+    let state: GameState;
+    try {
+      // The live end needs no engine run (a backward jump restarts from `initial`, ~ms per action).
+      state = index === room.actions.length ? room.game : this.replayState(room, index);
+    } catch (err) {
+      return netError('badRequest', `Replay failed: ${errMessage(err)}`);
+    }
+    const connected = new Map(room.players.map((p) => [p.id, p.connected]));
+    const shown = { ...state, players: state.players.map((p) => ({ ...p, connected: connected.get(p.id) ?? p.connected })) };
+    return { ok: true, value: redactState(shown, playerId) };
   }
 
   snapshot(room: Room): RoomSnapshot {
@@ -314,38 +439,129 @@ export class RoomStore {
       code: room.code,
       name: room.name,
       createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
       hostId: room.hostId,
       players: room.players.map((p) => ({ ...p, socketId: null, connected: false })),
       config: { ...room.config },
       started: room.started,
       seed: room.seed,
       game: room.game,
+      initial: room.initial,
       rngState: room.rng ? room.rng.getState() : null,
       actions: [...room.actions],
       messages: [...room.messages],
     };
   }
 
-  restore(snapshot: RoomSnapshot): Room {
+  /**
+   * Rebuild a room from a snapshot: every player disconnected (and mirrored
+   * into the game state), the rng continued from `rngState`. Does not write to
+   * persistence (the snapshot came from there or from a test).
+   */
+  restore(snapshot: StoredRoomSnapshot): Room {
     const room: Room = {
       code: snapshot.code,
       name: snapshot.name,
       createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt ?? snapshot.createdAt,
       hostId: snapshot.hostId,
       players: snapshot.players.map((p) => ({ ...p, socketId: null, connected: false })),
-      config: { ...snapshot.config },
+      config: { ...snapshot.config, setup: snapshot.config.setup ?? 'preset' },
       started: snapshot.started,
       seed: snapshot.seed,
       game: snapshot.game,
+      initial: snapshot.initial ?? null,
       rng: snapshot.rngState ? rngFromState(snapshot.rngState) : null,
       actions: [...snapshot.actions],
       messages: [...snapshot.messages],
     };
+    this.mirrorConnected(room);
     this.rooms.set(room.code, room);
     return room;
   }
 
+  /** Remove a room from memory and from persistence. */
   deleteRoom(code: string): boolean {
-    return this.rooms.delete(normalizeCode(code));
+    const key = normalizeCode(code);
+    if (!this.rooms.delete(key)) return false;
+    const persistence = this.persistence;
+    if (persistence) this.enqueue(key, () => persistence.remove(key), `remove ${key}`);
+    return true;
   }
+
+  /** Load every stored room into memory. Returns how many were restored. */
+  async restoreAll(): Promise<number> {
+    if (!this.persistence) return 0;
+    const snapshots = await this.persistence.loadAll();
+    let count = 0;
+    for (const snapshot of snapshots as StoredRoomSnapshot[]) {
+      try {
+        this.restore(snapshot);
+        count++;
+      } catch (err) {
+        this.warn(`could not restore room ${String(snapshot.code)}: ${errMessage(err)}`);
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Expire rooms (memory + persistence): no activity for `idleMs`, or a
+   * finished game with no activity for `finishedMs`. A room with any connected
+   * player is always kept. Returns the removed codes.
+   */
+  sweep(): string[] {
+    const now = this.now();
+    const removed: string[] = [];
+    for (const room of [...this.rooms.values()]) {
+      if (room.players.some((p) => p.connected)) continue;
+      const idle = now - room.updatedAt;
+      const finished = room.game !== null && (room.game.phase === 'gameOver' || room.game.winner !== null);
+      if (idle > this.idleMs || (finished && idle > this.finishedMs)) {
+        this.deleteRoom(room.code);
+        removed.push(room.code);
+      }
+    }
+    return removed;
+  }
+
+  /** Resolves once every write queued so far (and any queued meanwhile) has settled. */
+  async flush(): Promise<void> {
+    while (this.writes.size > 0) await Promise.all([...this.writes.values()]);
+  }
+
+  /** A mutation that changes the snapshot: bump `updatedAt` and persist. */
+  private changed(room: Room): void {
+    room.updatedAt = this.now();
+    this.persist(room);
+  }
+
+  /**
+   * Fire-and-forget save. The snapshot is taken now (the rng state moves on
+   * with the next action); the write is chained behind earlier writes for the
+   * same room so two quick actions cannot interleave their renames.
+   */
+  private persist(room: Room): void {
+    const persistence = this.persistence;
+    if (!persistence) return;
+    // A stale reference to a deleted room must not resurrect its file.
+    if (this.rooms.get(room.code) !== room) return;
+    const snapshot = this.snapshot(room);
+    this.enqueue(room.code, () => persistence.save(snapshot), `save ${room.code}`);
+  }
+
+  private enqueue(code: string, write: () => Promise<void>, what: string): void {
+    const previous = this.writes.get(code) ?? Promise.resolve();
+    const next = previous
+      .then(write)
+      .catch((err: unknown) => this.warn(`${what} failed: ${errMessage(err)}`));
+    this.writes.set(code, next);
+    void next.then(() => {
+      if (this.writes.get(code) === next) this.writes.delete(code);
+    });
+  }
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

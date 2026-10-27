@@ -1,8 +1,12 @@
 import type { Action, ClientToServerEvents, GameState, JoinReply, LobbyView, ServerToClientEvents } from '@starfarers/shared';
 import { redactState } from '@starfarers/shared';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { createRemoteGameStore, type SocketLike } from '../src/net/remoteStore.js';
 import { loadSession, saveSession, type SessionStorageLike } from '../src/net/session.js';
+import { LogPane, REPLAY_FETCH_DELAY_MS } from '../src/panels/LogPane.js';
+import { StoreContext, useShownState, type GameStore } from '../src/store/gameStore.js';
 import { game } from './fixtures.js';
 
 /** In-memory socket: records emits, answers acks from a script, lets tests push server events. */
@@ -59,7 +63,7 @@ function lobby(started = false): LobbyView {
     ],
     hostId: 'p1',
     started,
-    config: { turnTimerSeconds: null },
+    config: { turnTimerSeconds: null, variant: 'beginner', setup: 'preset' },
     messages: [],
     minPlayers: 3,
     maxPlayers: 4,
@@ -67,7 +71,7 @@ function lobby(started = false): LobbyView {
 }
 
 function joinReply(state: GameState | null, playerId = 'p2'): JoinReply {
-  return { session: { roomCode: 'ABC234', playerToken: 'tok-2', playerId }, lobby: lobby(state !== null), state: state ? redactState(state, playerId) : null, actions: [] };
+  return { session: { roomCode: 'ABC234', playerToken: 'tok-2', playerId }, lobby: lobby(state !== null), state: state ? redactState(state, playerId) : null, actions: [], initial: null };
 }
 
 describe('session storage', () => {
@@ -153,6 +157,9 @@ describe('RemoteGameStore', () => {
     // A state without an action (someone reconnected) does not grow the action log.
     socket.fire('state', { state: redactState(s1, 'p2'), action: null });
     expect(store.getState().actions).toHaveLength(1);
+    // …and replaces the latest snapshot instead of shifting the replay indexes.
+    expect(store.getState().snapshots).toHaveLength(2);
+    expect(store.getState().replayState(1).turn.rolled).toBe(8);
     // Lobby and chat events.
     socket.fire('lobby', { ...lobby(true), messages: [{ from: 'p1', name: 'Ann', text: 'hi', at: 1 }] });
     expect(store.getState().chat).toHaveLength(1);
@@ -183,5 +190,105 @@ describe('RemoteGameStore', () => {
     expect(socket.connected).toBe(false);
     const none = await store.getState().resume();
     expect(none.ok).toBe(false);
+  });
+
+  it('a resumed client scrubs before its join through the server replay, one request per index', async () => {
+    const socket = new FakeSocket();
+    const store = createRemoteGameStore(socket, { storage: new MemoryStorage() });
+    // Three accepted actions happened before this client resumed; positions are tagged via turn.rolled.
+    const at = (k: number) => {
+      const s = structuredClone(game());
+      if (k > 0) s.turn.rolled = k + 1;
+      return redactState(s, 'p2');
+    };
+    const actions: Action[] = [
+      { type: 'rollDice', playerId: 'p1' },
+      { type: 'discardForSeven', playerId: 'p3', cards: [] },
+      { type: 'endTurn', playerId: 'p1' },
+    ];
+    const reply: JoinReply = { ...joinReply(null), lobby: lobby(true), state: at(3), actions, initial: at(0) };
+    socket.replies.set('resume', { ok: true, value: reply });
+    await store.getState().resume({ roomCode: 'ABC234', playerToken: 'tok-2', playerId: 'p2' });
+    expect(store.getState().snapshotBase).toBe(3);
+    expect(store.getState().replayMin).toBe(0);
+    expect(store.getState().initial).toEqual(at(0));
+    socket.replies.set('replay', { ok: true, value: at(1) });
+
+    function Shown() {
+      return createElement('span', { 'data-testid': 'shown' }, String(useShownState()?.turn.rolled ?? 'none'));
+    }
+    render(
+      createElement(
+        StoreContext.Provider,
+        { value: store as unknown as GameStore },
+        createElement(LogPane, { state: store.getState().game! }),
+        createElement(Shown),
+      ),
+    );
+    const slider = screen.getByLabelText('Replay position') as HTMLInputElement;
+    expect(slider.min).toBe('0');
+    expect(slider.max).toBe('3');
+
+    const replayEmits = () => socket.emitted.filter((e) => e.event === 'replay');
+    const settle = () =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, REPLAY_FETCH_DELAY_MS + 20));
+      });
+    // A drag over 2 → 1 asks only for where the slider comes to rest.
+    act(() => {
+      fireEvent.change(slider, { target: { value: '2' } });
+    });
+    act(() => {
+      fireEvent.change(slider, { target: { value: '1' } });
+    });
+    // Meanwhile the nearest known position (the initial state) is shown.
+    expect(screen.getByTestId('shown')).toHaveTextContent('none');
+    await settle();
+    expect(replayEmits()).toEqual([{ event: 'replay', payload: { index: 1 } }]);
+    expect(screen.getByTestId('shown')).toHaveTextContent('2');
+    expect(store.getState().replayState(1)).toEqual(at(1));
+    expect(store.getState().replayVersion).toBe(1);
+
+    // The same index again (slider away and back, or a direct call) is served from the cache.
+    act(() => {
+      fireEvent.change(slider, { target: { value: '3' } });
+    });
+    act(() => {
+      fireEvent.change(slider, { target: { value: '1' } });
+    });
+    await settle();
+    await act(async () => {
+      await store.getState().ensureReplay(1);
+    });
+    expect(replayEmits()).toHaveLength(1);
+    expect(screen.getByTestId('shown')).toHaveTextContent('2');
+    // Index 0 (initial) and indexes at or after the join never need the server.
+    await store.getState().ensureReplay(0);
+    await store.getState().ensureReplay(3);
+    expect(replayEmits()).toHaveLength(1);
+    // The seat never moves while replaying.
+    expect(store.getState().viewer).toBe('p2');
+    expect(store.getState().pendingViewer).toBeNull();
+
+    // Two concurrent requests for a new index share one emit.
+    socket.replies.set('replay', { ok: true, value: at(2) });
+    await Promise.all([store.getState().ensureReplay(2), store.getState().ensureReplay(2)]);
+    expect(replayEmits()).toHaveLength(2);
+    expect(store.getState().replayState(2).turn.rolled).toBe(3);
+  });
+
+  it('without a server initial state the slider starts at the join and nothing is requested', async () => {
+    const socket = new FakeSocket();
+    const store = createRemoteGameStore(socket, { storage: new MemoryStorage() });
+    const actions: Action[] = [
+      { type: 'rollDice', playerId: 'p1' },
+      { type: 'endTurn', playerId: 'p1' },
+    ];
+    socket.replies.set('resume', { ok: true, value: { ...joinReply(game()), actions } });
+    await store.getState().resume({ roomCode: 'ABC234', playerToken: 'tok-2', playerId: 'p2' });
+    expect(store.getState().replayMin).toBe(2);
+    await store.getState().ensureReplay(0);
+    expect(socket.emitted.filter((e) => e.event === 'replay')).toHaveLength(0);
+    expect(store.getState().replayState(0)).toBe(store.getState().snapshots[0]);
   });
 });

@@ -1,4 +1,4 @@
-import { ROOM_CODE_LENGTH, ROOM_MAX_PLAYERS, type GameState } from '@starfarers/shared';
+import { ROOM_CODE_LENGTH, ROOM_MAX_PLAYERS, draftableSites, type GameState } from '@starfarers/shared';
 import { describe, expect, it } from 'vitest';
 import { RoomStore, normalizeCode, randomRoomCode } from '../src/rooms.js';
 import { botRandom, nextAction } from './bot.js';
@@ -137,6 +137,128 @@ describe('RoomStore lifecycle', () => {
     }
     expect(twin.game).toEqual(room.game);
     expect(twin.actions).toEqual(room.actions);
+  });
+
+  it('configureRoom: host only, before the start, valid variants only; startGame uses it', () => {
+    const store = new RoomStore({ seedFactory: () => 'variant-seed' });
+    const room = filled(store);
+    expect(store.lobbyView(room).config).toEqual({ turnTimerSeconds: null, variant: 'beginner', setup: 'preset' });
+    expect(store.configureRoom(room, 'p2', { variant: 'strategic' })).toMatchObject({ ok: false, error: { code: 'notHost' } });
+    expect(store.configureRoom(room, 'p1', { variant: 'classic' })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(store.configureRoom(room, 'p1', 'strategic')).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(room.config.variant).toBe('beginner');
+    expect(store.configureRoom(room, 'p1', { variant: 'explorer' }).ok).toBe(true);
+    expect(store.lobbyView(room).config.variant).toBe('explorer');
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', turnTimerSeconds: 99 }).ok).toBe(true);
+    expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'strategic', setup: 'preset' });
+    expect(store.startGame(room, 'p1').ok).toBe(true);
+    expect(room.game?.variant).toBe('strategic');
+    expect(room.game?.seed).toBe('variant-seed');
+    expect(store.configureRoom(room, 'p1', { variant: 'wild' })).toMatchObject({ ok: false, error: { code: 'alreadyStarted' } });
+    expect(room.config.variant).toBe('strategic');
+    // Every variant starts and is reproduced by the same seed.
+    for (const variant of ['beginner', 'explorer', 'wild'] as const) {
+      const s2 = new RoomStore({ seedFactory: () => 'variant-seed', codeFactory: () => 'ROOM42' });
+      const r2 = filled(s2);
+      expect(s2.configureRoom(r2, 'p1', { variant }).ok).toBe(true);
+      expect(s2.startGame(r2, 'p1').ok).toBe(true);
+      expect(r2.game?.variant).toBe(variant);
+      const s3 = new RoomStore({ seedFactory: () => 'variant-seed', codeFactory: () => 'ROOM42' });
+      const r3 = filled(s3);
+      s3.configureRoom(r3, 'p1', { variant });
+      s3.startGame(r3, 'p1');
+      expect(r3.game).toEqual(r2.game);
+      // Hidden tiles never reach a client.
+      const view = s2.joinReply(r2, r2.players[1]!).state!;
+      expect(Object.values(view.board.sectors).filter((x) => x.kind === 'hidden')).toHaveLength(variant === 'beginner' ? 0 : 15);
+      expect(view.discPools).toEqual({ tri: [], br: [], hex: [] });
+    }
+  });
+
+  it('configureRoom: the start mode (spec §3.4 draft) is a second, independent axis; startGame drafts', () => {
+    const store = new RoomStore({ seedFactory: () => 'draft-room' });
+    const room = filled(store);
+    expect(store.configureRoom(room, 'p1', { setup: 'snake' })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', setup: 'snake' })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'beginner', setup: 'preset' });
+    expect(store.configureRoom(room, 'p2', { setup: 'draft' })).toMatchObject({ ok: false, error: { code: 'notHost' } });
+    expect(store.configureRoom(room, 'p1', { setup: 'draft' }).ok).toBe(true);
+    expect(store.lobbyView(room).config).toEqual({ turnTimerSeconds: null, variant: 'beginner', setup: 'draft' });
+    expect(store.configureRoom(room, 'p1', { variant: 'explorer' }).ok).toBe(true);
+    expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'explorer', setup: 'draft' });
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', setup: 'preset' }).ok).toBe(true);
+    expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'strategic', setup: 'preset' });
+    expect(store.configureRoom(room, 'p1', { setup: 'draft' }).ok).toBe(true);
+    expect(store.startGame(room, 'p1').ok).toBe(true);
+    const game = room.game!;
+    expect(game.variant).toBe('strategic');
+    expect(game.setup).toBe('draft');
+    expect(game.phase).toBe('setup');
+    expect(game.draft?.round).toBe(1);
+    expect(Object.values(game.board.settlements)).toHaveLength(0);
+    // The first picker drafts through the room store like any other action; the others are refused.
+    const picker = game.activePlayer;
+    const other = room.players.find((p) => p.id !== picker)!.id;
+    const site = draftableSites(game)[0]!;
+    expect(store.applyAction(room, other, { type: 'draftColony', playerId: other, siteId: site })).toMatchObject({ ok: false, error: { code: 'notYourTurn' } });
+    expect(store.applyAction(room, picker, { type: 'rollDice', playerId: picker })).toMatchObject({ ok: false, error: { code: 'wrongPhase' } });
+    expect(store.applyAction(room, picker, { type: 'draftColony', playerId: picker, siteId: site }).ok).toBe(true);
+    expect(room.game!.board.settlements[site]?.owner).toBe(picker);
+    expect(room.actions).toHaveLength(1);
+    // Everyone sees the draft (public data) in their redacted view.
+    const view = store.joinReply(room, room.players[1]!).state!;
+    expect(view.draft).toEqual(room.game!.draft);
+    expect(view.setup).toBe('draft');
+  });
+
+  it('a drafted game round-trips through snapshot/restore and replayState during the draft', () => {
+    const store = new RoomStore({ seedFactory: () => 'draft-persist' });
+    const room = filled(store, 4);
+    store.configureRoom(room, 'p1', { setup: 'draft' });
+    store.startGame(room, 'p1');
+    const rnd = botRandom(11);
+    const captured: GameState[] = [room.game!];
+    for (let i = 0; i < 9; i++) {
+      const a = nextAction(room.game!, rnd)!;
+      expect(a.type).toBe('draftColony');
+      expect(store.applyAction(room, a.playerId, a).ok).toBe(true);
+      captured.push(room.game!);
+    }
+    expect(room.game!.phase).toBe('setup');
+    expect(room.game!.draft?.round).toBe(3);
+    // `connected` is mirrored from the sockets outside the engine (nobody is bound here), so compare without it.
+    const plain = (g: GameState) => ({ ...g, players: g.players.map((p) => ({ ...p, connected: false })) });
+    for (const k of [0, 1, 5, 9, 2, 9]) expect(plain(store.replayState(room, k)), `k=${k}`).toEqual(plain(captured[k]!));
+
+    const snap = JSON.parse(JSON.stringify(store.snapshot(room)));
+    expect(snap.config.setup).toBe('draft');
+    const twinStore = new RoomStore();
+    const twin = twinStore.restore(snap);
+    expect(twin.game).toEqual(room.game);
+    expect(twin.config).toEqual(room.config);
+    // Both finish the draft identically and reach turn 1 with the same hands (the reserve pile is dealt by the engine).
+    while (room.game!.phase === 'setup') {
+      const a = nextAction(room.game!, rnd)!;
+      expect(store.applyAction(room, a.playerId, a).ok).toBe(true);
+      expect(twinStore.applyAction(twin, a.playerId, a).ok).toBe(true);
+      captured.push(room.game!);
+    }
+    expect(room.actions).toHaveLength(16);
+    expect(room.game!.phase).toBe('production');
+    expect(room.game!.players.every((p) => p.hand.length === 3 && p.vp === 4)).toBe(true);
+    expect(twin.game).toEqual(room.game);
+    expect(plain(twinStore.replayState(twin, 16))).toEqual(plain(room.game!));
+    for (const k of [12, 15, 16, 0]) expect(plain(store.replayState(room, k)), `k=${k}`).toEqual(plain(captured[k]!));
+    // Turn 1 continues identically on both.
+    const roll = nextAction(room.game!, rnd)!;
+    expect(roll.type).toBe('rollDice');
+    store.applyAction(room, roll.playerId, roll);
+    twinStore.applyAction(twin, roll.playerId, roll);
+    expect(twin.game).toEqual(room.game);
+    // A snapshot written before `config.setup` existed restores as a preset room.
+    const { setup: _setup, ...legacyConfig } = snap.config;
+    const legacy = new RoomStore().restore({ ...snap, config: legacyConfig, started: false, game: null, initial: null, rngState: null, actions: [] });
+    expect(legacy.config).toEqual({ turnTimerSeconds: null, variant: 'beginner', setup: 'preset' });
   });
 
   it('startWithState resumes an arbitrary state', () => {

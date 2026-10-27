@@ -1,4 +1,4 @@
-import { canFoundColony, reserveDrawFor, shipsOf, type GameState, type PlayerId } from '@starfarers/shared';
+import { canFoundColony, isColonyRound, reserveDrawFor, shipsOf, type GameState, type PlayerId } from '@starfarers/shared';
 import { useAct, useGame } from '../store/gameStore.js';
 import { phaseLabel, playerName } from '../ui/format.js';
 
@@ -36,12 +36,23 @@ export function ActionBar({ state, viewer }: { state: GameState; viewer: PlayerI
     }
   }
 
+  const draft = state.phase === 'setup' ? state.draft : undefined;
   return (
     <div className="action-bar" data-testid="action-bar">
-      <span className="phase">
-        Turn {state.turnNumber} · {phaseLabel(state.phase)} · {playerName(state, state.activePlayer)}
-        {state.phase === 'flight.move' && isActive && state.turn.speed !== undefined && ` · speed ${state.turn.speed}`}
-        {selectedShip && ` · selected ${selectedShip}`}
+      <span className="phase" data-testid="phase-label">
+        {draft ? (
+          <>
+            Set-up: round {draft.round} · {playerName(state, state.activePlayer)}{' '}
+            {isColonyRound(draft) ? 'places a colony' : 'upgrades a colony to a spaceport, places a ship and takes an upgrade'}
+            {isActive && isColonyRound(draft) && ' — click a highlighted Catanian site'}
+          </>
+        ) : (
+          <>
+            Turn {state.turnNumber} · {phaseLabel(state.phase)} · {playerName(state, state.activePlayer)}
+            {state.phase === 'flight.move' && isActive && state.turn.speed !== undefined && ` · speed ${state.turn.speed}`}
+            {selectedShip && ` · selected ${selectedShip}`}
+          </>
+        )}
       </span>
       {!isActive && state.phase !== 'gameOver' && <span className="muted">Waiting for {playerName(state, state.activePlayer)}</span>}
       {buttons.map((b) => (

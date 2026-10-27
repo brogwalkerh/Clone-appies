@@ -1,10 +1,14 @@
 /**
  * Reachability for clients and bots (spec §14 "highlight legal end nodes"):
  * BFS over `board.adjacency` with the ship's remaining step budget (intermediate
- * nodes may be anything, §9.2), then each reachable node is filtered through
- * `validateEndNode`, so a highlight can never disagree with `moveShip`.
+ * nodes may be anything, §9.2, except the interior of an undiscovered sector,
+ * which `validatePath` refuses too), then each reachable node is filtered
+ * through `validateEndNode`, so a highlight can never disagree with `moveShip`.
+ * On a redacted board the undiscovered interiors are simply absent, so client
+ * and server compute the same set.
  */
 
+import { undiscoveredInteriorNodes } from '../board/query.js';
 import type { GameState, NodeId, ShipId } from '../types.js';
 import { validateJumpTarget } from './jump.js';
 import { stepsLeft, validateEndNode } from './movement.js';
@@ -13,6 +17,7 @@ import { stepsLeft, validateEndNode } from './movement.js';
 export function reachablePaths(state: GameState, start: NodeId, budget: number): Map<NodeId, NodeId[]> {
   const paths = new Map<NodeId, NodeId[]>();
   if (budget <= 0) return paths;
+  const hidden = undiscoveredInteriorNodes(state.board);
   const dist = new Map<NodeId, number>([[start, 0]]);
   const queue: NodeId[] = [start];
   const prev = new Map<NodeId, NodeId>();
@@ -21,7 +26,7 @@ export function reachablePaths(state: GameState, start: NodeId, budget: number):
     const d = dist.get(node) as number;
     if (d >= budget) continue;
     for (const next of state.board.adjacency[node] ?? []) {
-      if (dist.has(next)) continue;
+      if (dist.has(next) || hidden.has(next)) continue;
       dist.set(next, d + 1);
       prev.set(next, node);
       queue.push(next);

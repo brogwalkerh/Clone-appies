@@ -12,8 +12,8 @@ import type {
   HexKey,
   PlayerColor,
   Resource,
-  SectorKind,
   TileId,
+  TileKind,
 } from '../types.js';
 import { CIVS, PLAYER_COLORS, RESOURCES } from '../types.js';
 import { hexKey, parseHexKey } from './geometry.js';
@@ -43,7 +43,7 @@ export interface TilePlanet {
 
 export interface TileLayout {
   id: TileId;
-  type: SectorKind;
+  type: TileKind;
   stars: 1 | 2;
   /** Systems: planets in clockwise order. */
   planets?: TilePlanet[];

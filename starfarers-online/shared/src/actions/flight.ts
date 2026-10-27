@@ -81,7 +81,7 @@ const handleShakeMothership: Handler<'shakeMothership'> = (state, action, rng) =
   return state;
 };
 
-const handleMoveShip: Handler<'moveShip'> = (state, action) => {
+const handleMoveShip: Handler<'moveShip'> = (state, action, rng) => {
   const pending = pendingFoundError(state);
   if (pending) return pending;
   const player = getPlayer(state, action.playerId);
@@ -106,7 +106,7 @@ const handleMoveShip: Handler<'moveShip'> = (state, action) => {
   const endError = validateEndNode(state, ship, end);
   if (endError) return endError;
 
-  applyMove(state, ship, action.path);
+  applyMove(state, ship, action.path, rng);
   return state;
 };
 

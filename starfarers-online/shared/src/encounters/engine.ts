@@ -12,7 +12,7 @@
  *   runEncounterQueue(state, rng)     pop effects and apply them until one needs a
  *                                     player's decision (`ctx.awaiting`) or the queue
  *                                     is empty (→ finishEncounter)
- *   applyEncounterPick(state, action) validate + apply the answer to `ctx.awaiting`
+ *   applyEncounterPick(state, action, rng) validate + apply the answer to `ctx.awaiting`
  *                                     (the handler then resumes the queue)
  *   finishEncounter(state)            card → discard pile, stage 'done', base speed 3,
  *                                     `refreshSpeed`, tokens re-checked, phase 'flight.move'
@@ -523,7 +523,7 @@ function resourceList(value: unknown, count: number): Resource[] | GameError {
  * `action.playerId === awaiting.playerId`. Clears `awaiting` on success unless
  * the same effect immediately needs another pick (tradeOneForTwo).
  */
-export function applyEncounterPick(state: GameState, action: EncounterPickAction): GameError | null {
+export function applyEncounterPick(state: GameState, action: EncounterPickAction, rng?: Rng): GameError | null {
   const ctx = ctxOf(state);
   const request = ctx.awaiting;
   if (!request) return gameError('ruleViolation', 'No encounter pick is pending');
@@ -622,7 +622,7 @@ export function applyEncounterPick(state: GameState, action: EncounterPickAction
       }
       const error = validateJumpTarget(state, shipId, action.targetNodeId);
       if (error) return error;
-      applySpaceJump(state, shipId, action.targetNodeId);
+      applySpaceJump(state, shipId, action.targetNodeId, rng);
       ctx.jumpedTo = { shipId, nodeId: action.targetNodeId };
       break;
     }

@@ -21,12 +21,13 @@ import { tradeBuildModule } from './tradeBuild.js';
 import { turnModule } from './turn.js';
 import { foundModule } from './found.js';
 import { encounterModule } from './encounter.js';
+import { draftModule } from './draft.js';
 
 export type { ActionModule, Handler, HandlerMap, PostActionHook } from './handler.js';
 export { logEvent } from './handler.js';
 export { ACTION_POLICY } from './policy.js';
 
-const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, flightModule, encounterModule, turnModule, foundModule];
+const MODULES: readonly ActionModule[] = [productionModule, tradeBuildModule, flightModule, encounterModule, turnModule, foundModule, draftModule];
 
 function assembleHandlers(modules: readonly ActionModule[]): HandlerMap {
   const map: HandlerMap = {};
