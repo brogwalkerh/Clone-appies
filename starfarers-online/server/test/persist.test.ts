@@ -158,6 +158,25 @@ describe('RoomStore with persistence', () => {
     expect(warnings).toEqual([expect.stringMatching(/save .* failed: disk full/)]);
   });
 
+  it('configureRoom is persisted: a restored un-started room keeps its variant and start mode', async () => {
+    const persistence = new MemoryRoomPersistence();
+    const store = new RoomStore({ persistence });
+    const room = filled(store);
+    await store.flush();
+    const saves = persistence.saves.length;
+    expect(store.configureRoom(room, 'p1', { variant: 'explorer', setup: 'draft' }).ok).toBe(true);
+    await store.flush();
+    expect(persistence.saves.length).toBe(saves + 1);
+    const restored = new RoomStore({ persistence });
+    expect(await restored.restoreAll()).toBe(1);
+    const room2 = restored.getRoom(room.code)!;
+    expect(room2.config).toEqual({ turnTimerSeconds: null, variant: 'explorer', setup: 'draft' });
+    expect(restored.configureRoom(room2, 'p1', { variant: 'wild' }).ok).toBe(true);
+    expect(restored.startGame(room2, 'p1').ok).toBe(true);
+    expect(room2.game!.variant).toBe('wild');
+    expect(room2.game!.setup).toBe('draft');
+  });
+
   it('deleteRoom removes the stored snapshot and a stale room reference cannot resurrect it', async () => {
     const mem = new MemoryRoomPersistence();
     const store = new RoomStore({ persistence: mem });

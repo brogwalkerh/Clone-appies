@@ -243,7 +243,13 @@ describe('discovery through moveShip', () => {
     for (const variant of ['beginner', 'strategic'] as const) {
       const g = createGame({ variant, players: THREE, seed: 'nothing' });
       expect(undiscoveredInteriorNodes(g.board).size).toBe(0);
-      expect(redactBoard(g.board)).toBe(g.board);
+      // Only the face-down discs are hidden (redact.test.ts); the graph and the sectors are the very same objects.
+      const r = redactBoard(g.board);
+      expect(r.nodes).toBe(g.board.nodes);
+      expect(r.edges).toBe(g.board.edges);
+      expect(r.adjacency).toBe(g.board.adjacency);
+      expect(r.sectors).toBe(g.board.sectors);
+      expect(Object.keys(r.planets)).toEqual(Object.keys(g.board.planets));
       const ship = activeShip(g);
       expect(discoverAt(g, ship.nodeId, undefined)).toEqual([]);
     }

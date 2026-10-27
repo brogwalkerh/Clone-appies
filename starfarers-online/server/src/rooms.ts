@@ -285,6 +285,8 @@ export class RoomStore {
     if (setup !== undefined && !isSetupMode(setup)) return netError('badRequest', `Unknown start mode ${String(setup)}`);
     if (variant !== undefined && isGameVariant(variant)) room.config.variant = variant;
     if (setup !== undefined && isSetupMode(setup)) room.config.setup = setup;
+    // Configuring is activity (HANDOFF §5.18): without a write the choice is lost on restart.
+    if (variant !== undefined || setup !== undefined) this.changed(room);
     return { ok: true, value: room };
   }
 

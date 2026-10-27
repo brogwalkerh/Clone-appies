@@ -12,6 +12,13 @@
  *     `giveOne`), stripped unless the viewer is the actor; the human-readable
  *     `message` stays,
  *   - the per-icon number-disc pools (emptied; `discPoolCounts` kept),
+ *   - every FACE-DOWN number disc on a planet (`redactBoard`): the label,
+ *     numbers, special token and the label-bearing id go, only the back icon
+ *     and `faceUp: false` stay, so a client cannot read an unexplored system's
+ *     numbers or spot a pirate base / ice planet before the flip,
+ *   - the order of `reserveDiscs` (the next one drawn is random, §9.6): the
+ *     pile is shown sorted by label with neutral ids, so its contents stay
+ *     public but not which disc comes next,
  *   - every UNDISCOVERED sector's tile (explorer / wild space, `redactBoard`):
  *     the sector becomes `kind: 'hidden'` with no planets, colony sites, civ,
  *     docks or docking point; its planets leave `board.planets`; the slot's
@@ -28,7 +35,7 @@
  */
 
 import { slotInteriorVertices } from '../board/geometry.js';
-import type { Action, Board, BoardNode, Edge, GameState, LogEntry, NodeId, PlayerId, Sector } from '../types.js';
+import type { Action, Board, BoardNode, Disc, Edge, GameState, LogEntry, NodeId, Planet, PlayerId, Sector } from '../types.js';
 
 /** Actions whose payload names cards that opponents should not see. */
 export function actionRevealsHiddenCards(action: Action): boolean {
@@ -64,18 +71,49 @@ function hiddenSector(sector: Sector): Sector {
   };
 }
 
+/** Is this a face-down disc whose identity is still readable (label, numbers, special, id)? */
+function discNeedsHiding(disc: Disc | null): disc is Disc {
+  return disc !== null && !disc.faceUp && disc.label !== '';
+}
+
+/** A face-down disc as every viewer sees it: the back icon and nothing else. */
+function hiddenDisc(planet: Planet, disc: Disc): Disc {
+  return { id: `disc:hidden:${planet.id}`, back: disc.back, label: '', numbers: [], faceUp: false };
+}
+
+function redactPlanet(planet: Planet): Planet {
+  return discNeedsHiding(planet.disc) ? { ...planet, disc: hiddenDisc(planet, planet.disc) } : planet;
+}
+
 /**
- * Hide every undiscovered sector's tile. Returns the board itself when all
- * sectors are discovered; idempotent on an already redacted board.
+ * The reserve discs with their order hidden: sorted by label, neutral ids.
+ * The multiset (3, 9, 10, 11, 11 at the start) is public, the next draw is not.
+ */
+function redactReserveDiscs(discs: readonly Disc[]): Disc[] {
+  return [...discs]
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+    .map((d, i) => ({ ...d, id: `disc:reserve:hidden:${i}` }));
+}
+
+/**
+ * Hide every undiscovered sector's tile and every face-down disc. Returns the
+ * board itself when there is nothing to hide; idempotent on an already
+ * redacted board.
  */
 export function redactBoard(board: Board): Board {
   const hidden = Object.values(board.sectors).filter((s) => !s.discovered);
-  if (hidden.length === 0) return board;
+  const faceDown = Object.values(board.planets).some((p) => discNeedsHiding(p.disc));
+  if (hidden.length === 0 && !faceDown) return board;
   const hiddenIds = new Set(hidden.map((s) => s.id));
   const dropNodes = new Set<NodeId>();
   for (const s of hidden) for (const v of slotInteriorVertices(s.lobes)) dropNodes.add(v);
 
-  const planets = Object.fromEntries(Object.entries(board.planets).filter(([, p]) => !hiddenIds.has(p.sectorId)));
+  const planets = Object.fromEntries(
+    Object.entries(board.planets)
+      .filter(([, p]) => !hiddenIds.has(p.sectorId))
+      .map(([id, p]) => [id, redactPlanet(p)]),
+  );
+  if (hidden.length === 0) return { ...board, planets };
   const nodes: Record<NodeId, BoardNode> = {};
   for (const [id, node] of Object.entries(board.nodes)) {
     if (dropNodes.has(id)) continue;
@@ -108,6 +146,7 @@ export function redactState(state: GameState, viewerId: PlayerId): GameState {
     })),
     reservePile: [],
     reservePileCount: state.reservePile.length,
+    reserveDiscs: redactReserveDiscs(state.reserveDiscs),
     encounterDeck: [],
     encounterDeckCount: state.encounterDeck.length,
     log: state.log.map((e) => redactLogEntry(e, viewerId)),

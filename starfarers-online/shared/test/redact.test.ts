@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_POLICY, applyAction, computeVp, createBeginnerGame, createRng, handSize, redactState, validateEndNode, type GameState } from '../src/index.js';
+import { ACTION_POLICY, applyAction, computeVp, createBeginnerGame, createGame, createRng, exploreSector, handSize, redactBoard, redactState, validateEndNode, type GameState } from '../src/index.js';
 
 const PLAYERS = [
   { id: 'p1', name: 'Ann', color: 'red' as const },
@@ -35,12 +35,56 @@ describe('redactState', () => {
     expect(r.encounterDiscard).toEqual(s.encounterDiscard);
   });
 
+  it('hides the labels, numbers, specials and ids of face-down discs until the system is explored (beginner and strategic)', () => {
+    for (const variant of ['beginner', 'strategic'] as const) {
+      const s = createGame({ variant, players: PLAYERS, seed: 'redact-discs' });
+      const faceDown = Object.values(s.board.planets).filter((p) => p.disc !== null && !p.disc.faceUp);
+      expect(faceDown).toHaveLength(24);
+      expect(faceDown.some((p) => p.disc!.special !== undefined)).toBe(true); // a P/I disc is among them
+      const r = redactState(s, 'p1');
+      for (const p of faceDown) {
+        const seen = r.board.planets[p.id]!.disc!;
+        expect(seen).toEqual({ id: `disc:hidden:${p.id}`, back: p.disc!.back, label: '', numbers: [], faceUp: false });
+      }
+      // Face-up (Catanian) discs are untouched, the redaction is idempotent and the input is not mutated.
+      for (const p of Object.values(s.board.planets).filter((p) => p.disc?.faceUp)) expect(r.board.planets[p.id]!.disc).toEqual(p.disc);
+      expect(redactBoard(r.board)).toEqual(r.board);
+      expect(Object.values(s.board.planets).filter((p) => p.disc !== null && !p.disc.faceUp)).toHaveLength(24);
+      // Once explored the real discs (and tokens) are public.
+      const sector = Object.values(s.board.sectors).find((x) => x.kind === 'system' && !x.explored)!;
+      expect(exploreSector(s, sector)).toBe(true);
+      const after = redactState(s, 'p1');
+      for (const id of sector.planetIds) {
+        const planet = s.board.planets[id]!;
+        expect(after.board.planets[id]!.disc).toEqual(planet.disc);
+        expect(after.board.planets[id]!.token).toEqual(planet.token);
+      }
+    }
+  });
+
+  it('hides the order of the reserve discs but not their contents', () => {
+    const s = game();
+    const r = redactState(s, 'p1');
+    expect(r.reserveDiscs.map((d) => d.label)).toEqual([...s.reserveDiscs.map((d) => d.label)].sort((a, b) => Number(a) - Number(b)));
+    expect(r.reserveDiscs.map((d) => d.id)).toEqual(r.reserveDiscs.map((_, i) => `disc:reserve:hidden:${i}`));
+    // Two seeds with different pile orders look the same to a client.
+    const other = createBeginnerGame({ players: PLAYERS, seed: 'redact-other-pile' });
+    expect(other.reserveDiscs.map((d) => d.label)).not.toEqual(s.reserveDiscs.map((d) => d.label));
+    expect(redactState(other, 'p1').reserveDiscs).toEqual(r.reserveDiscs);
+    expect(s.reserveDiscs.map((d) => d.id)).toEqual(s.reserveDiscs.map((d, i) => `disc:reserve:${i}:${d.label}`)); // input untouched
+  });
+
   it('does not mutate the input and leaves public data untouched', () => {
     const s = game();
     const before = structuredClone(s);
     const r = redactState(s, 'p1');
     expect(s).toEqual(before);
-    expect(r.board).toEqual(s.board);
+    // The board is public apart from its face-down discs (hidden until explored, see above).
+    expect({ ...r.board, planets: undefined }).toEqual({ ...s.board, planets: undefined });
+    for (const p of Object.values(s.board.planets)) {
+      if (p.disc === null || p.disc.faceUp) expect(r.board.planets[p.id]).toEqual(p);
+      else expect({ ...r.board.planets[p.id], disc: undefined }).toEqual({ ...p, disc: undefined });
+    }
     expect(r.supply).toEqual(s.supply);
     expect(r.players.map((p) => p.vp)).toEqual(s.players.map((p) => p.vp));
   });
