@@ -1,6 +1,6 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 7 part A and the phone-layout scope change. On `main`: phases 1–5 via PR #2
+Last updated after phase 7 part A, the UI/UX review and the phone layout (§8 item 9a). On `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
 review, server-side replay) via PR #3 (`e473ca2`), the phase 7 plan via PR #4
 (`063b21f`), phase 7 part A (animations, turn timer, host controls, keyboard
@@ -9,13 +9,15 @@ navigation, rule-confirmation checklist, review) via PR #5 from
 `starfarers-ui-review` (a UI/UX review of the client: hand panel kept in
 view, readable log lines, New game confirmation, larger targets, primary
 action style, labelled seat inputs; 632 tests) and `starfarers-phone-layout`
-on top of it (spec §14 now targets phones; the work is §8 item 9a, not yet
-started).
+on top of it (spec §14 now targets phones; §8 item 9a is done there: zoomable
+board, tap-to-confirm picks, tabbed panels, bottom-sheet dialogs; 640 tests).
+Merge them in that order.
 
 **Starting a new session:** paste the prompt in §10 into the new session. It
 says to read `CLAUDE.md`, then this file top to bottom, then
 `starfarers-clone-spec.md` §13–§16; branch from `main`; run the commands in §2
-to confirm green (632 tests on `starfarers-ui-review`); then work §8 part B in order. Spec §15 is
+to confirm green (640 tests on `starfarers-phone-layout`, which carries the
+UI review too); then work §8 part B in order. Spec §15 is
 complete; part B is what separates a finished game from an app strangers can
 use. `RULES-CHECKLIST.md` waits on someone with the physical box.
 
@@ -57,7 +59,9 @@ moves ending on the clicked node, a roll by keyboard, a guest reload, a server
 restart with all three resuming, the slider scrubbed by Home / End, a host
 transfer in game, zero page errors; the item drives also covered kick,
 automatic hand-over, timer expiry and its survival across a restart, a full
-keyboard-only turn and reduced motion.
+keyboard-only turn and reduced motion. The two open branches (header) add a
+UI/UX review and the phone layout: 640 tests (87 client) on
+`starfarers-phone-layout`, the laptop layout unchanged, phones from 360 px.
 
 ## 2. Layout
 
@@ -113,18 +117,21 @@ starfarers-online/
   client/                                        @starfarers/client, Vite 6 + React 19 + zustand + socket.io-client
     index.html  vite.config.ts (proxies /socket.io to :3000 in dev)  vitest.config.ts (jsdom + testing-library)
     src/main.tsx  src/App.tsx   hash router (#/ #/local #/online #/room/CODE), GameScreen (store-agnostic)
-    src/styles.css              dark theme, one file
+    src/styles.css              dark theme, one file; one phone block at the end (max-width 767px)
     src/store/gameStore.ts      GameStoreState + hot-seat store; StoreContext / useGameStore / useGame / useAct
     src/net/remoteStore.ts      RemoteStoreState (extends GameStoreState) over a SocketLike; session.ts (localStorage);
                                 socket.ts (real socket.io-client + lazy singleton)
     src/board/Board.tsx         SVG board from state.board + board/geometry; VpTrack.tsx; legalMoves.ts re-exports shared;
-                                motion.ts (useBoardMotion: ship slide, flips, reduced motion); outpostLayout.ts
+                                motion.ts (useBoardMotion: ship slide, flips, reduced motion); outpostLayout.ts;
+                                view.ts (touch zoom / pan / focus on the viewBox, §5.30)
     src/panels/                 HandPanel, MothershipPanel, BuildMenu, TradePanel, FriendshipPanel, SevenDialog,
                                 EncounterModal, FoundStationDialog, ActionBar, LogPane, PassBanner, SetupScreen,
                                 ResourcePicker (BagPicker), OnlineLobby (JoinScreen, RoomLobby), ChatPanel,
                                 DraftPanel (round 4 of the advanced set-up), TurnTimer, HostControls
-    src/ui/format.ts            colours, labels, bag/hand helpers (no rules); ui/keyboard.ts (Escape stack, focus helpers)
-    test/                       11 files, 74 tests (animation, turnTimer, hostControls, keyboard are phase 7;
+    src/ui/format.ts            colours, labels, bag/hand helpers, logText (no rules); ui/keyboard.ts (Escape stack, focus helpers);
+                                ui/media.ts (PHONE_QUERY / COARSE_QUERY + useMediaQuery)
+    test/                       13 files, 87 tests on starfarers-phone-layout (uiReview.test.tsx from the UI review,
+                                phone.test.tsx for zoom maths / touch picks / tabs; animation, turnTimer, hostControls, keyboard are phase 7;
                                 legal-move highlight vs engine incl. explorer and 3p
                                 boards, encounter modal per awaiting.kind, viewer switch, scripted full
                                 turn + replay, remote store over a fake socket incl. configureRoom and
@@ -207,6 +214,7 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
 | 5 Server, lobby, reconnect | `1ccb53d` `52e5db3` `6b945b7` | `shared/net`: `redactState` (other hands emptied + `handCount`, reserve pile / encounter deck emptied + counts, `seed` blanked, hidden log payloads stripped) and the typed Socket.IO protocol; `shared/flight/reach.ts` (BFS moved out of the client); `server/`: `RoomStore` with 6-char codes, per-player reconnect tokens, colours by join order, host-only start with 3–4, server-generated seed and one `Rng` per room, action validation (`action.playerId` must be the socket's player) before the engine, chat list, `snapshot()/restore()`, `startWithState()`; `attachSockets` emits `lobby` to the room, `state` redacted per socket with the accepted action attached, `error` to the sender only, evicts a stale socket when a token resumes elsewhere, mirrors `connected` into the game state; static serving + `/healthz`; `client/`: hash router, `StoreContext` so every panel runs against either store, `RemoteGameStore` (dispatch → emit with ack, snapshots for replay, viewer fixed, no curtain), localStorage session + auto-resume on `#/room/CODE`, join/create/rejoin screen, room lobby with copyable code, start button and chat, chat panel in the game sidebar, `(offline)` tag on disconnected players; Dockerfile; CI builds both; a greedy bot plays whole games to a win (3 through the store, 1 over sockets) with zero rejections | 472 |
 | 6 Polish, part 1 | `723d7ad` `60bb274` `66d4725` `ea03792` `5784d53` `576190f` | `server/persist.ts` (`RoomPersistence`, file + memory stores), `RoomStore` writes a snapshot after every change with one write chain per room, `restoreAll()` on boot, `sweep()` for idle/finished rooms, `flush()` on SIGTERM, env `DATA_DIR` / `ROOM_IDLE_HOURS` / `ROOM_FINISHED_HOURS`, Docker `/data` volume; `shared/setup/` `createGame({variant, setup})` with strategic / explorer / wild-space tile and disc shuffles (`[VERIFY]` items in config), `Sector.discovered`, `GameState.discPools`, `flight/discover.ts` (tile flipped + discs drawn per icon at the exploration trigger), undiscovered interiors excluded from paths, `redactBoard` so a hidden tile is indistinguishable from any other, face-down tiles on the SVG board, variant picker in the set-up screen and the lobby (`configureRoom`); `JoinReply.initial` + `replay {index}` with an incremental per-room cache and a client-side cache so a resumed client scrubs to turn 1; the §3.4 snake draft as phase `setup` with `draftColony` / `draftFinish`, `DraftPanel`, bot support, 3-player pool and free-site rules in config; the 3-player blocker review (§5.2) | 550 |
 | 7A Close the spec | `9a465f9` `ca77677` `c032010` `0bdabf6` `0975671` `ea0a54e` `5c718f4` `2d17a38` | client `board/motion.ts`: ship slides node by node along `moveShip.path`, tile and disc flips, VP marker slide, only for exactly one new live action, off under `prefers-reduced-motion`; turn timer: `TURN_TIMER_CHOICES`, `configureRoom({turnTimerSeconds})`, per-turn `deadlineAt` (persisted, sent with `serverNow`), `server/autoplay.ts` `timeoutAction` + `timer.ts`, chat marker, lobby picker and countdown; host controls: `kickPlayer` / `transferHost` / `kicked`, automatic hand-over after `HOST_HANDOVER_MS` (`handover.ts`), `lobby-expires`; keyboard: tab stops on highlighted nodes and selectable ships, Enter/Space = click, focus into and out of dialogs, Escape stack for optional UI only, slider arrows / PageUp / PageDown / Home / End; outpost civ label on the lobe away from the dock row; `pending-trade-ship` note; join-code validation against `ROOM_CODE_ALPHABET`; `RULES-CHECKLIST.md` (20 items) + `verifyPins.test.ts`; review: load-proof bot-game timeouts, system chat lines, reused-seat chat, timer wording, forced-move and kick-silence tests | 627 |
+| UI review + 9A phone layout | branches `starfarers-ui-review`, `starfarers-phone-layout` (unmerged) | review against a UI/UX checklist: log scrolls only its own list (the hand was pushed out of view), readable action log lines (`logText`), hot-seat New game confirmation, per-route titles and an h1, node hit circles, 28 px steppers, primary button style, labelled seat inputs, responsive sidebar width; spec §14 widened to phones; `ui/media.ts` (`PHONE_QUERY`, `COARSE_QUERY`), `board/view.ts` (viewBox zoom/pan, pinch, + / − / Fit, focus on new targets at ≥ 44 px), touch tap-to-preview / tap-to-confirm (`confirm-bar`), `ship-picker`, `phone-tabs` with a Trade badge, bottom-sheet dialogs, safe areas, 44 px controls; desktop layout unchanged | 640 |
 
 Phase 7 review pass fixed: a rare red `pnpm test` (2 in ~30 runs) was the
 wild-space bot game (~13 s alone, 30–41 s with 3–4 suites in parallel against
@@ -468,6 +476,40 @@ reached; pending trade ships not placed as soon as a site freed up.
    legal move (no step leads to a legal end node and it is not immobilized)
    blocks `endTurn` for a human as well; the timer stops and warns there. See
    §8 part B item 6a.
+30. Phone layout (§8 item 9a, spec §14): (a) Two queries, not one: the
+   layout follows `max-width: 767px` (`PHONE_QUERY`), the touch behaviour
+   follows `pointer: coarse` (`COARSE_QUERY`), so a touch laptop keeps the
+   laptop layout but gets tap-to-confirm, auto-focus and the ship list.
+   (b) Zoom and pan react to touch pointers only; a mouse never pans, so
+   laptop play is unchanged. A drag under 8 px is a tap; pointer capture
+   starts only once it is a pan, or a tap's click would land on the SVG.
+   (c) Auto-focus fires when the set of highlighted nodes changes, not on
+   every new state, so a player's own pan and zoom survive other players'
+   moves. It zooms to at least 44/32 screen px per board unit (a 32-unit hit
+   circle is then ≥ 44 px) and at most twice that; when the targets span
+   more than the screen at that scale, far ones need a pan rather than
+   shrinking every target. The hit radius stays 16 units (half the 33-unit
+   edge) so neighbours never overlap. (d) Ships are ~7 px wide at the fitted
+   zoom, so touch players also get a ship list (`pick-ship-<id>`) next to
+   the action bar. (e) Every highlighted-node pick on touch takes two steps
+   (move, space jump, draft site, build site); the confirm bar names it
+   ("Move here", "Jump here", "Place colony here", "Build here"), shows the
+   step count for a move, and Escape / Cancel disarms. A mouse still acts on
+   one click. (f) Panels stay unchanged; each sits in a `.tab-pane` wrapper
+   that is `display: contents` on laptops. A pane whose panel renders nothing
+   in this phase says "Nothing here right now." through CSS. Only the Trade
+   tab is badged (an offer waiting for the viewer); the 7 and encounter
+   picks are bottom sheets that open on their own. (g) The plan's topbar menu
+   and sheet drag handle were not built: the topbar only compacts (seed
+   hidden on phones; room code, timer and host controls wrap), and every
+   modal except the finished encounter's Continue is a mandatory decision
+   with no dismissal, so a handle would promise a swipe that does nothing.
+   (h) Verified in headless Chromium with `devices['iPhone 13']` and a
+   360×740 touch viewport (hot-seat turns, moves by touch, all tabs, pinch
+   and pan by CDP touch events, landscape once), a 3-browser online game
+   with one iPhone (lobby, move, chat, reload-resume), no horizontal scroll
+   on any route, every visible control ≥ 44 px, zero page errors; laptop
+   screenshots at 1024 and 1440 match the review branch.
 
 ## 6. Phase 4 — hot-seat client (done)
 
@@ -507,7 +549,7 @@ take Enter / Space like a click.
 
 Known gaps (none block play): keyboard moves between nodes are Tab-only (no
 arrow-key roving); no save/load of a game to a file (§8.10); no phone layout
-yet (now in scope, spec §14; §8 item 9a).
+yet on `main` (done on `starfarers-phone-layout`, spec §14; §8 item 9a, §5.30).
 
 ## 7. Phase 5 — server, lobby, reconnect (done)
 
@@ -655,7 +697,8 @@ below for reference.
    the `[VERIFY]` list with what felt wrong; file each change as its own
    commit with the rule reference.
 
-9a. **Phone layout** (spec §14, added to scope after phase 7 part A; own
+9a. **Phone layout** (done on `starfarers-phone-layout`, see §5.30 for the
+   choices and the two planned pieces left out) (spec §14, added to scope after phase 7 part A; own
    branch `starfarers-phone-layout`, cut from `starfarers-ui-review`, which
    already fixed the setup form's sideways scroll at 375 px and enlarged the
    board's hit areas). Independent of 6–9, so it can go first. Client only;
@@ -759,8 +802,9 @@ this order:
 
 Confirm the baseline is green before changing code:
 cd starfarers-online && pnpm install && pnpm typecheck && pnpm test && pnpm build
-Expect 627 tests passing on main, 632 on starfarers-ui-review (merge or
-base on it first if it is still open).
+Expect 627 tests passing on main, 632 on starfarers-ui-review and 640 on
+starfarers-phone-layout (merge those two first, in that order, if they are
+still open).
 
 Create one branch from main for phase 7 part B. If HANDOFF.md's header is
 stale, fix it in the first commit.
@@ -769,9 +813,9 @@ Then HANDOFF §8 part B in order, one commit per item with tests, verified
 green before each commit: 6a stuck parked colony ship, 6 server hardening,
 7 stable identity, 8 deployment (stop and ask before creating anything on an
 external host or database), 9 real-play feedback only if I give you notes
-from games played. Item 9a, the phone layout, runs on its own branch
-starfarers-phone-layout (already cut from starfarers-ui-review); work it
-there when I ask for it, or first if I say so. If I give you readings for RULES-CHECKLIST.md, apply them
+from games played. Item 9a, the phone layout, is done on
+starfarers-phone-layout; keep every later client change working at 360 px
+with touch (HANDOFF §5.30 lists how it was verified). If I give you readings for RULES-CHECKLIST.md, apply them
 first: flip the config, update the pins, record each outcome in HANDOFF §5
 and remove the [VERIFY] tag from confirmed items.
 
