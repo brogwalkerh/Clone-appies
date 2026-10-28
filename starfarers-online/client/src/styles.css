@@ -9,6 +9,8 @@
   --on-accent: #0b0f17;
   /* Sidebar width: narrower on small laptops so the board keeps its share (layout, modal offset). */
   --side-w: clamp(320px, 30vw, 400px);
+  /* Phone tab bar height without the safe-area inset (HANDOFF §8.9a). */
+  --tabbar-h: 56px;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -33,6 +35,7 @@ h4 { font-size: 13px; }
 .error { color: var(--error); }
 .hint { color: var(--accent); }
 .spacer { flex: 1; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid #000; margin: 0 6px; vertical-align: middle; }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 
@@ -44,12 +47,15 @@ h4 { font-size: 13px; }
 .host-actions { display: inline-flex; gap: 6px; margin-left: 8px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); gap: 10px; padding: 10px; flex: 1; min-height: 0; }
 .board-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.board-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+.board-zoom { display: none; }
 .board { width: 100%; flex: 1; min-height: 0; background: radial-gradient(ellipse at center, #121a2a 0%, #0b0f17 80%); border-radius: 10px; border: 1px solid #222a3a; }
 .side { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-height: 0; }
 .panel { background: var(--panel); border: 1px solid #222a3a; border-radius: 10px; padding: 10px 12px; }
 
 .node.highlight { cursor: pointer; }
 .node.highlight .halo { animation: pulse 1.2s ease-in-out infinite; }
+.node.armed .halo { animation: none; fill-opacity: 0.6; stroke: #ffffff; stroke-width: 3; }
 .ship[tabindex] { cursor: pointer; }
 .path-preview { pointer-events: none; }
 /* Keyboard focus (HANDOFF §8.4): a white ring on the focused board node / ship, the usual outline elsewhere. */
@@ -79,6 +85,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .action-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid #222a3a; border-radius: 10px; padding: 8px 12px; }
 .action-bar .phase { font-weight: 600; margin-right: auto; }
 .action-bar button:not(.primary) { background: #27304a; }
+/* Touch picks (App.tsx): the armed spot's confirm bar and the ship list. */
+.confirm-bar { display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; }
+.ship-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The sidebar's panel wrappers only matter on phones; on laptops they leave the layout alone. */
+.tab-pane { display: contents; }
 
 .hand { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .card-stack { border: 2px solid; border-radius: 8px; padding: 4px 8px; min-width: 64px; text-align: center; background: var(--panel-2); }
@@ -147,3 +158,61 @@ legend { color: var(--muted); font-size: 12px; }
 .chat-list li { padding: 2px 0; }
 .chat-list li.mine strong { color: var(--accent); }
 .chat form input { flex: 1; }
+
+/* Phone layout (spec §14, HANDOFF §8.9a): one column, zoomable board, panels as tabbed sheets,
+   dialogs as bottom sheets, 44 px touch targets. App.tsx adds `.phone` from the same query. */
+@media (max-width: 767px) {
+  input, select { font-size: 16px; }
+  button, select, input:not([type='range']), button.link { min-height: 44px; }
+  button.link { min-width: 44px; }
+  input[type='range'] { min-height: 32px; }
+  .setup { margin: 16px auto; padding: 18px 16px; }
+  .seats td { padding: 4px; }
+  .seats td:first-child { white-space: nowrap; }
+  .curtain-card { margin: 16px; padding: 22px 20px; }
+  .toast { margin: 6px 6px 0; }
+
+  .app.phone { height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .app.phone .topbar .seed { display: none; }
+  .app.phone .topbar { flex-wrap: wrap; gap: 4px 10px; padding: max(6px, env(safe-area-inset-top)) 12px 6px; }
+  .app.phone .host-actions { margin-left: 0; }
+  .app.phone .layout { grid-template-columns: minmax(0, 1fr); padding: 6px; gap: 6px; }
+  .app.phone .board-col { gap: 6px; }
+  .app.phone .board { touch-action: none; }
+  .app.phone .board-zoom { display: flex; flex-direction: column; gap: 8px; position: absolute; top: 8px; right: 8px; }
+  .app.phone .board-zoom button { width: 44px; padding: 0; background: #1b2232e6; }
+  .app.phone .vp-cell { min-height: 24px; padding: 1px; }
+  .app.phone .vp-num { font-size: 10px; }
+  .app.phone .vp-slot { bottom: 2px; }
+  .app.phone .action-bar { padding: 6px 8px; gap: 6px; }
+  .app.phone .action-bar .phase { flex-basis: 100%; font-size: 13px; }
+  .app.phone .confirm-bar { padding: 6px 8px; }
+  .app.phone .bag-row { grid-template-columns: 1fr 44px 24px 44px; }
+  .app.phone .bag-row button { height: 44px; }
+  .app.phone .build-list button { min-width: 120px; }
+
+  .app.phone .side { display: none; }
+  .app.phone.sheet-open .side {
+    display: flex; position: fixed; left: 0; right: 0; z-index: 15;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); max-height: 62dvh; overflow-y: auto;
+    padding: 8px; background: var(--bg); border-top: 1px solid var(--accent); border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px #000a;
+  }
+  .app.phone .tab-pane { display: none; }
+  .app.phone .tab-pane.open { display: block; }
+  /* A panel with nothing to offer in this phase renders nothing; say so instead of an empty sheet. */
+  .app.phone .tab-pane.open:empty::before { content: 'Nothing here right now.'; display: block; padding: 16px 12px; color: var(--muted); }
+  .app.phone .log-list { max-height: none; }
+
+  .phone-tabs {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid #222a3a;
+  }
+  .phone-tabs button { position: relative; min-height: 48px; padding: 4px 2px; font-size: 12px; border: none; background: none; }
+  .phone-tabs button.selected { color: var(--accent); background: var(--panel-2); }
+  .phone-tabs .badge { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--error); }
+
+  .modal, .modal.encounter {
+    left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 85dvh; overflow-y: auto;
+    border-radius: 16px 16px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}

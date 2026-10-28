@@ -17,7 +17,7 @@
  *     round 4 opens the `DraftPanel`.
  */
 
-import { WIN_VP, draftableSites, isColonyRound, type NodeId, type ShipId } from '@starfarers/shared';
+import { WIN_VP, draftableSites, isColonyRound, shipsOf, type NodeId, type ShipId } from '@starfarers/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { Board } from './board/Board.js';
@@ -46,6 +46,11 @@ import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
 import { useEscape } from './ui/keyboard.js';
+import { COARSE_QUERY, PHONE_QUERY, useMediaQuery } from './ui/media.js';
+
+/** Phone tab bar (spec §14, HANDOFF §8.9a): one sidebar panel open at a time as a sheet. */
+type PanelTab = 'hand' | 'ship' | 'build' | 'trade' | 'cards' | 'log' | 'chat';
+const TAB_LABEL: Record<PanelTab, string> = { hand: 'Hand', ship: 'Ship', build: 'Build', trade: 'Trade', cards: 'Cards', log: 'Log', chat: 'Chat' };
 
 export interface GameScreenProps {
   /** Extra sidebar content (the online chat). */
@@ -74,6 +79,11 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
   const setNodePick = useGame((s) => s.setNodePick);
   const act = useAct();
   const motion = useBoardMotion();
+  const phone = useMediaQuery(PHONE_QUERY);
+  const coarse = useMediaQuery(COARSE_QUERY);
+  const [tab, setTab] = useState<PanelTab | null>(null);
+  // Touch: the first tap on a highlighted node arms it (path preview + confirm bar), the second commits.
+  const [armed, setArmed] = useState<NodeId | null>(null);
 
   const replaying = replayIndex !== null;
   const awaitingJump = state?.phase === 'flight.encounter' && state.turn.encounter?.awaiting?.kind === 'spaceJump' && state.turn.encounter.awaiting.playerId === viewer;
@@ -100,14 +110,25 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
     return m;
   }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump, draftingColony]);
 
-  // Escape (ui/keyboard.ts): cancel a build site pick, else deselect the ship, else dismiss the error toast.
+  useEffect(() => setArmed(null), [highlights]);
+
+  // Escape (ui/keyboard.ts): disarm a touch pick, cancel a build site pick, deselect the ship, close the
+  // phone panel sheet, else dismiss the error toast.
   useEscape(() => {
+    if (armed) {
+      setArmed(null);
+      return true;
+    }
     if (nodePick) {
       setNodePick(null);
       return true;
     }
     if (selectedShip) {
       selectShip(null);
+      return true;
+    }
+    if (tab) {
+      setTab(null);
       return true;
     }
     if (error) {
@@ -123,6 +144,14 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
     !replaying && !pendingViewer && !nodePick && (awaitingJump || (state.phase === 'flight.move' && state.activePlayer === viewer && state.turn.pendingFound === undefined));
   const onNodeClick = (nodeId: NodeId) => {
     if (replaying || pendingViewer) return;
+    if (coarse && highlights.has(nodeId) && armed !== nodeId) {
+      setArmed(nodeId);
+      return;
+    }
+    setArmed(null);
+    commitNode(nodeId);
+  };
+  const commitNode = (nodeId: NodeId) => {
     if (nodePick) {
       if (nodePick.candidates.includes(nodeId)) nodePick.onPick(nodeId);
       return;
@@ -142,6 +171,13 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
     if (replaying || pendingViewer) return;
     selectShip(selectedShip === shipId ? null : shipId);
   };
+  const armedVerb = !armed ? '' : nodePick ? 'Build here' : draftingColony ? 'Place colony here' : awaitingJump ? 'Jump here' : 'Move here';
+  const armedSteps = armed ? highlights.get(armed)?.length : undefined;
+  // Ships are about 7 px wide on a phone before zooming, so touch players pick them from a list too.
+  const myShips = viewer && shipsSelectable && coarse ? shipsOf(state, viewer) : [];
+  const tradeWaiting = viewer !== null && state.openTrade?.to === viewer;
+  const tabs: PanelTab[] = ['hand', 'ship', 'build', 'trade', 'cards', 'log', ...(extraPanels ? (['chat'] as const) : [])];
+  const pane = (id: PanelTab) => (tab === id ? 'tab-pane open' : 'tab-pane');
 
   const pendingFound = state.turn.pendingFound;
   const winner = state.winner;
@@ -153,10 +189,10 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
   };
 
   return (
-    <div className="app">
+    <div className={phone ? `app phone${tab ? ' sheet-open' : ''}` : 'app'}>
       <header className="topbar">
         <h1 className="brand">Starfarers Online</h1>
-        <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
+        <span className={subtitle ? 'muted' : 'muted seed'}>{subtitle ?? `seed ${state.seed}`}</span>
         {headerExtra}
         <span className="spacer" />
         {mode === 'local' ? (
@@ -193,19 +229,82 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
       <main className="layout">
         <div className="board-col">
           <VpTrack state={state} motion={motion} />
-          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
+          <Board
+            state={state}
+            viewer={viewer}
+            highlights={highlights}
+            selectedShip={selectedShip}
+            onNodeClick={onNodeClick}
+            onShipClick={onShipClick}
+            motion={motion}
+            shipsSelectable={shipsSelectable}
+            armedNode={armed}
+          />
+          {armed && (
+            <div className="confirm-bar" data-testid="confirm-bar">
+              <span className="muted">{armedSteps ? `${armedSteps} step${armedSteps === 1 ? '' : 's'}` : 'Selected spot'}</span>
+              <span className="spacer" />
+              <button type="button" onClick={() => setArmed(null)} data-testid="cancel-pick">
+                Cancel
+              </button>
+              <button type="button" className="primary" onClick={() => onNodeClick(armed)} data-testid="confirm-pick">
+                {armedVerb}
+              </button>
+            </div>
+          )}
+          {myShips.length > 0 && (
+            <div className="ship-picker" role="group" aria-label="Your ships" data-testid="ship-picker">
+              {myShips.map((ship) => (
+                <button
+                  key={ship.id}
+                  type="button"
+                  aria-pressed={selectedShip === ship.id}
+                  className={selectedShip === ship.id ? 'selected' : undefined}
+                  data-testid={`pick-ship-${ship.id}`}
+                  onClick={() => onShipClick(ship.id)}
+                >
+                  {ship.kind === 'colony' ? 'Colony ship' : 'Trade ship'} {ship.id.split(':').pop()}
+                </button>
+              ))}
+            </div>
+          )}
           {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
         </div>
-        <aside className="side">
-          <HandPanel state={state} viewer={viewer} hidden={hidden} />
-          {viewer && <MothershipPanel state={state} viewer={viewer} />}
-          {viewer && !replaying && <BuildMenu state={state} viewer={viewer} />}
-          {viewer && !replaying && <TradePanel state={state} viewer={viewer} />}
-          {viewer && !replaying && <FriendshipPanel state={state} viewer={viewer} />}
-          {extraPanels}
-          <LogPane state={state} />
+        <aside className="side" aria-label={phone && tab ? TAB_LABEL[tab] : undefined}>
+          <div className={pane('hand')}>
+            <HandPanel state={state} viewer={viewer} hidden={hidden} />
+          </div>
+          <div className={pane('ship')}>{viewer && <MothershipPanel state={state} viewer={viewer} />}</div>
+          <div className={pane('build')}>{viewer && !replaying && <BuildMenu state={state} viewer={viewer} />}</div>
+          <div className={pane('trade')}>{viewer && !replaying && <TradePanel state={state} viewer={viewer} />}</div>
+          <div className={pane('cards')}>{viewer && !replaying && <FriendshipPanel state={state} viewer={viewer} />}</div>
+          {extraPanels && <div className={pane('chat')}>{extraPanels}</div>}
+          <div className={pane('log')}>
+            <LogPane state={state} />
+          </div>
         </aside>
       </main>
+      {phone && (
+        <nav className="phone-tabs" aria-label="Panels" data-testid="phone-tabs">
+          {tabs.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={tab === id}
+              className={tab === id ? 'selected' : undefined}
+              data-testid={`tab-${id}`}
+              onClick={() => setTab(tab === id ? null : id)}
+            >
+              {TAB_LABEL[id]}
+              {id === 'trade' && tradeWaiting && (
+                <span className="badge" data-testid="tab-trade-badge">
+                  <span className="visually-hidden">: an offer is waiting</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+      )}
       {!replaying && viewer && !hidden && <SevenDialog state={state} viewer={viewer} />}
       {!replaying && viewer && !hidden && <EncounterModal state={state} viewer={viewer} />}
       {!replaying && viewer && !hidden && pendingFound && <FoundStationDialog state={state} viewer={viewer} shipId={pendingFound} />}

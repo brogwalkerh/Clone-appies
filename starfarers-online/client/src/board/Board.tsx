@@ -26,10 +26,12 @@ import {
   type Ship,
   type ShipId,
 } from '@starfarers/shared';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CIV_COLOR, CIV_LABEL, PLAYER_COLOR, RESOURCE_COLOR, dicePips, playerColor } from '../ui/format.js';
 import { NO_MOTION, useFlips, useShipSlide, type BoardMotion, type Point } from './motion.js';
 import { onActivateKey } from '../ui/keyboard.js';
+import { COARSE_QUERY, useMediaQuery } from '../ui/media.js';
+import { MAX_ZOOM, ZOOM_STEP, useBoardView } from './view.js';
 import { DOCK_R, LABEL_FONT, outpostLayout } from './outpostLayout.js';
 
 export const SCALE = 58;
@@ -49,6 +51,8 @@ export interface BoardProps {
   motion?: BoardMotion | undefined;
   /** The viewer's ships may be selected right now: they join the tab order (HANDOFF §8.4). */
   shipsSelectable?: boolean | undefined;
+  /** Touch: the node picked by a first tap, waiting for the confirm tap (HANDOFF §8.9a). Shows its path. */
+  armedNode?: NodeId | null | undefined;
 }
 
 function nodeLabel(node: { id: NodeId; siteType?: string | undefined }, ship: Ship | undefined): string {
@@ -224,7 +228,7 @@ function ShipGlyph({
   );
 }
 
-export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick, motion = NO_MOTION, shipsSelectable = false }: BoardProps) {
+export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick, motion = NO_MOTION, shipsSelectable = false, armedNode = null }: BoardProps) {
   const [hover, setHover] = useState<NodeId | null>(null);
   const board = useMemo(() => redactBoard(state.board), [state.board]);
   const flips = useFlips(board, motion);
@@ -262,9 +266,29 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
     return m;
   }, [board.ships]);
 
+  const view = useBoardView(viewBox);
+  const coarse = useMediaQuery(COARSE_QUERY);
+  // Touch: when targets light up, zoom to them so each is a finger-sized target (HANDOFF §8.9a).
+  const highlightKey = [...highlights.keys()].sort().join(' ');
+  const { focus } = view;
+  useEffect(() => {
+    if (!coarse || highlightKey === '') return;
+    const ids = highlightKey.split(' ');
+    const shipNode = selectedShip ? board.ships[selectedShip]?.nodeId : undefined;
+    if (shipNode) ids.push(shipNode);
+    const pts = ids.map((id) => px(board.nodes[id]?.pos ?? { x: 0, y: 0 }));
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    focus({ x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y });
+    // Keyed on the target set only: a new state with the same targets keeps the player's pan and zoom.
+  }, [coarse, highlightKey, focus]);
+
   const sectors = Object.values(board.sectors);
   const selected = selectedShip ? board.ships[selectedShip] : undefined;
-  const previewPath = hover && selected ? highlights.get(hover) : undefined;
+  const previewNode = armedNode ?? hover;
+  const previewPath = previewNode && selected ? highlights.get(previewNode) : undefined;
   const previewPoints =
     previewPath && selected
       ? [selected.nodeId, ...previewPath]
@@ -274,7 +298,8 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
       : null;
 
   return (
-    <svg className="board" viewBox={viewBox} role="group" aria-label="Game board" data-testid="board">
+    <div className="board-wrap">
+    <svg className="board" viewBox={view.viewBox} role="group" aria-label="Game board" data-testid="board" ref={view.svgRef} {...view.handlers}>
       <g className="sectors">
         {sectors.map((sector) => {
           if (sector.kind === 'hidden') return <HiddenSector key={sector.id} sector={sector} />;
@@ -311,7 +336,7 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
               key={node.id}
               data-testid={`node-${node.id}`}
               data-highlight={hl ? 'true' : undefined}
-              className={hl ? 'node highlight' : 'node'}
+              className={hl ? (node.id === armedNode ? 'node highlight armed' : 'node highlight') : 'node'}
               tabIndex={hl ? 0 : undefined}
               role={hl ? 'button' : undefined}
               aria-label={hl ? nodeLabel(node, shipsByNode.get(node.id)) : undefined}
@@ -381,5 +406,18 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
         ))}
       </g>
     </svg>
+      {/* Touch-screen alternatives to pinch and drag; hidden on laptops by styles.css. */}
+      <div className="board-zoom" role="group" aria-label="Board zoom">
+        <button type="button" aria-label="Zoom in" data-testid="zoom-in" onClick={() => view.zoomBy(ZOOM_STEP)} disabled={view.zoom >= MAX_ZOOM - 0.01}>
+          +
+        </button>
+        <button type="button" aria-label="Zoom out" data-testid="zoom-out" onClick={() => view.zoomBy(1 / ZOOM_STEP)} disabled={view.zoom <= 1.01}>
+          −
+        </button>
+        <button type="button" aria-label="Show the whole board" data-testid="zoom-fit" onClick={view.fit} disabled={view.zoom <= 1.01}>
+          Fit
+        </button>
+      </div>
+    </div>
   );
 }
