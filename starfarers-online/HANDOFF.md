@@ -1,16 +1,21 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 7 part A. On `main`: phases 1–5 via PR #2
+Last updated after phase 7 part A and the phone-layout scope change. On `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
 review, server-side replay) via PR #3 (`e473ca2`), the phase 7 plan via PR #4
 (`063b21f`), phase 7 part A (animations, turn timer, host controls, keyboard
 navigation, rule-confirmation checklist, review) via PR #5 from
-`starfarers-phase-7`. No open branches.
+`starfarers-phase-7`. Open branches, neither merged yet:
+`starfarers-ui-review` (a UI/UX review of the client: hand panel kept in
+view, readable log lines, New game confirmation, larger targets, primary
+action style, labelled seat inputs; 632 tests) and `starfarers-phone-layout`
+on top of it (spec §14 now targets phones; the work is §8 item 9a, not yet
+started).
 
 **Starting a new session:** paste the prompt in §10 into the new session. It
 says to read `CLAUDE.md`, then this file top to bottom, then
 `starfarers-clone-spec.md` §13–§16; branch from `main`; run the commands in §2
-to confirm green (627 tests); then work §8 part B in order. Spec §15 is
+to confirm green (632 tests on `starfarers-ui-review`); then work §8 part B in order. Spec §15 is
 complete; part B is what separates a finished game from an app strangers can
 use. `RULES-CHECKLIST.md` waits on someone with the physical box.
 
@@ -501,8 +506,8 @@ Phase 7 added `vp-marker-<pid>` (`data-vp`), `empty-<id>`, `data-node` /
 take Enter / Space like a click.
 
 Known gaps (none block play): keyboard moves between nodes are Tab-only (no
-arrow-key roving); no save/load of a game to a file (§8.10); phones are not a
-target (spec §14).
+arrow-key roving); no save/load of a game to a file (§8.10); no phone layout
+yet (now in scope, spec §14; §8 item 9a).
 
 ## 7. Phase 5 — server, lobby, reconnect (done)
 
@@ -650,6 +655,45 @@ below for reference.
    the `[VERIFY]` list with what felt wrong; file each change as its own
    commit with the rule reference.
 
+9a. **Phone layout** (spec §14, added to scope after phase 7 part A; own
+   branch `starfarers-phone-layout`, cut from `starfarers-ui-review`, which
+   already fixed the setup form's sideways scroll at 375 px and enlarged the
+   board's hit areas). Independent of 6–9, so it can go first. Client only;
+   the engine and server are untouched. One commit per step:
+   - **Breakpoint and shell:** one media query at `max-width: 767px` (plus
+     `pointer: coarse` where touch matters), `100dvh` instead of `100%`,
+     `env(safe-area-inset-*)` padding, `viewport-fit=cover` in
+     `index.html` (zoom stays enabled). Topbar compacts to brand, seat /
+     viewer and a menu for New game / Lobby.
+   - **Board zoom and pan:** a viewBox transform in `Board.tsx` (pinch and
+     one-finger drag with a movement threshold so a tap still selects; +, −
+     and fit buttons as visible alternatives; fit on load and on a new
+     state). Keep the animation and replay paths working on the transformed
+     view. Scale the node hit radius so a target is ≥ 44 px at the current
+     zoom (cap at half the 33-unit edge and ask the player to zoom in when
+     the board is too small, rather than overlap neighbours).
+   - **Tap to preview, tap to confirm:** the path preview is hover-driven
+     today; on coarse pointers the first tap on a highlighted node shows the
+     path and a "Move here" button in the action bar, the second tap or the
+     button sends `moveShip`. Same for space-jump targets and draft sites.
+   - **Panels as tabs:** the sidebar becomes a bottom tab bar (Hand, Ship,
+     Build, Trade, Cards, Log, plus Chat online) with one panel open as a
+     sheet above the action bar; badge the tab that needs the player (an
+     incoming trade, a 7 discard). Each panel component stays unchanged;
+     only the container differs.
+   - **Dialogs as sheets:** `.modal` becomes a full-width bottom sheet with a
+     drag handle and a visible close for optional dialogs; the pass curtain,
+     game-over card and lobby fit 360 px.
+   - **VP track:** compress to the leader and the viewer's markers plus a
+     tap-to-expand strip, or scroll it horizontally inside its own box.
+   - **Verify:** component tests for the tab container and tap-to-confirm;
+     a Playwright drive with `devices['iPhone 13']` and a 360×740 Android
+     viewport (touch emulation on) playing a hot-seat turn and a 3-browser
+     online game with one phone, asserting no horizontal scroll on every
+     route, every visible control ≥ 44 px, and no page errors; landscape
+     checked once. Laptop screenshots before and after to prove the desktop
+     layout is unchanged.
+
 ### Part C — nice to have (pick by taste)
 
 10. Spectators (`joinAsSpectator`, redacted as "no seat", no actions); save
@@ -657,8 +701,8 @@ below for reference.
     it small); an AI opponent that is fun rather than merely legal (the test
     bot is greedy and rule-complete; start from it, add trade evaluation and
     target selection); an in-app rules reference generated from the spec; a
-    phone layout (explicitly out of scope in §14 — only if wanted); a
-    tutorial using the replay slider over a scripted game.
+    tutorial using the replay slider over a scripted game. (The phone layout
+    moved to part B, item 9a.)
 
 ## 9. Working agreements that held so far
 
@@ -705,7 +749,8 @@ Paste this as the first message of a new Claude Code session on
 
 ```
 The Starfarers Online project lives in starfarers-online/ on main of
-brogwalkerh/Clone-appies (phases 1–6 and phase 7 part A merged). Read, in
+brogwalkerh/Clone-appies (phases 1–6 and phase 7 part A merged; the
+starfarers-ui-review and starfarers-phone-layout branches are open). Read, in
 this order:
 1. starfarers-online/CLAUDE.md
 2. starfarers-online/HANDOFF.md (all of it; §8 part B is your work list)
@@ -714,7 +759,8 @@ this order:
 
 Confirm the baseline is green before changing code:
 cd starfarers-online && pnpm install && pnpm typecheck && pnpm test && pnpm build
-Expect 627 tests passing across shared, server and client.
+Expect 627 tests passing on main, 632 on starfarers-ui-review (merge or
+base on it first if it is still open).
 
 Create one branch from main for phase 7 part B. If HANDOFF.md's header is
 stale, fix it in the first commit.
@@ -723,7 +769,9 @@ Then HANDOFF §8 part B in order, one commit per item with tests, verified
 green before each commit: 6a stuck parked colony ship, 6 server hardening,
 7 stable identity, 8 deployment (stop and ask before creating anything on an
 external host or database), 9 real-play feedback only if I give you notes
-from games played. If I give you readings for RULES-CHECKLIST.md, apply them
+from games played. Item 9a, the phone layout, runs on its own branch
+starfarers-phone-layout (already cut from starfarers-ui-review); work it
+there when I ask for it, or first if I say so. If I give you readings for RULES-CHECKLIST.md, apply them
 first: flip the config, update the pins, record each outcome in HANDOFF §5
 and remove the [VERIFY] tag from confirmed items.
 

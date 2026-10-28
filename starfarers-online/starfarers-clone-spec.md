@@ -366,7 +366,8 @@ Every action: validate → apply → append log → recompute VP → check win. 
 - **Encounter modal:** text revealed box by box; choice buttons; shows both shake results in a fight/race.
 - **Trade panel:** build offer, send to player or supply; incoming offers for non-active players.
 - **Log** with replay of every event.
-- Responsive enough for a laptop; phones are not a target in v1.
+- **Screens:** laptop/desktop (≥ 1024 px) and phones (360–767 px wide, portrait first; landscape must stay usable). Tablets (768–1023 px) get whichever of the two layouts fits; no third design.
+- **Phone layout:** one column, no horizontal page scroll. Board fills the width with zoom and pan (pinch, drag, plus visible +/−/fit buttons; never block browser zoom). Action bar is a fixed bottom bar clear of the safe area. Sidebar panels (hand, mothership, build, trade, friendship, log, chat) become a bottom tab bar or sheet; one open at a time. Dialogs (7, encounter, found station, draft) open as full-width bottom sheets. Touch targets ≥ 44 px, including board nodes and ships at the current zoom. Nothing depends on hover: the planned path shows on the first tap of a highlighted node and the move goes on a confirm tap.
 
 ---
 
