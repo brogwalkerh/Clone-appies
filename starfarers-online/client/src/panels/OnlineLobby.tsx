@@ -10,6 +10,7 @@ import {
   SETUP_MODES,
   SETUP_MODE_DESCRIPTIONS,
   SETUP_MODE_LABELS,
+  TURN_TIMER_CHOICES,
   type GameVariant,
   type SetupMode,
 } from '@starfarers/shared';
@@ -18,6 +19,7 @@ import { useStore } from 'zustand';
 import type { RemoteStore } from '../net/remoteStore.js';
 import { PLAYER_COLOR } from '../ui/format.js';
 import { ChatPanel } from './ChatPanel.js';
+import { timerLabel } from './TurnTimer.js';
 
 export function navigate(hash: string): void {
   window.location.hash = hash;
@@ -167,6 +169,28 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
         </select>{' '}
         <span className="muted" data-testid="lobby-setup">
           {SETUP_MODE_LABELS[lobby.config.setup]} — {SETUP_MODE_DESCRIPTIONS[lobby.config.setup]}
+          {isHost ? '' : ' (the host chooses)'}
+        </span>
+      </label>
+      <label>
+        Turn timer{' '}
+        <select
+          value={lobby.config.turnTimerSeconds === null ? 'off' : String(lobby.config.turnTimerSeconds)}
+          disabled={!isHost}
+          data-testid="timer-select"
+          onChange={(e) => void store.getState().configureRoom({ turnTimerSeconds: e.target.value === 'off' ? null : Number(e.target.value) })}
+        >
+          <option value="off">{timerLabel(null)}</option>
+          {TURN_TIMER_CHOICES.map((s) => (
+            <option key={s} value={String(s)}>
+              {timerLabel(s)}
+            </option>
+          ))}
+        </select>{' '}
+        <span className="muted" data-testid="lobby-timer">
+          {lobby.config.turnTimerSeconds === null
+            ? 'No turn timer'
+            : `${timerLabel(lobby.config.turnTimerSeconds)} per turn — when it runs out, the server rolls, resolves what is pending and ends the turn (no building, trading or moving)`}
           {isHost ? '' : ' (the host chooses)'}
         </span>
       </label>

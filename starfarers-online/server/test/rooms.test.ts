@@ -149,7 +149,9 @@ describe('RoomStore lifecycle', () => {
     expect(room.config.variant).toBe('beginner');
     expect(store.configureRoom(room, 'p1', { variant: 'explorer' }).ok).toBe(true);
     expect(store.lobbyView(room).config.variant).toBe('explorer');
-    expect(store.configureRoom(room, 'p1', { variant: 'strategic', turnTimerSeconds: 99 }).ok).toBe(true);
+    // A turn timer outside TURN_TIMER_CHOICES is refused as a whole (phase 7); unknown keys are still ignored.
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', turnTimerSeconds: 99 })).toMatchObject({ ok: false, error: { code: 'badRequest' } });
+    expect(store.configureRoom(room, 'p1', { variant: 'strategic', colour: 'mauve' }).ok).toBe(true);
     expect(room.config).toEqual({ turnTimerSeconds: null, variant: 'strategic', setup: 'preset' });
     expect(store.startGame(room, 'p1').ok).toBe(true);
     expect(room.game?.variant).toBe('strategic');

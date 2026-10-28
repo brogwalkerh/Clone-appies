@@ -41,6 +41,7 @@ import { PassBanner } from './panels/PassBanner.js';
 import { SetupScreen } from './panels/SetupScreen.js';
 import { SevenDialog } from './panels/SevenDialog.js';
 import { TradePanel } from './panels/TradePanel.js';
+import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
 
@@ -49,9 +50,11 @@ export interface GameScreenProps {
   extraPanels?: React.ReactNode;
   /** Header text instead of the seed (the room code online). */
   subtitle?: string | undefined;
+  /** Extra header content (the online turn timer). */
+  headerExtra?: React.ReactNode;
 }
 
-export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
+export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenProps) {
   const state = useShownState();
   const live = useGame((s) => s.game);
   const mode = useGame((s) => s.mode);
@@ -128,6 +131,7 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
       <header className="topbar">
         <strong>Starfarers Online</strong>
         <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
+        {headerExtra}
         <span className="spacer" />
         {mode === 'local' ? (
           <label>
@@ -240,7 +244,7 @@ function RoomRoute({ store, code }: { store: RemoteStore; code: string }) {
   if (!lobby.started || !game) return <RoomLobby store={store} />;
   return (
     <StoreContext.Provider value={store as unknown as GameStore}>
-      <GameScreen subtitle={`room ${code}`} extraPanels={<ChatPanel store={store} />} />
+      <GameScreen subtitle={`room ${code}`} headerExtra={<TurnTimer store={store} />} extraPanels={<ChatPanel store={store} />} />
     </StoreContext.Provider>
   );
 }

@@ -23,7 +23,11 @@ export interface ChatMessage {
 }
 
 export interface RoomConfig {
-  /** Seconds per turn; `null` = no timer (default). Config only in phase 5, not enforced. */
+  /**
+   * Seconds per turn; `null` = no timer (default). Host-only, via `configureRoom`, one of
+   * `TURN_TIMER_CHOICES` (config.ts). Enforced by the server since phase 7: when the turn's
+   * deadline passes it finishes the turn with the minimal legal sequence (HANDOFF §8.2).
+   */
   turnTimerSeconds: number | null;
   /** Set-up used when the host starts (spec §3.2); default 'beginner'. Host-only, via `configureRoom`. */
   variant: GameVariant;
@@ -42,6 +46,8 @@ export interface LobbyView {
   messages: ChatMessage[];
   minPlayers: number;
   maxPlayers: number;
+  /** Phase 7, additive: when the current turn's timer runs out (Unix ms); `null` / absent = no deadline. */
+  deadlineAt?: number | null;
 }
 
 export interface Session {
@@ -77,7 +83,7 @@ export interface ClientToServerEvents {
   joinRoom(payload: { code: string; playerName: string }, ack: Ack<JoinReply>): void;
   resume(payload: { roomCode: string; playerToken: string }, ack: Ack<JoinReply>): void;
   /** Host only, before the start: change the room's set-up (board variant and/or start mode); the room then gets a fresh `lobby`. */
-  configureRoom(payload: { variant?: GameVariant; setup?: SetupMode }, ack: Ack<{ configured: true }>): void;
+  configureRoom(payload: { variant?: GameVariant; setup?: SetupMode; turnTimerSeconds?: number | null }, ack: Ack<{ configured: true }>): void;
   startGame(payload: Record<string, never>, ack: Ack<{ started: true }>): void;
   action(payload: { action: Action }, ack: Ack<{ accepted: true }>): void;
   /** State after the first `index` accepted actions (0 = initial), replayed on the server and redacted for the asker. */
@@ -87,8 +93,12 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   lobby(view: LobbyView): void;
-  /** Redacted for this socket's player; `action` is the accepted action that produced it (redacted too). */
-  state(payload: { state: GameState; action: Action | null }): void;
+  /**
+   * Redacted for this socket's player; `action` is the accepted action that produced it (redacted too).
+   * Phase 7, additive: `deadlineAt` is when the current turn's timer runs out (Unix ms, `null` / absent =
+   * no timer) and `serverNow` the server clock at sending, so a client can correct for clock skew.
+   */
+  state(payload: { state: GameState; action: Action | null; deadlineAt?: number | null; serverNow?: number }): void;
   /** Sent to the offending socket only. */
   error(error: NetError | GameError): void;
   chat(message: ChatMessage): void;

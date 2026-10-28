@@ -326,3 +326,22 @@ export const FRIENDSHIP_CARDS: Readonly<Record<FriendshipCardId, FriendshipCardD
 export function friendshipCardsOf(civ: Civ): FriendshipCardId[] {
   return (Object.values(FRIENDSHIP_CARDS) as FriendshipCardDef[]).filter((c) => c.civ === civ).map((c) => c.id);
 }
+
+// ---------------------------------------------------------------------------
+// Online turn timer (spec §13: "optional, off by default"; HANDOFF §8.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seconds the host may pick for the online turn timer (`configureRoom
+ * { turnTimerSeconds }`); `null` = no timer, the default. Inferred: the spec
+ * names no values, so this is a small list from a quick blitz turn to a
+ * relaxed one. The budget covers the whole turn (it restarts when the turn
+ * passes, not on every action); on expiry the server finishes the turn with
+ * the minimal legal sequence (server/src/autoplay.ts).
+ */
+export const TURN_TIMER_CHOICES: readonly number[] = [30, 60, 90, 120, 180, 300];
+
+/** `null` (no timer) or one of `TURN_TIMER_CHOICES`. */
+export function isTurnTimerChoice(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && TURN_TIMER_CHOICES.includes(value));
+}

@@ -73,6 +73,8 @@ starfarers-online/
     src/persist.ts      RoomPersistence interface; FileRoomPersistence (one <CODE>.json per room, atomic
                         rename, corrupt files skipped) and MemoryRoomPersistence (tests)
     src/socket.ts       attachSockets(io, store): protocol events → store, per-socket redacted `state`
+    src/autoplay.ts     timeoutAction: the turn timer's minimal turn-ending sequence (+ pieces the test bot shares)
+    src/timer.ts        TurnTimers: one unref'd timeout per room at `deadlineAt` (injectable scheduler)
     src/static.ts       static handler for client/dist with SPA fallback
     src/index.ts        entry: http + static + /healthz + Socket.IO; restoreAll + sweep on boot, sweep every
                         10 min, flush on SIGTERM; env PORT, HOST, STATIC_DIR, CORS_ORIGIN, DATA_DIR,
@@ -244,8 +246,7 @@ reached; pending trade ships not placed as soon as a site freed up.
 15. A player who resumes from a second tab evicts the first (one socket per
    token). Leaving a room only forgets the local session; the server keeps the
    seat so the token can come back.
-16. Turn timer: `RoomConfig.turnTimerSeconds` is stored and sent in the lobby
-   view but nothing enforces it (spec: config only in phase 5).
+16. Turn timer (phase 7, §8.2; superseded the phase-5 "config only"): see §5.24.
 17. Remote replay: states received since joining are indexed locally
    (`snapshots`, offset `snapshotBase`); earlier indices are fetched from the
    server (`replay {index}`, §5.21), so a resumed client can scrub to turn 1.
@@ -323,6 +324,41 @@ reached; pending trade ships not placed as soon as a site freed up.
    moved" (cosmetic). (e) A no-op `configureRoom({})` writes nothing; any
    applied key rewrites the room file.
 
+24. Turn timer (spec §13, §8.2): off by default; the host picks `null` or one
+   of `TURN_TIMER_CHOICES` (`config.ts`, inferred: 30 s – 5 min) with
+   `configureRoom({ turnTimerSeconds })`; any other value refuses the whole
+   patch (`badRequest`). Deadline policy: the budget is per TURN, not per
+   action — `RoomStore` sets `deadlineAt = now + seconds` when the game starts
+   and whenever an accepted action changes `turnKey` (turn number + active
+   player; in the draft, round + pick index, so every draft pick is a
+   "turn"); actions inside the turn, including other players' 7 discards or
+   encounter picks, do not extend it. `null` on game over or without a timer.
+   `deadlineAt` is persisted in `RoomSnapshot` (older snapshots recompute it
+   from now) and sent in the `state` payload (with `serverNow` for skew) and
+   `LobbyView`. On expiry `expireTurn` submits `timeoutAction`
+   (`server/src/autoplay.ts`) through `applyAction` until the turn key
+   changes: roll → a pending 7 (each discarder drops their first cards, then
+   the roller steals from the first target) → reserve draw skipped →
+   `shakeMothership` if the player has ships, else `endTurn` (either closes an
+   open trade, so no withdraw/reject is sent) → encounter: the awaited pick as
+   whoever it is awaited from (first option / first cards / decline a jump),
+   else offer 0 / answer "no" → a pending trade station (first free dock,
+   first card) → `endTurn`. The one forced move: when the engine refuses
+   `endTurn` because a parked colony ship must found or leave, the timer
+   founds if it may, else takes that ship's shortest legal move. It never
+   builds or trades. Each automatic action is an ordinary accepted action
+   (broadcast, logged, persisted, replayable); the visible marker is one chat
+   line per expiry, `from: 'timer'`, text `timer: <name> ran out of time;
+   rolled, …, ended the turn` (no engine type changes). A refused or missing
+   automatic action stops the run, clears the deadline for that turn and
+   warns: the timer never loops. A room with nobody connected waits (the
+   timer does not play an abandoned game or keep it from being swept); the
+   first player back into an overdue room gets a fresh budget.
+   `server/src/timer.ts` keeps one unref'd timeout per room, re-armed on every
+   `state` broadcast and for restored rooms at boot, cleared on null and for
+   swept rooms. The test bot imports `actor` and the draft / 7 / encounter-pick
+   / pending-station pieces from `autoplay.ts`, so its games are unchanged.
+
 ## 6. Phase 4 — hot-seat client (done)
 
 Delivered as described in §4. How to run and verify:
@@ -369,13 +405,15 @@ client → server events take an ack `{ ok, value } | { ok, error }`:
 | `createRoom {roomName, playerName}` | `JoinReply` (session with token, lobby, state null, actions []); room gets `lobby` |
 | `joinRoom {code, playerName}` | same; refused when started, full, name taken |
 | `resume {roomCode, playerToken}` | same with the current redacted state and the redacted action log; room gets `lobby` (+ `state` if started) |
-| `configureRoom {variant?, setup?}` | host only, before start; validated against `GAME_VARIANTS` / `SETUP_MODES`; room gets `lobby` |
+| `configureRoom {variant?, setup?, turnTimerSeconds?}` | host only, before start; validated against `GAME_VARIANTS` / `SETUP_MODES` / `TURN_TIMER_CHOICES` (or `null`); room gets `lobby` |
 | `startGame {}` | host only, 3–4 players; builds the game with `createGame(room.config)`; room gets `lobby` then `state` per socket |
 | `action {action}` | `action.playerId` must be the socket's player; engine runs; everyone gets `state {state, action}` (both redacted per viewer); on failure the sender alone gets `error` and the ack carries it |
 | `chat {text}` | room gets `chat` |
 | `replay {index}` | the redacted state after `index` accepted actions (0 = initial); `badRequest` outside `0..actions.length` or when the room predates phase 6 |
 
-Server → client: `lobby(LobbyView)`, `state({state, action})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
+Server → client: `lobby(LobbyView)`, `state({state, action, deadlineAt?, serverNow?})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
+Phase 7 added `LobbyView.deadlineAt?`, the `state` payload's `deadlineAt?` / `serverNow?` and timer chat lines
+(`from: 'timer'`), and the test ids `timer-select`, `lobby-timer`, `turn-timer`, `chat-timer`.
 
 Test ids added for the online screens: `online-screen`, `player-name`,
 `room-name`, `create-room`, `room-code`, `join-room`, `rejoin`, `net-error`,
@@ -414,7 +452,7 @@ looks tight.
    transitions on the SVG `transform` are enough; no library. Add a
    `prefers-reduced-motion` switch and a test that the final positions equal
    the state (animation is presentation only; the engine is untouched).
-2. **Turn timer** (§13 "optional, off by default"): `RoomConfig.turnTimerSeconds`
+2. **Turn timer** (done, see §5.24) (§13 "optional, off by default"): `RoomConfig.turnTimerSeconds`
    is stored and shown but unenforced. Server side only: `RoomStore` gets a
    deadline per room set when `activePlayer` changes (`startWith`, after each
    accepted action), `attachSockets` arms one `setTimeout` per room (unref'd,

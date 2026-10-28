@@ -2,11 +2,17 @@
  * Socket.IO binding (spec §13): maps the protocol events onto `RoomStore`.
  * Every per-player emission goes through `broadcastState`, which redacts the
  * authoritative state once per socket; errors go to the sender only.
+ *
+ * Turn timer (HANDOFF §8.2): every `state` broadcast carries the room's
+ * `deadlineAt` and re-arms the room's timeout (timer.ts); on expiry the store
+ * plays the minimal sequence (`expireTurn`), each automatic action is
+ * broadcast like any other, and the "timer: …" chat line goes to the room.
  */
 
 import { redactState, type ClientToServerEvents, type JoinReply, type ServerToClientEvents, type Action } from '@starfarers/shared';
 import type { Server, Socket } from 'socket.io';
 import type { Room, RoomPlayer, RoomStore } from './rooms.js';
+import { TurnTimers, realScheduler, type Scheduler } from './timer.js';
 
 interface SocketData {
   roomCode?: string;
@@ -18,10 +24,32 @@ export type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents, Reco
 
 export interface AttachOptions {
   log?: (message: string) => void;
+  /** Turn timer clock and timeouts; tests inject a fake (default: real, unref'd timeouts). */
+  scheduler?: Scheduler;
 }
 
-export function attachSockets(io: GameServer, store: RoomStore, options: AttachOptions = {}): void {
+export interface AttachedSockets {
+  /** The per-room turn timeouts (index.ts clears swept rooms; tests inspect it). */
+  timers: TurnTimers;
+}
+
+export function attachSockets(io: GameServer, store: RoomStore, options: AttachOptions = {}): AttachedSockets {
   const log = options.log ?? (() => {});
+  const scheduler = options.scheduler ?? realScheduler;
+
+  const timers = new TurnTimers(
+    store,
+    (room) => {
+      const run = store.expireTurn(room, (action) => broadcastState(room, action));
+      if (run.skipped === 'notDue') timers.arm(room);
+      // 'nobodyConnected': nothing is re-armed; the next bind/broadcast arms it again.
+      if (run.skipped) return;
+      if (run.message) io.to(room.code).emit('chat', run.message);
+      log(`room ${room.code} ${run.message?.text ?? 'timer fired'}`);
+      timers.arm(room);
+    },
+    scheduler,
+  );
 
   const broadcastLobby = (room: Room) => {
     io.to(room.code).emit('lobby', store.lobbyView(room));
@@ -29,13 +57,17 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
 
   const broadcastState = (room: Room, action: Action | null) => {
     if (!room.game) return;
+    const serverNow = scheduler.now();
     for (const player of room.players) {
       if (!player.socketId) continue;
       io.to(player.socketId).emit('state', {
         state: redactState(room.game, player.id),
         action: action ? store.redactAction(action, player.id) : null,
+        deadlineAt: room.deadlineAt,
+        serverNow,
       });
     }
+    timers.arm(room);
   };
 
   const bind = (socket: GameSocket, room: Room, player: RoomPlayer): JoinReply => {
@@ -151,4 +183,9 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
       if (bound.room.started) broadcastState(bound.room, null);
     });
   });
+
+  // Rooms restored from disk before the sockets were attached keep their deadlines.
+  for (const room of store.allRooms()) timers.arm(room);
+
+  return { timers };
 }

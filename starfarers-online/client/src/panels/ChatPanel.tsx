@@ -13,7 +13,8 @@ export function ChatPanel({ store }: { store: RemoteStore }) {
       <h3>Chat</h3>
       <ol className="chat-list">
         {chat.map((m, i) => (
-          <li key={`${m.at}-${i}`} className={m.from === me ? 'mine' : ''}>
+          // `from: 'timer'` marks the server's turn-timer lines (HANDOFF §8.2).
+          <li key={`${m.at}-${i}`} className={m.from === me ? 'mine' : m.from === 'timer' ? 'system muted' : ''} data-testid={m.from === 'timer' ? 'chat-timer' : undefined}>
             <strong>{m.name}</strong> {m.text}
           </li>
         ))}

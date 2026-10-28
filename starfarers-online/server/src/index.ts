@@ -6,7 +6,6 @@
  *   PORT                 default 3000
  *   HOST                 default 0.0.0.0
  *   STATIC_DIR           default ../client/dist relative to this file's package
- *   TURN_TIMER_SECONDS   default unset (no timer); stored in room config only
  *   CORS_ORIGIN          default none (same origin); set for a separately hosted client
  *   DATA_DIR             default `data` (resolved against the working directory); one JSON
  *                        file per room is written there after every change and read back on
@@ -16,6 +15,9 @@
  *
  * Expiry runs on boot (after the rooms are restored) and every 10 minutes;
  * a room with a connected player is never expired.
+ *
+ * The turn timer is per room (the host picks it in the lobby, HANDOFF §8.2);
+ * deadlines are persisted with the room, so a restart keeps them.
  */
 
 import { createServer } from 'node:http';
@@ -73,12 +75,13 @@ console.log(
     ? `Rooms: ${restored} restored from ${dataDir}, ${swept.length} expired (idle ${idleHours} h, finished ${finishedHours} h)`
     : `Rooms: in memory only (DATA_DIR is empty); expiry idle ${idleHours} h, finished ${finishedHours} h`,
 );
+const { timers } = attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
+
 setInterval(() => {
   const removed = store.sweep();
+  for (const code of removed) timers.clear(code);
   if (removed.length > 0) console.log(`Expired ${removed.length} room(s): ${removed.join(', ')}`);
 }, SWEEP_EVERY_MS).unref();
-
-attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
 
 http.listen(port, host, () => {
   console.log(`Starfarers Online server on http://${host}:${port} (static: ${staticDir})`);
