@@ -19,6 +19,7 @@ import { useStore } from 'zustand';
 import type { RemoteStore } from '../net/remoteStore.js';
 import { PLAYER_COLOR } from '../ui/format.js';
 import { ChatPanel } from './ChatPanel.js';
+import { HostNotice, LobbyExpiry } from './HostControls.js';
 import { timerLabel } from './TurnTimer.js';
 
 export function navigate(hash: string): void {
@@ -131,9 +132,23 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
               {p.id === session.playerId ? ' — you' : ''}
             </span>
             <span className="muted">{p.connected ? 'online' : 'offline'}</span>
+            {isHost && p.id !== session.playerId && (
+              <span className="row host-actions">
+                {!lobby.started && (
+                  <button type="button" className="link" data-testid={`kick-${p.id}`} onClick={() => void store.getState().kickPlayer(p.id)}>
+                    remove
+                  </button>
+                )}
+                <button type="button" className="link" data-testid={`make-host-${p.id}`} onClick={() => void store.getState().transferHost(p.id)}>
+                  make host
+                </button>
+              </span>
+            )}
           </li>
         ))}
       </ul>
+      <HostNotice store={store} />
+      <LobbyExpiry store={store} />
       <label>
         Set-up{' '}
         <select

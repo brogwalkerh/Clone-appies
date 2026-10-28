@@ -75,10 +75,11 @@ starfarers-online/
     src/socket.ts       attachSockets(io, store): protocol events → store, per-socket redacted `state`
     src/autoplay.ts     timeoutAction: the turn timer's minimal turn-ending sequence (+ pieces the test bot shares)
     src/timer.ts        TurnTimers: one unref'd timeout per room at `deadlineAt` (injectable scheduler)
+    src/handover.ts     HostHandovers: one timeout per room at `handoverDueAt` (host hand-over, §5.25)
     src/static.ts       static handler for client/dist with SPA fallback
     src/index.ts        entry: http + static + /healthz + Socket.IO; restoreAll + sweep on boot, sweep every
                         10 min, flush on SIGTERM; env PORT, HOST, STATIC_DIR, CORS_ORIGIN, DATA_DIR,
-                        ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS
+                        ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS, HOST_HANDOVER_MS
     test/bot.ts         greedy bot (nextAction / actor) used to play whole games
     test/               rooms.test.ts, fullGame.test.ts (whole games to a win: beginner ×3, strategic,
                         explorer, wild, draft+strategic 3p, draft+beginner 4p), socket.test.ts (socket.io-client
@@ -123,7 +124,8 @@ or the Dockerfile; one process; rooms are written to `DATA_DIR` (default
 `./data`, the Docker image uses `/data`) after every change and read back on
 boot, so a restart keeps every game. Knobs: `PORT`, `HOST`, `STATIC_DIR`,
 `CORS_ORIGIN`, `DATA_DIR` (empty string = memory only), `ROOM_IDLE_HOURS`,
-`ROOM_FINISHED_HOURS` (both default 24).
+`ROOM_FINISHED_HOURS` (both default 24), `HOST_HANDOVER_MS` (default 300000,
+the shared `HOST_HANDOVER_MS`; a short value is handy for driving the hand-over).
 
 ## 3. Engine API the client and server build on
 
@@ -359,6 +361,29 @@ reached; pending trade ships not placed as soon as a site freed up.
    swept rooms. The test bot imports `actor` and the draft / 7 / encounter-pick
    / pending-station pieces from `autoplay.ts`, so its games are unchanged.
 
+25. Host controls (§8.3): `kickPlayer` is host-only and lobby-only (a started
+   game keeps every seat; the host cannot kick themself); the seat and its
+   token are deleted, the kicked socket gets `kicked` and leaves the room, its
+   client forgets the session and shows the join screen with the reason. A
+   kick is not a ban: the same name may join again as a new seat. Player ids
+   are reused (`pN` lowest free). `transferHost` is host-only, any time, to
+   any other seated player (also an offline one; the hand-over clock then
+   starts). Automatic hand-over: while the host is disconnected
+   (`Room.hostAwaySince`), after `HOST_HANDOVER_MS` (config, 5 min, inferred)
+   the host passes to the *longest-connected* player = the connected
+   non-host with the earliest `connectedAt` (start of the current unbroken
+   connection; a reconnect resets it, a second tab replacing the first does
+   not), ties by seat order. Checked by a per-room timeout armed on every
+   lobby broadcast (`server/src/handover.ts`) and on every bind (a player
+   returning to an overdue room takes over at once). Nobody else connected →
+   no hand-over until someone binds. Every host change is activity (written,
+   `updatedAt` bumped) with a chat line `from: 'room'`. `hostAwaySince` /
+   `connectedAt` are memory only: after a restart the absence counts from
+   boot, so the earliest hand-over is one full window after the restart.
+   `LobbyView.expiresAt` = `updatedAt + idleMs` (sent with `idleMs`); the
+   lobby advances it on chat seen since. It is the deadline once everyone
+   has left — a room with a connected player is never swept.
+
 ## 6. Phase 4 — hot-seat client (done)
 
 Delivered as described in §4. How to run and verify:
@@ -409,11 +434,17 @@ client → server events take an ack `{ ok, value } | { ok, error }`:
 | `startGame {}` | host only, 3–4 players; builds the game with `createGame(room.config)`; room gets `lobby` then `state` per socket |
 | `action {action}` | `action.playerId` must be the socket's player; engine runs; everyone gets `state {state, action}` (both redacted per viewer); on failure the sender alone gets `error` and the ack carries it |
 | `chat {text}` | room gets `chat` |
+| `kickPlayer {playerId}` | host only, before start, not yourself; ack `{kicked}`; the kicked socket gets `kicked {roomCode, message}` and leaves; its token stops resuming (`badToken`); room gets `lobby` (§5.25) |
+| `transferHost {playerId}` | host only, any time, another seated player; ack `{hostId}`; room gets `lobby` |
 | `replay {index}` | the redacted state after `index` accepted actions (0 = initial); `badRequest` outside `0..actions.length` or when the room predates phase 6 |
 
 Server → client: `lobby(LobbyView)`, `state({state, action, deadlineAt?, serverNow?})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
 Phase 7 added `LobbyView.deadlineAt?`, the `state` payload's `deadlineAt?` / `serverNow?` and timer chat lines
 (`from: 'timer'`), and the test ids `timer-select`, `lobby-timer`, `turn-timer`, `chat-timer`.
+Host controls (§8.3) added `kickPlayer` / `transferHost`, the server event `kicked`, `LobbyView.expiresAt?` /
+`idleMs?` / `hostHandoverAt?`, room notice chat lines (`from: 'room'`, `ROOM_CHAT_ID`) and the test ids
+`kick-<playerId>`, `make-host-<playerId>`, `lobby-host`, `lobby-expires` (`data-expires-at`), `game-host`,
+`transfer-host`, `transfer-host-confirm`, `chat-room`.
 
 Test ids added for the online screens: `online-screen`, `player-name`,
 `room-name`, `create-room`, `room-code`, `join-room`, `rejoin`, `net-error`,
@@ -427,8 +458,8 @@ Phase 6 added `variant-select`, `variant-description`, `lobby-variant`,
 `node-<id>` like build picks), and `JoinReply.initial` (the redacted initial
 state) next to `actions`.
 
-Known gaps, now scheduled in §8: no "kick" or host hand-over (§8.3); the turn
-timer is config only (§8.2); the join screen does not validate the code format
+Known gaps, now scheduled in §8: (kick and host hand-over done, §5.25; the turn
+timer is enforced, §5.24); the join screen does not validate the code format
 (§8.4); `replay` has no rate limit (§8.6); no spectators (§8.10). Rooms are
 persisted and expired since phase 6 (§5.18).
 
@@ -468,7 +499,7 @@ looks tight.
    the client shows a countdown (`turn-timer`) from `deadlineAt` in the `state`
    payload. Tests: expiry runs the sequence, a timely action re-arms, a
    restart keeps the deadline, `null` disables.
-3. **Host controls** (HANDOFF §7 known gaps): `kickPlayer {playerId}` (host,
+3. **Host controls** (done, see §5.25) (HANDOFF §7 known gaps): `kickPlayer {playerId}` (host,
    lobby only — a started game keeps every seat), `transferHost {playerId}`
    (host, any time), automatic hand-over when the host has been disconnected
    for `HOST_HANDOVER_MS` (config, default 5 min) to the longest-connected

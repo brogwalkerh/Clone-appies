@@ -48,6 +48,15 @@ export interface LobbyView {
   maxPlayers: number;
   /** Phase 7, additive: when the current turn's timer runs out (Unix ms); `null` / absent = no deadline. */
   deadlineAt?: number | null;
+  /**
+   * Phase 7, additive (HANDOFF §8.3): when the room expires if nothing else happens (Unix ms,
+   * last activity + `idleMs`; a room with a connected player is never swept, so in practice
+   * this is a deadline after everyone has left), and the idle window itself.
+   */
+  expiresAt?: number;
+  idleMs?: number;
+  /** Phase 7, additive: while the host is offline, when the host role passes on (Unix ms); `null` / absent = none pending. */
+  hostHandoverAt?: number | null;
 }
 
 export interface Session {
@@ -89,6 +98,10 @@ export interface ClientToServerEvents {
   /** State after the first `index` accepted actions (0 = initial), replayed on the server and redacted for the asker. */
   replay(payload: { index: number }, ack: Ack<GameState>): void;
   chat(payload: { text: string }, ack: Ack<{ sent: true }>): void;
+  /** Phase 7, additive: host only, before the start: remove another seat; its token stops working. */
+  kickPlayer(payload: { playerId: PlayerId }, ack: Ack<{ kicked: PlayerId }>): void;
+  /** Phase 7, additive: host only, any time (lobby or game): make another seated player the host. */
+  transferHost(payload: { playerId: PlayerId }, ack: Ack<{ hostId: PlayerId }>): void;
 }
 
 export interface ServerToClientEvents {
@@ -102,7 +115,12 @@ export interface ServerToClientEvents {
   /** Sent to the offending socket only. */
   error(error: NetError | GameError): void;
   chat(message: ChatMessage): void;
+  /** Phase 7, additive: sent to a kicked player's socket only; its session is no longer valid. */
+  kicked(payload: { roomCode: string; message: string }): void;
 }
+
+/** Phase 7, additive: chat sender id of the server's room notices (kick, host change, hand-over); never a player id. */
+export const ROOM_CHAT_ID = 'room';
 
 export const ROOM_MIN_PLAYERS = 3;
 export const ROOM_MAX_PLAYERS = 4;

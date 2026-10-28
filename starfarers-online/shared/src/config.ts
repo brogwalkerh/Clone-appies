@@ -345,3 +345,16 @@ export const TURN_TIMER_CHOICES: readonly number[] = [30, 60, 90, 120, 180, 300]
 export function isTurnTimerChoice(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && TURN_TIMER_CHOICES.includes(value));
 }
+
+// ---------------------------------------------------------------------------
+// Online host hand-over (HANDOFF §8.3, §5.25)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long the host may be disconnected before the server passes the host
+ * role on (to the connected player whose current connection is the oldest,
+ * ties by seat order). Inferred: the spec has no host rules; 5 minutes rides
+ * out a reload or a flaky network without leaving a lobby stuck for long.
+ * The server reads `HOST_HANDOVER_MS` from the environment to override it.
+ */
+export const HOST_HANDOVER_MS = 5 * 60 * 1000;

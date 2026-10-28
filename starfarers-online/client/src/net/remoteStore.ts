@@ -10,6 +10,10 @@
  * The turn timer's `deadlineAt` (HANDOFF §8.2) comes with every `state` and
  * lobby; `clockOffset` (server clock minus ours, from `serverNow`) lets the
  * countdown ignore a skewed local clock.
+ * Host controls (HANDOFF §8.3): `kickPlayer` / `transferHost` are plain acked
+ * calls; the result comes back as a `lobby`. A `kicked` event forgets the
+ * session (the token is dead) and leaves `netError` set, so the room route
+ * falls back to the join screen showing why.
  */
 
 import type {
@@ -79,6 +83,10 @@ export interface RemoteStoreState extends GameStoreState {
   configureRoom(patch: { variant?: GameVariant; setup?: SetupMode; turnTimerSeconds?: number | null }): Promise<NetResult<{ configured: true }>>;
   startGame(): Promise<NetResult<{ started: true }>>;
   sendChat(text: string): Promise<NetResult<{ sent: true }>>;
+  /** Host only, before the start: remove another player's seat. */
+  kickPlayer(playerId: string): Promise<NetResult<{ kicked: string }>>;
+  /** Host only, any time: make another seated player the host. */
+  transferHost(playerId: string): Promise<NetResult<{ hostId: string }>>;
   /** Forget the session and return to the lobby screens. */
   leaveRoom(): void;
 }
@@ -147,6 +155,11 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
     socket.on('disconnect', () => set({ connection: 'disconnected' }));
     socket.on('lobby', (lobby) => set({ lobby, chat: lobby.messages, ...(lobby.deadlineAt !== undefined ? { deadlineAt: lobby.deadlineAt } : {}) }));
     socket.on('chat', (message) => set({ chat: [...get().chat, message] }));
+    socket.on('kicked', ({ message }) => {
+      persist(null);
+      resetReplays();
+      set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, replayMin: 0, viewer: null, error: null, netError: message, deadlineAt: null });
+    });
     socket.on('error', (error) => {
       if ('kind' in error) set({ error });
       else set({ netError: error.message });
@@ -304,6 +317,16 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
       },
       async startGame() {
         const reply = await emit('startGame', {});
+        if (!reply.ok) set({ netError: reply.error.message });
+        return reply;
+      },
+      async kickPlayer(playerId) {
+        const reply = await emit('kickPlayer', { playerId });
+        if (!reply.ok) set({ netError: reply.error.message });
+        return reply;
+      },
+      async transferHost(playerId) {
+        const reply = await emit('transferHost', { playerId });
         if (!reply.ok) set({ netError: reply.error.message });
         return reply;
       },

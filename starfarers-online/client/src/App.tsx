@@ -41,6 +41,7 @@ import { PassBanner } from './panels/PassBanner.js';
 import { SetupScreen } from './panels/SetupScreen.js';
 import { SevenDialog } from './panels/SevenDialog.js';
 import { TradePanel } from './panels/TradePanel.js';
+import { GameHostControls } from './panels/HostControls.js';
 import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
@@ -244,7 +245,7 @@ function RoomRoute({ store, code }: { store: RemoteStore; code: string }) {
   if (!lobby.started || !game) return <RoomLobby store={store} />;
   return (
     <StoreContext.Provider value={store as unknown as GameStore}>
-      <GameScreen subtitle={`room ${code}`} headerExtra={<TurnTimer store={store} />} extraPanels={<ChatPanel store={store} />} />
+      <GameScreen subtitle={`room ${code}`} headerExtra={<><TurnTimer store={store} /><GameHostControls store={store} /></>} extraPanels={<ChatPanel store={store} />} />
     </StoreContext.Provider>
   );
 }

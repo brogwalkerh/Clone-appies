@@ -12,6 +12,8 @@
  *                        boot. Set to an empty string (DATA_DIR=) to keep rooms in memory only.
  *   ROOM_IDLE_HOURS      default 24; rooms with no activity for this long are deleted
  *   ROOM_FINISHED_HOURS  default 24; finished games are deleted this long after their last activity
+ *   HOST_HANDOVER_MS     default HOST_HANDOVER_MS (shared config, 5 min); how long the host may be
+ *                        offline before the longest-connected player becomes host (HANDOFF §8.3)
  *
  * Expiry runs on boot (after the rooms are restored) and every 10 minutes;
  * a room with a connected player is never expired.
@@ -23,6 +25,7 @@
 import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HOST_HANDOVER_MS } from '@starfarers/shared';
 import { Server } from 'socket.io';
 import { FileRoomPersistence } from './persist.js';
 import { RoomStore } from './rooms.js';
@@ -49,6 +52,17 @@ function hoursEnv(name: string, fallback: number): number {
   }
   return value;
 }
+function msEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(`${name}=${raw} is not a positive number of milliseconds; using ${fallback}`);
+    return fallback;
+  }
+  return value;
+}
+const handoverMs = msEnv('HOST_HANDOVER_MS', HOST_HANDOVER_MS);
 const idleHours = hoursEnv('ROOM_IDLE_HOURS', 24);
 const finishedHours = hoursEnv('ROOM_FINISHED_HOURS', 24);
 
@@ -66,6 +80,7 @@ const store = new RoomStore({
   ...(dataDir ? { persistence: new FileRoomPersistence(dataDir) } : {}),
   idleMs: idleHours * HOUR_MS,
   finishedMs: finishedHours * HOUR_MS,
+  handoverMs,
 });
 
 const restored = await store.restoreAll();
@@ -75,11 +90,14 @@ console.log(
     ? `Rooms: ${restored} restored from ${dataDir}, ${swept.length} expired (idle ${idleHours} h, finished ${finishedHours} h)`
     : `Rooms: in memory only (DATA_DIR is empty); expiry idle ${idleHours} h, finished ${finishedHours} h`,
 );
-const { timers } = attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
+const { timers, handovers } = attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
 
 setInterval(() => {
   const removed = store.sweep();
-  for (const code of removed) timers.clear(code);
+  for (const code of removed) {
+    timers.clear(code);
+    handovers.clear(code);
+  }
   if (removed.length > 0) console.log(`Expired ${removed.length} room(s): ${removed.join(', ')}`);
 }, SWEEP_EVERY_MS).unref();
 

@@ -32,6 +32,8 @@ h4 { font-size: 13px; }
 .topbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid #222a3a; }
 .turn-timer { font-variant-numeric: tabular-nums; padding: 1px 8px; border: 1px solid #2c3647; border-radius: 10px; }
 .turn-timer.urgent { color: var(--error); border-color: var(--error); }
+.host-controls { color: var(--muted, #8a94a8); font-size: 0.9em; }
+.host-actions { display: inline-flex; gap: 6px; margin-left: 8px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
 .board-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .board { width: 100%; flex: 1; min-height: 0; background: radial-gradient(ellipse at center, #121a2a 0%, #0b0f17 80%); border-radius: 10px; border: 1px solid #222a3a; }

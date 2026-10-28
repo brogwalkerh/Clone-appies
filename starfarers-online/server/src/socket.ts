@@ -7,11 +7,17 @@
  * `deadlineAt` and re-arms the room's timeout (timer.ts); on expiry the store
  * plays the minimal sequence (`expireTurn`), each automatic action is
  * broadcast like any other, and the "timer: …" chat line goes to the room.
+ *
+ * Host controls (HANDOFF §8.3): `kickPlayer` / `transferHost` go through the
+ * store; a kicked socket gets `kicked` and leaves the room. Every lobby
+ * broadcast re-arms the room's host hand-over timeout (handover.ts); host
+ * notices reach clients inside the `lobby` (its `messages`).
  */
 
 import { redactState, type ClientToServerEvents, type JoinReply, type ServerToClientEvents, type Action } from '@starfarers/shared';
 import type { Server, Socket } from 'socket.io';
 import type { Room, RoomPlayer, RoomStore } from './rooms.js';
+import { HostHandovers } from './handover.js';
 import { TurnTimers, realScheduler, type Scheduler } from './timer.js';
 
 interface SocketData {
@@ -31,6 +37,8 @@ export interface AttachOptions {
 export interface AttachedSockets {
   /** The per-room turn timeouts (index.ts clears swept rooms; tests inspect it). */
   timers: TurnTimers;
+  /** The per-room host hand-over timeouts (index.ts clears swept rooms; tests inspect it). */
+  handovers: HostHandovers;
 }
 
 export function attachSockets(io: GameServer, store: RoomStore, options: AttachOptions = {}): AttachedSockets {
@@ -51,8 +59,20 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
     scheduler,
   );
 
+  const handovers = new HostHandovers(
+    store,
+    (room) => {
+      const change = store.handOverHostIfDue(room);
+      if (!change) return handovers.arm(room);
+      log(`room ${room.code} host ${change.from} -> ${change.to} (hand-over)`);
+      broadcastLobby(room);
+    },
+    scheduler,
+  );
+
   const broadcastLobby = (room: Room) => {
     io.to(room.code).emit('lobby', store.lobbyView(room));
+    handovers.arm(room);
   };
 
   const broadcastState = (room: Room, action: Action | null) => {
@@ -175,6 +195,34 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
       io.to(ctx.room.code).emit('chat', result.value);
     });
 
+    socket.on('kickPlayer', (payload, ack) => {
+      const ctx = current(socket);
+      if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });
+      const result = store.kickPlayer(ctx.room, ctx.player.id, payload?.playerId);
+      if (!result.ok) return ack(result);
+      const kicked = result.value.player;
+      const target = kicked.socketId ? io.sockets.sockets.get(kicked.socketId) : undefined;
+      if (target) {
+        delete target.data.roomCode;
+        delete target.data.playerId;
+        void target.leave(ctx.room.code);
+        target.emit('kicked', { roomCode: ctx.room.code, message: `The host removed you from room ${ctx.room.code}` });
+      }
+      ack({ ok: true, value: { kicked: kicked.id } });
+      broadcastLobby(ctx.room);
+      log(`room ${ctx.room.code} kicked ${kicked.id}`);
+    });
+
+    socket.on('transferHost', (payload, ack) => {
+      const ctx = current(socket);
+      if (!ctx) return ack({ ok: false, error: { code: 'notInRoom', message: 'Join a room first' } });
+      const result = store.transferHost(ctx.room, ctx.player.id, payload?.playerId);
+      if (!result.ok) return ack(result);
+      ack({ ok: true, value: { hostId: result.value.to } });
+      broadcastLobby(ctx.room);
+      log(`room ${ctx.room.code} host ${result.value.from} -> ${result.value.to}`);
+    });
+
     socket.on('disconnect', () => {
       const bound = store.unbindSocket(socket.id);
       log(`disconnect ${socket.id}`);
@@ -187,5 +235,5 @@ export function attachSockets(io: GameServer, store: RoomStore, options: AttachO
   // Rooms restored from disk before the sockets were attached keep their deadlines.
   for (const room of store.allRooms()) timers.arm(room);
 
-  return { timers };
+  return { timers, handovers };
 }
