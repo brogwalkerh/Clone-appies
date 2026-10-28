@@ -29,6 +29,8 @@ import {
 import { useMemo, useState } from 'react';
 import { CIV_COLOR, CIV_LABEL, PLAYER_COLOR, RESOURCE_COLOR, dicePips, playerColor } from '../ui/format.js';
 import { NO_MOTION, useFlips, useShipSlide, type BoardMotion, type Point } from './motion.js';
+import { onActivateKey } from '../ui/keyboard.js';
+import { DOCK_R, LABEL_FONT, outpostLayout } from './outpostLayout.js';
 
 export const SCALE = 58;
 const PAD = 26;
@@ -43,6 +45,13 @@ export interface BoardProps {
   onShipClick(shipId: ShipId): void;
   /** Latest live action to animate (motion.ts); absent = no animations. */
   motion?: BoardMotion | undefined;
+  /** The viewer's ships may be selected right now: they join the tab order (HANDOFF §8.4). */
+  shipsSelectable?: boolean | undefined;
+}
+
+function nodeLabel(node: { id: NodeId; siteType?: string | undefined }, ship: Ship | undefined): string {
+  const kind = node.siteType === 'colonySite' ? 'colony site' : node.siteType === 'dockingPoint' ? 'docking point' : 'intersection';
+  return `${kind} ${node.id}${ship ? `, ${ship.kind} ship ${ship.id}` : ''}`;
 }
 
 function px(p: { x: number; y: number }): { x: number; y: number } {
@@ -102,26 +111,25 @@ function PlanetHex({ planet, flip }: { planet: Planet; flip: boolean }) {
 function Outpost({ state, sector, flip }: { state: GameState; sector: Sector; flip: boolean }) {
   const civ = sector.civ;
   if (!civ) return null;
-  const centre = px(vertexPosition(sector.centreVertex));
   const docks = sector.docks ?? [];
-  const dockSpread = 16;
+  const layout = outpostLayout(sector, px);
   return (
     <g data-testid={`outpost-${sector.id}`} className={flip ? 'flip' : undefined}>
       {sector.lobes.map((hex) => (
         <polygon key={hex.join(',')} points={hexPoints(hex)} fill={CIV_COLOR[civ]} fillOpacity={0.45} stroke="#0d1017" strokeWidth={1.2} />
       ))}
-      <text x={centre.x} y={centre.y - 14} textAnchor="middle" fontSize={11} fill="#e8ecf4" fontWeight={600}>
+      <text data-testid={`civ-label-${sector.id}`} x={layout.label.x} y={layout.label.y} textAnchor="middle" fontSize={LABEL_FONT} fill="#e8ecf4" fontWeight={600}>
         {CIV_LABEL[civ]}
       </text>
       {docks.map((owner, i) => {
-        const x = centre.x + (i - (docks.length - 1) / 2) * dockSpread;
+        const at = layout.docks[i] ?? { x: 0, y: 0 };
         return (
           <circle
             key={i}
             data-testid={`dock-${sector.id}-${i}`}
-            cx={x}
-            cy={centre.y + 4}
-            r={6}
+            cx={at.x}
+            cy={at.y}
+            r={DOCK_R}
             fill={owner ? playerColor(state, owner) : '#1b2030'}
             stroke="#d8dde8"
             strokeWidth={1.2}
@@ -163,6 +171,7 @@ function ShipGlyph({
   selected,
   motion,
   posOf,
+  focusable,
   onClick,
 }: {
   ship: Ship;
@@ -170,6 +179,7 @@ function ShipGlyph({
   selected: boolean;
   motion: BoardMotion;
   posOf(id: NodeId): Point;
+  focusable: boolean;
   onClick(): void;
 }) {
   const p = px(state.board.nodes[ship.nodeId]?.pos ?? { x: 0, y: 0 });
@@ -189,12 +199,18 @@ function ShipGlyph({
       data-node={ship.nodeId}
       data-moving={slide ? 'true' : undefined}
       className="ship"
+      tabIndex={focusable ? 0 : undefined}
+      role={focusable ? 'button' : undefined}
+      aria-label={focusable ? `${selected ? 'Deselect' : 'Select'} ${ship.kind} ship ${ship.id}` : undefined}
+      aria-pressed={focusable ? selected : undefined}
+      onKeyDown={focusable ? onActivateKey(onClick) : undefined}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
     >
       <g className="ship-motion" style={slide}>
+        {focusable && <circle className="focus-ring" cx={p.x} cy={p.y} r={15} fill="none" />}
         {shape}
         {ship.mustFoundOrLeave && (
           <text x={p.x + 10} y={p.y - 8} fontSize={12} fontWeight={700} fill="#ffd166">
@@ -206,7 +222,7 @@ function ShipGlyph({
   );
 }
 
-export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick, motion = NO_MOTION }: BoardProps) {
+export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick, motion = NO_MOTION, shipsSelectable = false }: BoardProps) {
   const [hover, setHover] = useState<NodeId | null>(null);
   const board = useMemo(() => redactBoard(state.board), [state.board]);
   const flips = useFlips(board, motion);
@@ -256,7 +272,7 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
       : null;
 
   return (
-    <svg className="board" viewBox={viewBox} role="img" aria-label="Game board" data-testid="board">
+    <svg className="board" viewBox={viewBox} role="group" aria-label="Game board" data-testid="board">
       <g className="sectors">
         {sectors.map((sector) => {
           if (sector.kind === 'hidden') return <HiddenSector key={sector.id} sector={sector} />;
@@ -294,6 +310,12 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
               data-testid={`node-${node.id}`}
               data-highlight={hl ? 'true' : undefined}
               className={hl ? 'node highlight' : 'node'}
+              tabIndex={hl ? 0 : undefined}
+              role={hl ? 'button' : undefined}
+              aria-label={hl ? nodeLabel(node, shipsByNode.get(node.id)) : undefined}
+              onKeyDown={hl ? onActivateKey(() => onNodeClick(node.id)) : undefined}
+              onFocus={hl ? () => setHover(node.id) : undefined}
+              onBlur={hl ? () => setHover((h) => (h === node.id ? null : h)) : undefined}
               onClick={() => onNodeClick(node.id)}
               onMouseEnter={() => setHover(node.id)}
               onMouseLeave={() => setHover((h) => (h === node.id ? null : h))}
@@ -344,6 +366,7 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
             selected={ship.id === selectedShip}
             motion={motion}
             posOf={posOf}
+            focusable={shipsSelectable && ship.owner === viewer}
             onClick={() => {
               // Clicking a highlighted node that happens to hold a ship is a move/pick target.
               if (highlights.has(ship.nodeId)) onNodeClick(ship.nodeId);

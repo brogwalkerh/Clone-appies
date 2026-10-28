@@ -2,6 +2,7 @@ import { FRIENDSHIP_CARDS, canFoundTradeStation, outpostAtNode, pickableFriendsh
 import { useState } from 'react';
 import { useAct } from '../store/gameStore.js';
 import { CIV_LABEL, playerName } from '../ui/format.js';
+import { focusDialog } from '../ui/keyboard.js';
 
 /** Dock + friendship-card pick for a trade ship on a docking point (spec §9.5). */
 export function FoundStationDialog({ state, viewer, shipId }: { state: GameState; viewer: PlayerId; shipId: ShipId }) {
@@ -18,7 +19,7 @@ export function FoundStationDialog({ state, viewer, shipId }: { state: GameState
   const chosenDock = dock ?? freeDocks[0] ?? null;
   const chosenCard = card ?? cards[0] ?? null;
   return (
-    <div className="modal" data-testid="found-station-dialog">
+    <div className="modal" data-testid="found-station-dialog" role="dialog" aria-label="Found a trade station" ref={focusDialog}>
       <h3>Found a trade station at the {CIV_LABEL[outpost.civ]} outpost</h3>
       {blocked && <p className="error">{blocked.message}</p>}
       <div>

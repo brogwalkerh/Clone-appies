@@ -11,6 +11,7 @@ import {
 import { useState } from 'react';
 import { useAct, useGame } from '../store/gameStore.js';
 import { handBag, playerName } from '../ui/format.js';
+import { ESCAPE_PRIORITY, focusDialog, useEscape } from '../ui/keyboard.js';
 import { BagPicker, bagToList } from './ResourcePicker.js';
 
 const UPGRADE_LABEL: Record<UpgradeKind, string> = { booster: 'Booster', cannon: 'Cannon', freightPod: 'Freight pod' };
@@ -138,9 +139,15 @@ function Choice({ state, viewer }: { state: GameState; viewer: PlayerId }) {
 export function EncounterModal({ state, viewer }: { state: GameState; viewer: PlayerId }) {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const ctx = state.turn.encounter;
-  if (!ctx) return null;
   const live = state.phase === 'flight.encounter';
-  const doneKey = `${state.turnNumber}:${ctx.cardId}`;
+  const doneKey = ctx ? `${state.turnNumber}:${ctx.cardId}` : null;
+  // Escape = "Continue" once the card has resolved; a live encounter is a mandatory decision and ignores it.
+  useEscape(() => {
+    if (!ctx || live || ctx.stage !== 'done' || dismissed === doneKey) return false;
+    setDismissed(doneKey);
+    return true;
+  }, ESCAPE_PRIORITY.DIALOG);
+  if (!ctx || doneKey === null) return null;
   if (!live && (ctx.stage !== 'done' || dismissed === doneKey)) return null;
   const card = encounterCard(ctx.cardId);
   const texts = visibleEncounterText(state);
@@ -148,7 +155,7 @@ export function EncounterModal({ state, viewer }: { state: GameState; viewer: Pl
   const isActive = state.activePlayer === viewer;
 
   return (
-    <div className="modal encounter" data-testid="encounter-modal">
+    <div className="modal encounter" data-testid="encounter-modal" role="dialog" aria-label={`Encounter: ${card.title}`} ref={focusDialog}>
       <h3>
         Encounter #{card.id}: {card.title}
       </h3>

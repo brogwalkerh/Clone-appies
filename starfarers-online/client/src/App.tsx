@@ -45,6 +45,7 @@ import { GameHostControls } from './panels/HostControls.js';
 import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
+import { useEscape } from './ui/keyboard.js';
 
 export interface GameScreenProps {
   /** Extra sidebar content (the online chat). */
@@ -70,6 +71,7 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
   const replayIndex = useGame((s) => s.replayIndex);
   const newGame = useGame((s) => s.newGame);
   const setup = useGame((s) => s.setup);
+  const setNodePick = useGame((s) => s.setNodePick);
   const act = useAct();
   const motion = useBoardMotion();
 
@@ -98,8 +100,27 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
     return m;
   }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump, draftingColony]);
 
+  // Escape (ui/keyboard.ts): cancel a build site pick, else deselect the ship, else dismiss the error toast.
+  useEscape(() => {
+    if (nodePick) {
+      setNodePick(null);
+      return true;
+    }
+    if (selectedShip) {
+      selectShip(null);
+      return true;
+    }
+    if (error) {
+      clearError();
+      return true;
+    }
+    return false;
+  });
+
   if (!state || !live) return null;
 
+  const shipsSelectable =
+    !replaying && !pendingViewer && !nodePick && (awaitingJump || (state.phase === 'flight.move' && state.activePlayer === viewer && state.turn.pendingFound === undefined));
   const onNodeClick = (nodeId: NodeId) => {
     if (replaying || pendingViewer) return;
     if (nodePick) {
@@ -168,7 +189,7 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
       <main className="layout">
         <div className="board-col">
           <VpTrack state={state} motion={motion} />
-          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} />
+          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
           {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
         </div>
         <aside className="side">

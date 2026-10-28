@@ -12,6 +12,7 @@ import {
 import { useState } from 'react';
 import { useAct } from '../store/gameStore.js';
 import { shortNode } from '../ui/format.js';
+import { focusDialog } from '../ui/keyboard.js';
 
 const UPGRADE_LABEL: Readonly<Record<UpgradeKind, string>> = { booster: 'Booster', cannon: 'Cannon', freightPod: 'Freight pod' };
 
@@ -42,7 +43,7 @@ export function DraftPanel({ state, viewer }: { state: GameState; viewer: Player
   const chosenShip: ShipKind = ship === 'trade' && canTrade ? 'trade' : canColony ? 'colony' : 'trade';
 
   return (
-    <div className="modal" data-testid="draft-panel">
+    <div className="modal" data-testid="draft-panel" role="dialog" aria-label="Set-up round 4" ref={focusDialog}>
       <h3>Set-up round 4 — your spaceport, ship and bonus upgrade</h3>
       <div>
         <span className="muted">Upgrade this colony to your spaceport:</span>
