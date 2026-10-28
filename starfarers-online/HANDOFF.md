@@ -2,7 +2,8 @@
 
 Last updated after phase 6. Everything is on `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
-review, server-side replay) via PR #3 (`e473ca2`). No open branches.
+review, server-side replay) via PR #3 (`e473ca2`), the phase 7 plan in this
+file via PR #4 (`063b21f`). Phase 7 is in progress on `starfarers-phase-7`.
 
 **Starting a new session:** paste the prompt in §10 into the new session. It
 says to read `CLAUDE.md`, then this file top to bottom, then
@@ -108,7 +109,7 @@ Vite), React 19, zustand 5, ESM.
 From `starfarers-online/`:
 
 ```sh
-pnpm install && pnpm typecheck && pnpm test   # 472 tests, ~30 s (the socket full game is the slow one)
+pnpm install && pnpm typecheck && pnpm test   # 550 tests, ~30 s (the socket full game is the slow one)
 pnpm build                                    # client/dist (Vite) + server/dist/index.js (esbuild bundle)
 pnpm start                                    # http://localhost:3000 — hot-seat and online from one process
 pnpm dev:server & pnpm dev:client             # dev: tsx watch on :3000, Vite on :5173 proxying /socket.io
