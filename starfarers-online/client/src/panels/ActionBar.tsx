@@ -1,11 +1,18 @@
 import { canFoundColony, isColonyRound, reserveDrawFor, shipsOf, type GameState, type PlayerId } from '@starfarers/shared';
+import { useEffect, useRef } from 'react';
 import { useAct, useGame } from '../store/gameStore.js';
+import { focusActionBar } from '../ui/keyboard.js';
 import { phaseLabel, playerName } from '../ui/format.js';
 
 /** Phase-driven actions (HANDOFF §6.5): only what ACTION_POLICY + preconditions allow for the viewer right now. */
 export function ActionBar({ state, viewer }: { state: GameState; viewer: PlayerId }) {
   const act = useAct();
   const selectedShip = useGame((s) => s.selectedShip);
+  // Keyboard play: when the focused button disappears (Roll → Shake → End turn), focus stays in the bar.
+  const hadFocus = useRef(false);
+  useEffect(() => {
+    if (hadFocus.current && (document.activeElement === null || document.activeElement === document.body)) focusActionBar();
+  });
   const me = state.players.find((p) => p.id === viewer);
   if (!me) return null;
   const isActive = state.activePlayer === viewer;
@@ -38,7 +45,19 @@ export function ActionBar({ state, viewer }: { state: GameState; viewer: PlayerI
 
   const draft = state.phase === 'setup' ? state.draft : undefined;
   return (
-    <div className="action-bar" data-testid="action-bar">
+    <div
+      className="action-bar"
+      data-testid="action-bar"
+      role="toolbar"
+      aria-label="Actions"
+      tabIndex={-1}
+      onFocus={() => {
+        hadFocus.current = true;
+      }}
+      onBlur={(e) => {
+        if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) hadFocus.current = false;
+      }}
+    >
       <span className="phase" data-testid="phase-label">
         {draft ? (
           <>

@@ -6,21 +6,26 @@
  *   PORT                 default 3000
  *   HOST                 default 0.0.0.0
  *   STATIC_DIR           default ../client/dist relative to this file's package
- *   TURN_TIMER_SECONDS   default unset (no timer); stored in room config only
  *   CORS_ORIGIN          default none (same origin); set for a separately hosted client
  *   DATA_DIR             default `data` (resolved against the working directory); one JSON
  *                        file per room is written there after every change and read back on
  *                        boot. Set to an empty string (DATA_DIR=) to keep rooms in memory only.
  *   ROOM_IDLE_HOURS      default 24; rooms with no activity for this long are deleted
  *   ROOM_FINISHED_HOURS  default 24; finished games are deleted this long after their last activity
+ *   HOST_HANDOVER_MS     default HOST_HANDOVER_MS (shared config, 5 min); how long the host may be
+ *                        offline before the longest-connected player becomes host (HANDOFF §8.3)
  *
  * Expiry runs on boot (after the rooms are restored) and every 10 minutes;
  * a room with a connected player is never expired.
+ *
+ * The turn timer is per room (the host picks it in the lobby, HANDOFF §8.2);
+ * deadlines are persisted with the room, so a restart keeps them.
  */
 
 import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HOST_HANDOVER_MS } from '@starfarers/shared';
 import { Server } from 'socket.io';
 import { FileRoomPersistence } from './persist.js';
 import { RoomStore } from './rooms.js';
@@ -47,6 +52,17 @@ function hoursEnv(name: string, fallback: number): number {
   }
   return value;
 }
+function msEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.warn(`${name}=${raw} is not a positive number of milliseconds; using ${fallback}`);
+    return fallback;
+  }
+  return value;
+}
+const handoverMs = msEnv('HOST_HANDOVER_MS', HOST_HANDOVER_MS);
 const idleHours = hoursEnv('ROOM_IDLE_HOURS', 24);
 const finishedHours = hoursEnv('ROOM_FINISHED_HOURS', 24);
 
@@ -64,6 +80,7 @@ const store = new RoomStore({
   ...(dataDir ? { persistence: new FileRoomPersistence(dataDir) } : {}),
   idleMs: idleHours * HOUR_MS,
   finishedMs: finishedHours * HOUR_MS,
+  handoverMs,
 });
 
 const restored = await store.restoreAll();
@@ -73,12 +90,16 @@ console.log(
     ? `Rooms: ${restored} restored from ${dataDir}, ${swept.length} expired (idle ${idleHours} h, finished ${finishedHours} h)`
     : `Rooms: in memory only (DATA_DIR is empty); expiry idle ${idleHours} h, finished ${finishedHours} h`,
 );
+const { timers, handovers } = attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
+
 setInterval(() => {
   const removed = store.sweep();
+  for (const code of removed) {
+    timers.clear(code);
+    handovers.clear(code);
+  }
   if (removed.length > 0) console.log(`Expired ${removed.length} room(s): ${removed.join(', ')}`);
 }, SWEEP_EVERY_MS).unref();
-
-attachSockets(io, store, { log: (m) => console.log(`[socket] ${m}`) });
 
 http.listen(port, host, () => {
   console.log(`Starfarers Online server on http://${host}:${port} (static: ${staticDir})`);

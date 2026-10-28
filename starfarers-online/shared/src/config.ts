@@ -137,7 +137,9 @@ export const ENCOUNTER_CARD_COUNT = 32;
 export const WEAR_AND_TEAR_THRESHOLDS: Readonly<Record<31 | 32, number>> = { 31: 8, 32: 6 };
 
 // ---------------------------------------------------------------------------
-// Inferred / [VERIFY] items (spec §16)
+// Inferred / [VERIFY] items (spec §16). Each is an entry of RULES-CHECKLIST.md
+// with a pin in shared/test/verifyPins.test.ts; change a value only after
+// reading the physical box, and update the pin in the same commit.
 // ---------------------------------------------------------------------------
 
 /**
@@ -145,6 +147,8 @@ export const WEAR_AND_TEAR_THRESHOLDS: Readonly<Record<31 | 32, number>> = { 31:
  * strategic set-up). The values live in `layouts/board.json` → `sectors[*].stars`
  * and are INFERRED from the beginner picture, not read off the physical tiles.
  * Nothing in the beginner set-up depends on them.
+ *
+ * Rule check: RULES-CHECKLIST.md #1 (pinned in shared/test/verifyPins.test.ts).
  */
 export const TILE_STARS_SOURCE = 'layouts/board.json#sectors[*].stars (inferred, see spec §16.1)';
 
@@ -152,6 +156,8 @@ export const TILE_STARS_SOURCE = 'layouts/board.json#sectors[*].stars (inferred,
  * **[VERIFY]** Shake-result bands for encounter cards 12–15 (spec §10). A shake
  * inside an encounter sums two balls with black = 0, so totals are 1–5.
  * Default mapping: low total = bad, high = good.
+ *
+ * Rule check: RULES-CHECKLIST.md #3 (pinned in shared/test/verifyPins.test.ts).
  */
 export const ENCOUNTER_SHAKE_BANDS: Readonly<Record<'low' | 'mid' | 'high', readonly number[]>> = {
   low: [1, 2],
@@ -170,6 +176,8 @@ export function shakeBand(total: number): 'low' | 'mid' | 'high' {
  * branch. Spec §10 lists "1: +1 fame, 2: +1 fame, 3: ..." for 28 and "1–2: +1 fame"
  * for 29/30; the exact split between 1 and 2 could not be read off the cards.
  * Keyed by donation amount → branch name used by the encounter data.
+ *
+ * Rule check: RULES-CHECKLIST.md #4 (pinned in shared/test/verifyPins.test.ts).
  */
 export const TRAVELERS_DONATION_BRANCHES: Readonly<Record<28 | 29 | 30, Readonly<Record<0 | 1 | 2 | 3, string>>>> = {
   28: { 0: 'removeUpgradeLoseFame', 1: 'gainFame', 2: 'gainFame', 3: 'spaceJump' },
@@ -183,6 +191,8 @@ export const TRAVELERS_DONATION_BRANCHES: Readonly<Record<28 | 29 | 30, Readonly
  * edge holds the ship. Read from a small picture (spec §16.3); either of the two
  * spaceport sites is legal, so a mistake does not change play. The loader uses
  * the JSON value; this flag only documents that the data is unverified.
+ *
+ * Rule check: RULES-CHECKLIST.md #2 (pinned in shared/test/verifyPins.test.ts).
  */
 export const BEGINNER_SHIP_SIDE_VERIFIED = false;
 
@@ -197,6 +207,8 @@ export const BEGINNER_SHIP_SIDE_VERIFIED = false;
  * so the default is `false`: the ship finishes its validated path and keeps
  * whatever steps remain. With `true` the ship still completes the path it was
  * sent on but forfeits the rest of its budget (like a space jump).
+ *
+ * Rule check: RULES-CHECKLIST.md #5 (pinned in shared/test/verifyPins.test.ts).
  */
 export const DISCOVERY_ENDS_MOVE = false;
 
@@ -208,6 +220,8 @@ export const DISCOVERY_ENDS_MOVE = false;
  * lobes from the Catanian edge (hex-centre x), ties top to bottom. The last
  * 15 of the 16 shuffled tiles go to these slots in this order; the 16th tile
  * is returned to the box unseen.
+ *
+ * Rule check: RULES-CHECKLIST.md #6 (pinned in shared/test/verifyPins.test.ts).
  */
 export const WILD_SPACE_SLOT_ORDER: readonly string[] = [
   'N4', 'N1', 'N6', 'N5', 'N2', 'N7', 'N3', 'N8',
@@ -221,6 +235,8 @@ export const WILD_SPACE_SLOT_ORDER: readonly string[] = [
  * clockwise starting at this index of the slot's clockwise lobe order
  * (`lobesClockwise`), the same for every tile, so a seed fully determines
  * the board and a hidden tile needs no orientation input when it is found.
+ *
+ * Rule check: RULES-CHECKLIST.md #7 (pinned in shared/test/verifyPins.test.ts).
  */
 export const VARIABLE_SETUP_START_LOBE = 0;
 
@@ -229,6 +245,8 @@ export const VARIABLE_SETUP_START_LOBE = 0;
  * tile to the box (spec §3.1). The two 1-star empties (E1, E2) are identical,
  * so which one goes back is cosmetic; `'random'` picks through the rng, or
  * name a tile id to pin it.
+ *
+ * Rule check: RULES-CHECKLIST.md #8 (pinned in shared/test/verifyPins.test.ts).
  */
 export const STRATEGIC_RETURNED_EMPTY: 'random' | string = 'random';
 
@@ -248,6 +266,8 @@ export const DRAFT_COLONY_ROUNDS = 3;
  * boosters, leaving one of each kind so the three players' bonuses differ;
  * `'random'` would draw it through the rng instead. The upgrade that stays out
  * goes back to the tray and can be bought later like any other.
+ *
+ * Rule check: RULES-CHECKLIST.md #9 (pinned in shared/test/verifyPins.test.ts).
  */
 export const DRAFT_3P_REMOVED_UPGRADE: UpgradeKind | 'random' = 'booster';
 
@@ -258,6 +278,8 @@ export const DRAFT_3P_REMOVED_UPGRADE: UpgradeKind | 'random' = 'booster';
  * can found there later (spec §3.3, beginner.json `threePlayerRule`). Only
  * colonies are placed (the draft leaves no spaceport site free), so no blocker
  * spaceport exists in a drafted 3-player game. `false` leaves the sites open.
+ *
+ * Rule check: RULES-CHECKLIST.md #10 (pinned in shared/test/verifyPins.test.ts).
  */
 export const DRAFT_3P_BLOCK_FREE_SITES = true;
 
@@ -273,6 +295,8 @@ export const DRAFT_3P_BLOCK_FREE_SITES = true;
  * founded or built there) and have no spaceport privileges. `true` restores
  * the phase-2 reading (HANDOFF §5.2) in which the blocker spaceport's two
  * sites are off limits as end nodes for every ship.
+ *
+ * Rule check: RULES-CHECKLIST.md #11 (pinned in shared/test/verifyPins.test.ts).
  */
 export const BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES = false;
 
@@ -326,3 +350,35 @@ export const FRIENDSHIP_CARDS: Readonly<Record<FriendshipCardId, FriendshipCardD
 export function friendshipCardsOf(civ: Civ): FriendshipCardId[] {
   return (Object.values(FRIENDSHIP_CARDS) as FriendshipCardDef[]).filter((c) => c.civ === civ).map((c) => c.id);
 }
+
+// ---------------------------------------------------------------------------
+// Online turn timer (spec §13: "optional, off by default"; HANDOFF §8.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seconds the host may pick for the online turn timer (`configureRoom
+ * { turnTimerSeconds }`); `null` = no timer, the default. Inferred: the spec
+ * names no values, so this is a small list from a quick blitz turn to a
+ * relaxed one. The budget covers the whole turn (it restarts when the turn
+ * passes, not on every action); on expiry the server finishes the turn with
+ * the minimal legal sequence (server/src/autoplay.ts).
+ */
+export const TURN_TIMER_CHOICES: readonly number[] = [30, 60, 90, 120, 180, 300];
+
+/** `null` (no timer) or one of `TURN_TIMER_CHOICES`. */
+export function isTurnTimerChoice(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && TURN_TIMER_CHOICES.includes(value));
+}
+
+// ---------------------------------------------------------------------------
+// Online host hand-over (HANDOFF §8.3, §5.25)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long the host may be disconnected before the server passes the host
+ * role on (to the connected player whose current connection is the oldest,
+ * ties by seat order). Inferred: the spec has no host rules; 5 minutes rides
+ * out a reload or a flaky network without leaving a lobby stuck for long.
+ * The server reads `HOST_HANDOVER_MS` from the environment to override it.
+ */
+export const HOST_HANDOVER_MS = 5 * 60 * 1000;

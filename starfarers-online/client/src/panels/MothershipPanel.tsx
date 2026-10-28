@@ -1,6 +1,25 @@
-import { BALL_VALUES, UPGRADE_CAPS, speedOf, type GameState, type PlayerId } from '@starfarers/shared';
+import { BALL_VALUES, MAX_SHIPS_ON_BOARD, UPGRADE_CAPS, freeOwnSpaceportSites, shipsOf, speedOf, type GameState, type Player, type PlayerId } from '@starfarers/shared';
 
 const BALL_COLOR = { yellow: '#f1c40f', red: '#e74c3c', blue: '#3498db', black: '#111' } as const;
+
+/**
+ * Why a free trade ship (encounter reward, HANDOFF §5.4) is still a marker:
+ * the engine places it on the first free site of one of the player's own
+ * spaceports as soon as one frees up (found/freeTradeShip.ts).
+ */
+export function pendingTradeShipNote(state: GameState, me: Player): string | null {
+  const n = state.pendingTradeShips[me.id] ?? 0;
+  if (n < 1) return null;
+  const what = n === 1 ? 'A free trade ship is' : `${n} free trade ships are`;
+  const missing: string[] = [];
+  if (me.pieces.transportsLeft < 1 || shipsOf(state, me.id).length >= MAX_SHIPS_ON_BOARD) missing.push('a free transport');
+  if (me.pieces.stationsLeft < 1) missing.push('a trade station piece');
+  const need = missing.length > 0 ? `you have ${missing.join(' and ')}` : '';
+  if (freeOwnSpaceportSites(state, me.id).length === 0) {
+    return `${what} waiting — all your spaceport sites are occupied. It is placed automatically on the first site of one of your own spaceports that frees up${need ? ` (and once ${need})` : ''}.`;
+  }
+  return `${what} waiting. It is placed automatically on the first free site of one of your own spaceports once ${need || 'possible'}.`;
+}
 
 /** Boosters / cannons / freight pods as icons, plus the last shake's two balls (spec §14). */
 export function MothershipPanel({ state, viewer }: { state: GameState; viewer: PlayerId | null }) {
@@ -9,6 +28,7 @@ export function MothershipPanel({ state, viewer }: { state: GameState; viewer: P
   const m = me.mothership;
   const isActive = state.activePlayer === me.id;
   const shake = isActive ? state.turn.shake : undefined;
+  const pendingNote = pendingTradeShipNote(state, me);
   const rows: [string, number, number, string][] = [
     ['Boosters', m.boosters, UPGRADE_CAPS.booster, '▲'],
     ['Cannons', m.cannons, UPGRADE_CAPS.cannon, '✦'],
@@ -37,6 +57,11 @@ export function MothershipPanel({ state, viewer }: { state: GameState; viewer: P
       <div className="cards-held muted">
         Friendship cards: {me.friendshipCards.length} · Speed this turn: {isActive && state.turn.baseSpeed !== undefined ? speedOf(state, me.id) : '—'}
       </div>
+      {pendingNote && (
+        <p className="hint" data-testid="pending-trade-ship">
+          {pendingNote}
+        </p>
+      )}
       {shake && (
         <div className="shake" data-testid="shake-result">
           {shake.map((ball, i) => (

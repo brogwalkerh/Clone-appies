@@ -7,9 +7,12 @@ import {
   GAME_VARIANTS,
   GAME_VARIANT_DESCRIPTIONS,
   GAME_VARIANT_LABELS,
+  ROOM_CODE_ALPHABET,
+  ROOM_CODE_LENGTH,
   SETUP_MODES,
   SETUP_MODE_DESCRIPTIONS,
   SETUP_MODE_LABELS,
+  TURN_TIMER_CHOICES,
   type GameVariant,
   type SetupMode,
 } from '@starfarers/shared';
@@ -18,9 +21,27 @@ import { useStore } from 'zustand';
 import type { RemoteStore } from '../net/remoteStore.js';
 import { PLAYER_COLOR } from '../ui/format.js';
 import { ChatPanel } from './ChatPanel.js';
+import { HostNotice, LobbyExpiry } from './HostControls.js';
+import { timerLabel } from './TurnTimer.js';
 
 export function navigate(hash: string): void {
   window.location.hash = hash;
+}
+
+/** Room codes as server/src/rooms.ts makes them: case and whitespace are ignored. */
+export function normalizeRoomCode(raw: string): string {
+  return raw.replace(/\s+/g, '').toUpperCase();
+}
+
+/** `null` when the (normalised) code can be a room code, else the reason shown as `code-error`. */
+export function roomCodeError(code: string): string | null {
+  if (code.length === 0) return null;
+  const bad = [...new Set([...code].filter((c) => !ROOM_CODE_ALPHABET.includes(c)))];
+  if (bad.length > 0) {
+    return `A room code never contains ${bad.map((c) => `"${c}"`).join(', ')} (letters and digits only, no 0, 1, I or O).`;
+  }
+  if (code.length !== ROOM_CODE_LENGTH) return `A room code has ${ROOM_CODE_LENGTH} characters (${code.length} so far).`;
+  return null;
 }
 
 export function JoinScreen({ store, prefillCode }: { store: RemoteStore; prefillCode?: string | undefined }) {
@@ -29,8 +50,13 @@ export function JoinScreen({ store, prefillCode }: { store: RemoteStore; prefill
   const connection = useStore(store, (s) => s.connection);
   const [name, setName] = useState('');
   const [roomName, setRoomName] = useState('');
-  const [code, setCode] = useState(prefillCode ?? '');
+  const [code, setCode] = useState(normalizeRoomCode(prefillCode ?? ''));
   const [busy, setBusy] = useState(false);
+  const codeErr = roomCodeError(code);
+  const canJoin = !busy && name.trim().length > 0 && code.length === ROOM_CODE_LENGTH && codeErr === null;
+  const join = () => {
+    if (canJoin) void go(store.getState().joinRoom(code, name));
+  };
 
   const go = async (p: Promise<{ ok: boolean }>) => {
     setBusy(true);
@@ -75,11 +101,29 @@ export function JoinScreen({ store, prefillCode }: { store: RemoteStore; prefill
       <fieldset>
         <legend>Join a room</legend>
         <label>
-          Code <input value={code} data-testid="room-code" onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} />
+          Code{' '}
+          <input
+            value={code}
+            data-testid="room-code"
+            onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') join();
+            }}
+            maxLength={ROOM_CODE_LENGTH + 6}
+            aria-invalid={codeErr !== null}
+            aria-describedby={codeErr ? 'code-error' : undefined}
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
         </label>
-        <button type="button" data-testid="join-room" disabled={busy || !name.trim() || code.trim().length < 6} onClick={() => void go(store.getState().joinRoom(code, name))}>
+        <button type="button" data-testid="join-room" disabled={!canJoin} onClick={join}>
           Join
         </button>
+        {codeErr && (
+          <p className="error" id="code-error" data-testid="code-error" role="status">
+            {codeErr}
+          </p>
+        )}
       </fieldset>
       {netError && <p className="error" data-testid="net-error">{netError}</p>}
       <button type="button" className="link" onClick={() => navigate('#/')}>
@@ -129,9 +173,23 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
               {p.id === session.playerId ? ' — you' : ''}
             </span>
             <span className="muted">{p.connected ? 'online' : 'offline'}</span>
+            {isHost && p.id !== session.playerId && (
+              <span className="row host-actions">
+                {!lobby.started && (
+                  <button type="button" className="link" data-testid={`kick-${p.id}`} onClick={() => void store.getState().kickPlayer(p.id)}>
+                    remove
+                  </button>
+                )}
+                <button type="button" className="link" data-testid={`make-host-${p.id}`} onClick={() => void store.getState().transferHost(p.id)}>
+                  make host
+                </button>
+              </span>
+            )}
           </li>
         ))}
       </ul>
+      <HostNotice store={store} />
+      <LobbyExpiry store={store} />
       <label>
         Set-up{' '}
         <select
@@ -167,6 +225,28 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
         </select>{' '}
         <span className="muted" data-testid="lobby-setup">
           {SETUP_MODE_LABELS[lobby.config.setup]} — {SETUP_MODE_DESCRIPTIONS[lobby.config.setup]}
+          {isHost ? '' : ' (the host chooses)'}
+        </span>
+      </label>
+      <label>
+        Turn timer{' '}
+        <select
+          value={lobby.config.turnTimerSeconds === null ? 'off' : String(lobby.config.turnTimerSeconds)}
+          disabled={!isHost}
+          data-testid="timer-select"
+          onChange={(e) => void store.getState().configureRoom({ turnTimerSeconds: e.target.value === 'off' ? null : Number(e.target.value) })}
+        >
+          <option value="off">{timerLabel(null)}</option>
+          {TURN_TIMER_CHOICES.map((s) => (
+            <option key={s} value={String(s)}>
+              {timerLabel(s)}
+            </option>
+          ))}
+        </select>{' '}
+        <span className="muted" data-testid="lobby-timer">
+          {lobby.config.turnTimerSeconds === null
+            ? 'No turn timer'
+            : `${timerLabel(lobby.config.turnTimerSeconds)} per turn — when it runs out, the server rolls, resolves what is pending and ends the turn; it never builds or trades, and moves a ship only when a parked ship must found or leave (it founds the colony if it can)`}
           {isHost ? '' : ' (the host chooses)'}
         </span>
       </label>

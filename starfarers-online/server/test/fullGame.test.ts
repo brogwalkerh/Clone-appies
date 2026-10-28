@@ -1,7 +1,7 @@
 import { WIN_VP, type GameVariant, type SetupMode } from '@starfarers/shared';
 import { describe, expect, it } from 'vitest';
 import { RoomStore } from '../src/rooms.js';
-import { botRandom, nextAction } from './bot.js';
+import { BOT_GAME_TIMEOUT_MS, botRandom, nextAction } from './bot.js';
 
 /**
  * Whole games through the room store with the greedy bot. The bot only sends
@@ -47,7 +47,7 @@ function playGame(seed: string, botSeed: number, maxActions = 6000, variant: Gam
   return { room, actions, rejected, rejections };
 }
 
-describe('full games through the room store', () => {
+describe('full games through the room store', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   for (const [seed, botSeed] of [
     ['full-game-a', 1],
     ['full-game-b', 2],
@@ -69,7 +69,7 @@ describe('full games through the room store', () => {
   }
 });
 
-describe('full games on the variable set-ups (spec §3.2)', () => {
+describe('full games on the variable set-ups (spec §3.2)', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   for (const [variant, seed, botSeed] of [
     ['strategic', 'full-strategic', 4],
     ['explorer', 'full-explorer', 5],
@@ -100,7 +100,7 @@ describe('full games on the variable set-ups (spec §3.2)', () => {
   }
 });
 
-describe('full games after the advanced set-up draft (spec §3.4)', () => {
+describe('full games after the advanced set-up draft (spec §3.4)', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   for (const [variant, players, seed, botSeed] of [
     ['strategic', 3, 'full-draft-strategic', 7],
     ['beginner', 4, 'full-draft-beginner', 8],

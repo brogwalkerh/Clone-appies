@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { Board } from './board/Board.js';
 import { legalJumpTargets, legalMoves } from './board/legalMoves.js';
+import { useBoardMotion } from './board/motion.js';
 import { VpTrack } from './board/VpTrack.js';
 import type { RemoteStore } from './net/remoteStore.js';
 import { remoteStore } from './net/socket.js';
@@ -40,17 +41,22 @@ import { PassBanner } from './panels/PassBanner.js';
 import { SetupScreen } from './panels/SetupScreen.js';
 import { SevenDialog } from './panels/SevenDialog.js';
 import { TradePanel } from './panels/TradePanel.js';
+import { GameHostControls } from './panels/HostControls.js';
+import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
+import { useEscape } from './ui/keyboard.js';
 
 export interface GameScreenProps {
   /** Extra sidebar content (the online chat). */
   extraPanels?: React.ReactNode;
   /** Header text instead of the seed (the room code online). */
   subtitle?: string | undefined;
+  /** Extra header content (the online turn timer). */
+  headerExtra?: React.ReactNode;
 }
 
-export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
+export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenProps) {
   const state = useShownState();
   const live = useGame((s) => s.game);
   const mode = useGame((s) => s.mode);
@@ -65,7 +71,9 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
   const replayIndex = useGame((s) => s.replayIndex);
   const newGame = useGame((s) => s.newGame);
   const setup = useGame((s) => s.setup);
+  const setNodePick = useGame((s) => s.setNodePick);
   const act = useAct();
+  const motion = useBoardMotion();
 
   const replaying = replayIndex !== null;
   const awaitingJump = state?.phase === 'flight.encounter' && state.turn.encounter?.awaiting?.kind === 'spaceJump' && state.turn.encounter.awaiting.playerId === viewer;
@@ -92,8 +100,27 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
     return m;
   }, [state, replaying, nodePick, selectedShip, viewer, awaitingJump, draftingColony]);
 
+  // Escape (ui/keyboard.ts): cancel a build site pick, else deselect the ship, else dismiss the error toast.
+  useEscape(() => {
+    if (nodePick) {
+      setNodePick(null);
+      return true;
+    }
+    if (selectedShip) {
+      selectShip(null);
+      return true;
+    }
+    if (error) {
+      clearError();
+      return true;
+    }
+    return false;
+  });
+
   if (!state || !live) return null;
 
+  const shipsSelectable =
+    !replaying && !pendingViewer && !nodePick && (awaitingJump || (state.phase === 'flight.move' && state.activePlayer === viewer && state.turn.pendingFound === undefined));
   const onNodeClick = (nodeId: NodeId) => {
     if (replaying || pendingViewer) return;
     if (nodePick) {
@@ -126,6 +153,7 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
       <header className="topbar">
         <strong>Starfarers Online</strong>
         <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
+        {headerExtra}
         <span className="spacer" />
         {mode === 'local' ? (
           <label>
@@ -160,8 +188,8 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
       {replaying && <div className="toast info">Replay view — the board shows an earlier state. Use the slider in the log to return to live play.</div>}
       <main className="layout">
         <div className="board-col">
-          <VpTrack state={state} />
-          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} />
+          <VpTrack state={state} motion={motion} />
+          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
           {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
         </div>
         <aside className="side">
@@ -238,7 +266,7 @@ function RoomRoute({ store, code }: { store: RemoteStore; code: string }) {
   if (!lobby.started || !game) return <RoomLobby store={store} />;
   return (
     <StoreContext.Provider value={store as unknown as GameStore}>
-      <GameScreen subtitle={`room ${code}`} extraPanels={<ChatPanel store={store} />} />
+      <GameScreen subtitle={`room ${code}`} headerExtra={<><TurnTimer store={store} /><GameHostControls store={store} /></>} extraPanels={<ChatPanel store={store} />} />
     </StoreContext.Provider>
   );
 }

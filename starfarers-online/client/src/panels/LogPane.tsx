@@ -24,6 +24,22 @@ export function LogPane({ state }: { state: GameState }) {
     return () => clearTimeout(timer);
   }, [replayIndex, ensureReplay]);
   const shown = replayIndex ?? actions.length;
+  const seek = (v: number) => {
+    const clamped = Math.max(replayMin, Math.min(actions.length, v));
+    setReplayIndex(clamped >= actions.length ? null : clamped);
+  };
+  // Explicit keys (same as a native range, but identical across browsers and jsdom): arrows ±1,
+  // PageUp/PageDown ±10, Home = first reachable state, End = live. The fetch debounce above still applies.
+  const KEY_STEP: Record<string, (v: number) => number> = {
+    ArrowLeft: (v) => v - 1,
+    ArrowDown: (v) => v - 1,
+    ArrowRight: (v) => v + 1,
+    ArrowUp: (v) => v + 1,
+    PageDown: (v) => v - 10,
+    PageUp: (v) => v + 10,
+    Home: () => replayMin,
+    End: () => actions.length,
+  };
   return (
     <section className="panel log" data-testid="log-pane">
       <h3>Log</h3>
@@ -34,10 +50,15 @@ export function LogPane({ state }: { state: GameState }) {
           max={actions.length}
           value={shown}
           aria-label="Replay position"
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            setReplayIndex(v >= actions.length ? null : v);
+          aria-valuetext={replayIndex === null ? 'live' : `replay ${shown} of ${actions.length}`}
+          data-testid="replay-slider"
+          onKeyDown={(e) => {
+            const step = KEY_STEP[e.key];
+            if (!step) return;
+            e.preventDefault();
+            seek(step(shown));
           }}
+          onChange={(e) => seek(Number(e.target.value))}
         />
         <span className="muted small">{replayIndex === null ? 'live' : `replay ${shown}/${actions.length}`}</span>
         {replayIndex !== null && (

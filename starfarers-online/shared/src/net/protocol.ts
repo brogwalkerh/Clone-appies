@@ -23,7 +23,11 @@ export interface ChatMessage {
 }
 
 export interface RoomConfig {
-  /** Seconds per turn; `null` = no timer (default). Config only in phase 5, not enforced. */
+  /**
+   * Seconds per turn; `null` = no timer (default). Host-only, via `configureRoom`, one of
+   * `TURN_TIMER_CHOICES` (config.ts). Enforced by the server since phase 7: when the turn's
+   * deadline passes it finishes the turn with the minimal legal sequence (HANDOFF §8.2).
+   */
   turnTimerSeconds: number | null;
   /** Set-up used when the host starts (spec §3.2); default 'beginner'. Host-only, via `configureRoom`. */
   variant: GameVariant;
@@ -42,6 +46,17 @@ export interface LobbyView {
   messages: ChatMessage[];
   minPlayers: number;
   maxPlayers: number;
+  /** Phase 7, additive: when the current turn's timer runs out (Unix ms); `null` / absent = no deadline. */
+  deadlineAt?: number | null;
+  /**
+   * Phase 7, additive (HANDOFF §8.3): when the room expires if nothing else happens (Unix ms,
+   * last activity + `idleMs`; a room with a connected player is never swept, so in practice
+   * this is a deadline after everyone has left), and the idle window itself.
+   */
+  expiresAt?: number;
+  idleMs?: number;
+  /** Phase 7, additive: while the host is offline, when the host role passes on (Unix ms); `null` / absent = none pending. */
+  hostHandoverAt?: number | null;
 }
 
 export interface Session {
@@ -77,22 +92,35 @@ export interface ClientToServerEvents {
   joinRoom(payload: { code: string; playerName: string }, ack: Ack<JoinReply>): void;
   resume(payload: { roomCode: string; playerToken: string }, ack: Ack<JoinReply>): void;
   /** Host only, before the start: change the room's set-up (board variant and/or start mode); the room then gets a fresh `lobby`. */
-  configureRoom(payload: { variant?: GameVariant; setup?: SetupMode }, ack: Ack<{ configured: true }>): void;
+  configureRoom(payload: { variant?: GameVariant; setup?: SetupMode; turnTimerSeconds?: number | null }, ack: Ack<{ configured: true }>): void;
   startGame(payload: Record<string, never>, ack: Ack<{ started: true }>): void;
   action(payload: { action: Action }, ack: Ack<{ accepted: true }>): void;
   /** State after the first `index` accepted actions (0 = initial), replayed on the server and redacted for the asker. */
   replay(payload: { index: number }, ack: Ack<GameState>): void;
   chat(payload: { text: string }, ack: Ack<{ sent: true }>): void;
+  /** Phase 7, additive: host only, before the start: remove another seat; its token stops working. */
+  kickPlayer(payload: { playerId: PlayerId }, ack: Ack<{ kicked: PlayerId }>): void;
+  /** Phase 7, additive: host only, any time (lobby or game): make another seated player the host. */
+  transferHost(payload: { playerId: PlayerId }, ack: Ack<{ hostId: PlayerId }>): void;
 }
 
 export interface ServerToClientEvents {
   lobby(view: LobbyView): void;
-  /** Redacted for this socket's player; `action` is the accepted action that produced it (redacted too). */
-  state(payload: { state: GameState; action: Action | null }): void;
+  /**
+   * Redacted for this socket's player; `action` is the accepted action that produced it (redacted too).
+   * Phase 7, additive: `deadlineAt` is when the current turn's timer runs out (Unix ms, `null` / absent =
+   * no timer) and `serverNow` the server clock at sending, so a client can correct for clock skew.
+   */
+  state(payload: { state: GameState; action: Action | null; deadlineAt?: number | null; serverNow?: number }): void;
   /** Sent to the offending socket only. */
   error(error: NetError | GameError): void;
   chat(message: ChatMessage): void;
+  /** Phase 7, additive: sent to a kicked player's socket only; its session is no longer valid. */
+  kicked(payload: { roomCode: string; message: string }): void;
 }
+
+/** Phase 7, additive: chat sender id of the server's room notices (kick, host change, hand-over); never a player id. */
+export const ROOM_CHAT_ID = 'room';
 
 export const ROOM_MIN_PLAYERS = 3;
 export const ROOM_MAX_PLAYERS = 4;

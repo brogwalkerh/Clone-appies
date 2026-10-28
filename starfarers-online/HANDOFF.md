@@ -1,20 +1,22 @@
 # Starfarers Online — project state and hand-off
 
-Last updated after phase 6. Everything is on `main`: phases 1–5 via PR #2
+Last updated after phase 7 part A. On `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
-review, server-side replay) via PR #3 (`e473ca2`). No open branches.
+review, server-side replay) via PR #3 (`e473ca2`), the phase 7 plan via PR #4
+(`063b21f`), phase 7 part A (animations, turn timer, host controls, keyboard
+navigation, rule-confirmation checklist, review) via PR #5 from
+`starfarers-phase-7`. No open branches.
 
 **Starting a new session:** paste the prompt in §10 into the new session. It
 says to read `CLAUDE.md`, then this file top to bottom, then
 `starfarers-clone-spec.md` §13–§16; branch from `main`; run the commands in §2
-to confirm green (550 tests); then work §8 (phase 7) in order. Everything
-before §8 is finished and tested; §8 is what separates the project from a
-finished game and a deployable app.
+to confirm green (627 tests); then work §8 part B in order. Spec §15 is
+complete; part B is what separates a finished game from an app strangers can
+use. `RULES-CHECKLIST.md` waits on someone with the physical box.
 
 ## 1. Current state in one paragraph
 
-Phases 1–6 of spec §15 are done except animations and turn-timer enforcement
-(§8 part A also adds host controls and keyboard navigation): the pure
+Phases 1–6 of spec §15 are done, and phase 7 part A closed the rest of it: the pure
 engine in `shared/` plays a complete game from set-up to a 15-VP win on any of
 the four boards (beginner, strategic, explorer, wild space — the last two with
 face-down tiles discovered by ships) starting either from the preset pieces or
@@ -26,8 +28,16 @@ board and set-up / starts with 3–4), redacts the state per socket (hidden
 tiles included), forwards actions through the engine, carries chat, re-binds a
 player by token after a reload, writes every room to a JSON file under
 `DATA_DIR` and restores them on boot, expires idle rooms, and replays the
-action log on request so a resumed client can scrub to turn 1. 550 Vitest
-tests pass (464 engine, 44 server, 42 client), `tsc --noEmit` is clean in all
+action log on request so a resumed client can scrub to turn 1. Phase 7 added
+ship slides, tile and disc flips and a sliding VP marker (live states only,
+`prefers-reduced-motion` honoured), an optional per-turn timer the server
+enforces with a minimal turn-ending sequence, host kick / transfer / automatic
+hand-over and the room's expiry in the lobby, keyboard play (highlighted nodes
+and selectable ships are tab stops, Escape for optional dialogs only, slider
+keys), the outpost label fix, a pending trade-ship note, join-code validation,
+and `RULES-CHECKLIST.md` with a pin test for every item the physical box must
+confirm. 627 Vitest
+tests pass (478 engine, 75 server, 74 client), `tsc --noEmit` is clean in all
 three packages, `pnpm build` produces `client/dist` and `server/dist`, and the
 `starfarers-engine` CI job runs all of it. A Dockerfile builds the
 single-process deploy with `/data` as the volume. Verified by hand in headless
@@ -35,13 +45,21 @@ Chromium (zero page errors): 3-browser online games on the explorer and
 strategic boards and with the draft (lobby pickers seen by guests, chat, draft
 through the UI, hidden hands, move, encounter, reload-reconnect, a server
 restart with all three players resuming, log slider back to the initial state
-and to a mid-game turn), plus hot-seat wild-space and draft runs.
+and to a mid-game turn), plus hot-seat wild-space and draft runs. Phase 7's
+combined drive: a bad join code refused, lobby expiry, a 60 s timer seen by
+guests, host passed in the lobby, nine explorer turns with eight animated
+moves ending on the clicked node, a roll by keyboard, a guest reload, a server
+restart with all three resuming, the slider scrubbed by Home / End, a host
+transfer in game, zero page errors; the item drives also covered kick,
+automatic hand-over, timer expiry and its survival across a restart, a full
+keyboard-only turn and reduced motion.
 
 ## 2. Layout
 
 ```
 starfarers-online/
   CLAUDE.md, starfarers-clone-spec.md, HANDOFF.md (this file)
+  RULES-CHECKLIST.md                             20 rule confirmations for someone with the physical box (§8.5)
   layouts/board.json, layouts/beginner.json    board data; never retype, load
   package.json  pnpm-workspace.yaml (shared, server, client)  vitest.config.ts
   shared/                                        @starfarers/shared, pure TS engine, Foundation-free, no I/O
@@ -61,8 +79,9 @@ starfarers-online/
     src/found/          colony, station, friendship, freeTradeShip
     src/encounters/     schema, cards (32 as data), engine (resumable interpreter), text (progressive reveal)
     src/index.ts        barrel; the server/client import only from here
-    test/               19 files, 464 tests; test/support/tradeBuild.ts has fixture helpers;
-                        setupVariants / discovery / draft tests are the phase 6 additions
+    test/               20 files, 478 tests; test/support/tradeBuild.ts has fixture helpers;
+                        setupVariants / discovery / draft tests are the phase 6 additions;
+                        verifyPins.test.ts pins every RULES-CHECKLIST.md item (phase 7)
     src/net/redact.ts   redactState(state, viewerId) + redactBoard() (hides undiscovered tiles) + handSize();
                         src/net/protocol.ts: Socket.IO event types
     src/flight/reach.ts reachablePaths / legalMoves / legalJumpTargets (BFS + validateEndNode)
@@ -72,15 +91,20 @@ starfarers-online/
     src/persist.ts      RoomPersistence interface; FileRoomPersistence (one <CODE>.json per room, atomic
                         rename, corrupt files skipped) and MemoryRoomPersistence (tests)
     src/socket.ts       attachSockets(io, store): protocol events → store, per-socket redacted `state`
+    src/autoplay.ts     timeoutAction: the turn timer's minimal turn-ending sequence (+ pieces the test bot shares)
+    src/timer.ts        TurnTimers: one unref'd timeout per room at `deadlineAt` (injectable scheduler)
+    src/handover.ts     HostHandovers: one timeout per room at `handoverDueAt` (host hand-over, §5.25)
     src/static.ts       static handler for client/dist with SPA fallback
     src/index.ts        entry: http + static + /healthz + Socket.IO; restoreAll + sweep on boot, sweep every
                         10 min, flush on SIGTERM; env PORT, HOST, STATIC_DIR, CORS_ORIGIN, DATA_DIR,
-                        ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS
-    test/bot.ts         greedy bot (nextAction / actor) used to play whole games
+                        ROOM_IDLE_HOURS, ROOM_FINISHED_HOURS, HOST_HANDOVER_MS
+    test/bot.ts         greedy bot (nextAction / actor) used to play whole games; BOT_GAME_TIMEOUT_MS
     test/               rooms.test.ts, fullGame.test.ts (whole games to a win: beginner ×3, strategic,
                         explorer, wild, draft+strategic 3p, draft+beginner 4p), socket.test.ts (socket.io-client
                         against an in-process server, incl. a full game over sockets and a replay round trip),
-                        persist.test.ts (file store, restart determinism, sweep), replay.test.ts — 44 tests
+                        persist.test.ts (file store, restart determinism, sweep), replay.test.ts,
+                        timer.test.ts / timerSocket.test.ts, hostControls.test.ts / hostSocket.test.ts
+                        (fakeClock.ts) — 75 tests
   client/                                        @starfarers/client, Vite 6 + React 19 + zustand + socket.io-client
     index.html  vite.config.ts (proxies /socket.io to :3000 in dev)  vitest.config.ts (jsdom + testing-library)
     src/main.tsx  src/App.tsx   hash router (#/ #/local #/online #/room/CODE), GameScreen (store-agnostic)
@@ -88,13 +112,15 @@ starfarers-online/
     src/store/gameStore.ts      GameStoreState + hot-seat store; StoreContext / useGameStore / useGame / useAct
     src/net/remoteStore.ts      RemoteStoreState (extends GameStoreState) over a SocketLike; session.ts (localStorage);
                                 socket.ts (real socket.io-client + lazy singleton)
-    src/board/Board.tsx         SVG board from state.board + board/geometry; VpTrack.tsx; legalMoves.ts re-exports shared
+    src/board/Board.tsx         SVG board from state.board + board/geometry; VpTrack.tsx; legalMoves.ts re-exports shared;
+                                motion.ts (useBoardMotion: ship slide, flips, reduced motion); outpostLayout.ts
     src/panels/                 HandPanel, MothershipPanel, BuildMenu, TradePanel, FriendshipPanel, SevenDialog,
                                 EncounterModal, FoundStationDialog, ActionBar, LogPane, PassBanner, SetupScreen,
                                 ResourcePicker (BagPicker), OnlineLobby (JoinScreen, RoomLobby), ChatPanel,
-                                DraftPanel (round 4 of the advanced set-up)
-    src/ui/format.ts            colours, labels, bag/hand helpers (no rules)
-    test/                       7 files, 42 tests (legal-move highlight vs engine incl. explorer and 3p
+                                DraftPanel (round 4 of the advanced set-up), TurnTimer, HostControls
+    src/ui/format.ts            colours, labels, bag/hand helpers (no rules); ui/keyboard.ts (Escape stack, focus helpers)
+    test/                       11 files, 74 tests (animation, turnTimer, hostControls, keyboard are phase 7;
+                                legal-move highlight vs engine incl. explorer and 3p
                                 boards, encounter modal per awaiting.kind, viewer switch, scripted full
                                 turn + replay, remote store over a fake socket incl. configureRoom and
                                 server replay, session storage, variant/set-up pickers, draft panel)
@@ -108,7 +134,7 @@ Vite), React 19, zustand 5, ESM.
 From `starfarers-online/`:
 
 ```sh
-pnpm install && pnpm typecheck && pnpm test   # 472 tests, ~30 s (the socket full game is the slow one)
+pnpm install && pnpm typecheck && pnpm test   # 550 tests, ~30 s (the socket full game is the slow one)
 pnpm build                                    # client/dist (Vite) + server/dist/index.js (esbuild bundle)
 pnpm start                                    # http://localhost:3000 — hot-seat and online from one process
 pnpm dev:server & pnpm dev:client             # dev: tsx watch on :3000, Vite on :5173 proxying /socket.io
@@ -120,7 +146,8 @@ or the Dockerfile; one process; rooms are written to `DATA_DIR` (default
 `./data`, the Docker image uses `/data`) after every change and read back on
 boot, so a restart keeps every game. Knobs: `PORT`, `HOST`, `STATIC_DIR`,
 `CORS_ORIGIN`, `DATA_DIR` (empty string = memory only), `ROOM_IDLE_HOURS`,
-`ROOM_FINISHED_HOURS` (both default 24).
+`ROOM_FINISHED_HOURS` (both default 24), `HOST_HANDOVER_MS` (default 300000,
+the shared `HOST_HANDOVER_MS`; a short value is handy for driving the hand-over).
 
 ## 3. Engine API the client and server build on
 
@@ -174,6 +201,16 @@ if (r.ok) next = r.value; else show(r.error.code, r.error.message);
 | 4 Hot-seat client | `dc3cd18` | `client/` package; store with one rng per game and an action log that replays deterministically; SVG board (hexes, resource-coloured planets, discs sized by dice probability, face-down discs, P/I tokens, outposts with 5 docks, colonies/spaceports/ships in player colours); ship selection → BFS highlight filtered by `validateEndNode`, hover path preview, click to `moveShip`; found-colony buttons and a dock + friendship-card dialog for stations; hand / others' counts, mothership with shake animation, VP track, build menu with affordability and board site picks, supply trade with every ratio the player may use, player trade proposal / counter / accept / reject / withdraw, friendship card actions (Fame for Sale, Helping Hand, Relief Fund), 7 dialog (discard picker, steal target), encounter modal with progressive text and a control per `awaiting.kind` (space jump through board clicks), log pane with replay slider, pass-the-laptop curtain, seat select, error toast with the engine's message; Playwright-driven 12-turn smoke run with zero page errors | 444 |
 | 5 Server, lobby, reconnect | `1ccb53d` `52e5db3` `6b945b7` | `shared/net`: `redactState` (other hands emptied + `handCount`, reserve pile / encounter deck emptied + counts, `seed` blanked, hidden log payloads stripped) and the typed Socket.IO protocol; `shared/flight/reach.ts` (BFS moved out of the client); `server/`: `RoomStore` with 6-char codes, per-player reconnect tokens, colours by join order, host-only start with 3–4, server-generated seed and one `Rng` per room, action validation (`action.playerId` must be the socket's player) before the engine, chat list, `snapshot()/restore()`, `startWithState()`; `attachSockets` emits `lobby` to the room, `state` redacted per socket with the accepted action attached, `error` to the sender only, evicts a stale socket when a token resumes elsewhere, mirrors `connected` into the game state; static serving + `/healthz`; `client/`: hash router, `StoreContext` so every panel runs against either store, `RemoteGameStore` (dispatch → emit with ack, snapshots for replay, viewer fixed, no curtain), localStorage session + auto-resume on `#/room/CODE`, join/create/rejoin screen, room lobby with copyable code, start button and chat, chat panel in the game sidebar, `(offline)` tag on disconnected players; Dockerfile; CI builds both; a greedy bot plays whole games to a win (3 through the store, 1 over sockets) with zero rejections | 472 |
 | 6 Polish, part 1 | `723d7ad` `60bb274` `66d4725` `ea03792` `5784d53` `576190f` | `server/persist.ts` (`RoomPersistence`, file + memory stores), `RoomStore` writes a snapshot after every change with one write chain per room, `restoreAll()` on boot, `sweep()` for idle/finished rooms, `flush()` on SIGTERM, env `DATA_DIR` / `ROOM_IDLE_HOURS` / `ROOM_FINISHED_HOURS`, Docker `/data` volume; `shared/setup/` `createGame({variant, setup})` with strategic / explorer / wild-space tile and disc shuffles (`[VERIFY]` items in config), `Sector.discovered`, `GameState.discPools`, `flight/discover.ts` (tile flipped + discs drawn per icon at the exploration trigger), undiscovered interiors excluded from paths, `redactBoard` so a hidden tile is indistinguishable from any other, face-down tiles on the SVG board, variant picker in the set-up screen and the lobby (`configureRoom`); `JoinReply.initial` + `replay {index}` with an incremental per-room cache and a client-side cache so a resumed client scrubs to turn 1; the §3.4 snake draft as phase `setup` with `draftColony` / `draftFinish`, `DraftPanel`, bot support, 3-player pool and free-site rules in config; the 3-player blocker review (§5.2) | 550 |
+| 7A Close the spec | `9a465f9` `ca77677` `c032010` `0bdabf6` `0975671` `ea0a54e` `5c718f4` `2d17a38` | client `board/motion.ts`: ship slides node by node along `moveShip.path`, tile and disc flips, VP marker slide, only for exactly one new live action, off under `prefers-reduced-motion`; turn timer: `TURN_TIMER_CHOICES`, `configureRoom({turnTimerSeconds})`, per-turn `deadlineAt` (persisted, sent with `serverNow`), `server/autoplay.ts` `timeoutAction` + `timer.ts`, chat marker, lobby picker and countdown; host controls: `kickPlayer` / `transferHost` / `kicked`, automatic hand-over after `HOST_HANDOVER_MS` (`handover.ts`), `lobby-expires`; keyboard: tab stops on highlighted nodes and selectable ships, Enter/Space = click, focus into and out of dialogs, Escape stack for optional UI only, slider arrows / PageUp / PageDown / Home / End; outpost civ label on the lobe away from the dock row; `pending-trade-ship` note; join-code validation against `ROOM_CODE_ALPHABET`; `RULES-CHECKLIST.md` (20 items) + `verifyPins.test.ts`; review: load-proof bot-game timeouts, system chat lines, reused-seat chat, timer wording, forced-move and kick-silence tests | 627 |
+
+Phase 7 review pass fixed: a rare red `pnpm test` (2 in ~30 runs) was the
+wild-space bot game (~13 s alone, 30–41 s with 3–4 suites in parallel against
+a 30 s timeout) — CPU-bound bot games now carry `BOT_GAME_TIMEOUT_MS` (240 s)
+and socket `until` helpers wait on real time; system chat lines showed the
+sender twice ("Timer timer: …"); a player who took a kicked player's reused
+seat saw the old lines as their own; the lobby text said the timer never
+moves (it makes the one forced move of §5.24); the forced move and the kicked
+socket's silence had no real test.
 
 Phase 6 review pass fixed: every client could read every face-down number
 disc (label, numbers, pirate/ice specials, even the id) on discovered but
@@ -214,7 +251,7 @@ reached; pending trade ships not placed as soon as a site freed up.
    star backs, beginner `shipSide`) live in `config.ts`/`board.json` and are
    pinned by tests so a change is deliberate.
 8. (Superseded in phase 6: variable set-ups, the advanced draft and
-   persistence are done; see §5.18–§5.21. The turn timer is still config only.)
+   persistence are done; see §5.18–§5.21. The turn timer is enforced since phase 7, §5.24.)
 9. Client (phase 4): the "viewer" is one seat; `requiredViewer` picks the
    encounter picker, then a 7-discarder (current viewer first), then the open
    trade's recipient, else the active player. Any seat can also be taken from
@@ -243,8 +280,7 @@ reached; pending trade ships not placed as soon as a site freed up.
 15. A player who resumes from a second tab evicts the first (one socket per
    token). Leaving a room only forgets the local session; the server keeps the
    seat so the token can come back.
-16. Turn timer: `RoomConfig.turnTimerSeconds` is stored and sent in the lobby
-   view but nothing enforces it (spec: config only in phase 5).
+16. Turn timer (phase 7, §8.2; superseded the phase-5 "config only"): see §5.24.
 17. Remote replay: states received since joining are indexed locally
    (`snapshots`, offset `snapshotBase`); earlier indices are fetched from the
    server (`replay {index}`, §5.21), so a resumed client can scrub to turn 1.
@@ -322,6 +358,112 @@ reached; pending trade ships not placed as soon as a site freed up.
    moved" (cosmetic). (e) A no-op `configureRoom({})` writes nothing; any
    applied key rewrites the room file.
 
+24. Turn timer (spec §13, §8.2): off by default; the host picks `null` or one
+   of `TURN_TIMER_CHOICES` (`config.ts`, inferred: 30 s – 5 min) with
+   `configureRoom({ turnTimerSeconds })`; any other value refuses the whole
+   patch (`badRequest`). Deadline policy: the budget is per TURN, not per
+   action — `RoomStore` sets `deadlineAt = now + seconds` when the game starts
+   and whenever an accepted action changes `turnKey` (turn number + active
+   player; in the draft, round + pick index, so every draft pick is a
+   "turn"); actions inside the turn, including other players' 7 discards or
+   encounter picks, do not extend it. `null` on game over or without a timer.
+   `deadlineAt` is persisted in `RoomSnapshot` (older snapshots recompute it
+   from now) and sent in the `state` payload (with `serverNow` for skew) and
+   `LobbyView`. On expiry `expireTurn` submits `timeoutAction`
+   (`server/src/autoplay.ts`) through `applyAction` until the turn key
+   changes: roll → a pending 7 (each discarder drops their first cards, then
+   the roller steals from the first target) → reserve draw skipped →
+   `shakeMothership` if the player has ships, else `endTurn` (either closes an
+   open trade, so no withdraw/reject is sent) → encounter: the awaited pick as
+   whoever it is awaited from (first option / first cards / decline a jump),
+   else offer 0 / answer "no" → a pending trade station (first free dock,
+   first card) → `endTurn`. The one forced move: when the engine refuses
+   `endTurn` because a parked colony ship must found or leave, the timer
+   founds if it may, else takes that ship's shortest legal move. It never
+   builds or trades. Each automatic action is an ordinary accepted action
+   (broadcast, logged, persisted, replayable); the visible marker is one chat
+   line per expiry, `from: 'timer'`, text `timer: <name> ran out of time;
+   rolled, …, ended the turn` (no engine type changes). A refused or missing
+   automatic action stops the run, clears the deadline for that turn and
+   warns: the timer never loops. A room with nobody connected waits (the
+   timer does not play an abandoned game or keep it from being swept); the
+   first player back into an overdue room gets a fresh budget.
+   `server/src/timer.ts` keeps one unref'd timeout per room, re-armed on every
+   `state` broadcast and for restored rooms at boot, cleared on null and for
+   swept rooms. The test bot imports `actor` and the draft / 7 / encounter-pick
+   / pending-station pieces from `autoplay.ts`, so its games are unchanged.
+
+25. Host controls (§8.3): `kickPlayer` is host-only and lobby-only (a started
+   game keeps every seat; the host cannot kick themself); the seat and its
+   token are deleted, the kicked socket gets `kicked` and leaves the room, its
+   client forgets the session and shows the join screen with the reason. A
+   kick is not a ban: the same name may join again as a new seat. Player ids
+   are reused (`pN` lowest free). `transferHost` is host-only, any time, to
+   any other seated player (also an offline one; the hand-over clock then
+   starts). Automatic hand-over: while the host is disconnected
+   (`Room.hostAwaySince`), after `HOST_HANDOVER_MS` (config, 5 min, inferred)
+   the host passes to the *longest-connected* player = the connected
+   non-host with the earliest `connectedAt` (start of the current unbroken
+   connection; a reconnect resets it, a second tab replacing the first does
+   not), ties by seat order. Checked by a per-room timeout armed on every
+   lobby broadcast (`server/src/handover.ts`) and on every bind (a player
+   returning to an overdue room takes over at once). Nobody else connected →
+   no hand-over until someone binds. Every host change is activity (written,
+   `updatedAt` bumped) with a chat line `from: 'room'`. `hostAwaySince` /
+   `connectedAt` are memory only: after a restart the absence counts from
+   boot, so the earliest hand-over is one full window after the restart.
+   `LobbyView.expiresAt` = `updatedAt + idleMs` (sent with `idleMs`); the
+   lobby advances it on chat seen since. It is the deadline once everyone
+   has left — a room with a connected player is never swept.
+
+26. Animations (§8.1, presentation only): `useBoardMotion` watches the
+   store's `actions[]` (both stores append the accepted action) and animates
+   only when its length grows by exactly one while `replayIndex === null`;
+   join, resume, reconnect, scrubbing and returning to live never animate. The
+   ship glyph is drawn at the state's node from the first frame and a CSS
+   `translate` offsets it back through the path, so the final position is
+   always the state's. Only `moveShip` slides (a space jump does not); a path
+   whose last node is not the ship's node does not animate. A disc "flips"
+   when it turns face up or becomes a P/I token; planets of a just-discovered
+   tile flip with it. The VP track is HTML, so its markers sit in an overlay
+   lane moved by `translateX`. `prefers-reduced-motion: reduce` turns off the
+   slides, flips, ball drop, encounter reveal and highlight pulse.
+27. Keyboard (§8.4): only highlighted nodes and the viewer's selectable ships
+   are tab stops (the other ~394 nodes are not); nodes come before ships in
+   document order, so after selecting a ship Shift+Tab reaches the targets.
+   No roving arrow keys between nodes. Dialogs take focus when they open
+   (not while the user is typing in a text field) and give it back; there is
+   no focus trap (the modals are non-blocking panels). Escape, by priority:
+   close a resolved encounter, cancel a build site pick, deselect the ship,
+   dismiss the error toast; mandatory decisions (7 discard / steal, an
+   awaited encounter pick or choice, the trade-station dialog, draft round 4,
+   game over) ignore it. The board `<svg>` is `role="group"` (an `img` role
+   hides focusable children). The outpost civ label goes on the lobe farthest
+   from the dock-row segment (generic geometry; Merchants and Green Folk at N3
+   move too). `code-error` shows while a code is incomplete; an empty field
+   shows nothing.
+28. Rule checklist (§8.5): `RULES-CHECKLIST.md` lists 20 items (tile stars per
+   tile, the four `shipSide` entries — spec §16.3 says three, `beginner.json`
+   has one per colour — shake bands 12–15, travelers splits 28–30, the six
+   phase 6 set-up constants, the 3-player blocker reading, §5.1 and §5.3–§5.6
+   split per call, §5.7 as the umbrella). No value was changed. Every item is
+   pinned in `shared/test/verifyPins.test.ts` with a message naming its
+   checklist number; §5.3–§5.5 gained behaviour tests. The judgment calls
+   §5.1, §5.3–§5.6 are code, not constants; turning them into flags was not a
+   behaviour-preserving change, so the checklist names the file to edit.
+   When readings come in, flip the config, update the pin, record the outcome
+   here and drop the `[VERIFY]` tag.
+29. From the phase 7 review: (a) CPU-bound bot-game tests carry a 240 s
+   timeout; the 30 s server default stays so a hung socket test fails fast.
+   (b) The server keeps the "timer: " / "room: " prefix in chat text (it reads
+   well in logs); the client strips it on system lines. (c) Player ids are
+   still reused after a kick; a chat line is "mine" only when both id and
+   name match. (d) Engine edge, not a phase 7 bug: a colony ship flagged
+   must-found-or-leave on a colony site that can neither found nor make a
+   legal move (no step leads to a legal end node and it is not immobilized)
+   blocks `endTurn` for a human as well; the timer stops and warns there. See
+   §8 part B item 6a.
+
 ## 6. Phase 4 — hot-seat client (done)
 
 Delivered as described in §4. How to run and verify:
@@ -353,10 +495,14 @@ reject|counter|withdraw`, `seven-dialog`, `discard-confirm`, `steal-<pid>`,
 `found-station-dialog`, `found-station-confirm`, `pass-banner`, `take-seat`,
 `seat-select`, `error-toast`, `vp-track`, `log-pane`.
 
-Known gaps, now scheduled in §8 (none block play): no keyboard navigation and
-the Diplomats label overlap (§8.4); the pending trade-ship marker's
-spaceport-site rule is shown only through the log (§8.4); no save/load of a
-game to a file (§8.10); phones are not a target (spec §14).
+Phase 7 added `vp-marker-<pid>` (`data-vp`), `empty-<id>`, `data-node` /
+`data-moving` on ship groups, `replay-slider`, `civ-label-<sector>`,
+`pending-trade-ship`, `code-error`. Highlighted nodes and selectable ships
+take Enter / Space like a click.
+
+Known gaps (none block play): keyboard moves between nodes are Tab-only (no
+arrow-key roving); no save/load of a game to a file (§8.10); phones are not a
+target (spec §14).
 
 ## 7. Phase 5 — server, lobby, reconnect (done)
 
@@ -368,13 +514,21 @@ client → server events take an ack `{ ok, value } | { ok, error }`:
 | `createRoom {roomName, playerName}` | `JoinReply` (session with token, lobby, state null, actions []); room gets `lobby` |
 | `joinRoom {code, playerName}` | same; refused when started, full, name taken |
 | `resume {roomCode, playerToken}` | same with the current redacted state and the redacted action log; room gets `lobby` (+ `state` if started) |
-| `configureRoom {variant?, setup?}` | host only, before start; validated against `GAME_VARIANTS` / `SETUP_MODES`; room gets `lobby` |
+| `configureRoom {variant?, setup?, turnTimerSeconds?}` | host only, before start; validated against `GAME_VARIANTS` / `SETUP_MODES` / `TURN_TIMER_CHOICES` (or `null`); room gets `lobby` |
 | `startGame {}` | host only, 3–4 players; builds the game with `createGame(room.config)`; room gets `lobby` then `state` per socket |
 | `action {action}` | `action.playerId` must be the socket's player; engine runs; everyone gets `state {state, action}` (both redacted per viewer); on failure the sender alone gets `error` and the ack carries it |
 | `chat {text}` | room gets `chat` |
+| `kickPlayer {playerId}` | host only, before start, not yourself; ack `{kicked}`; the kicked socket gets `kicked {roomCode, message}` and leaves; its token stops resuming (`badToken`); room gets `lobby` (§5.25) |
+| `transferHost {playerId}` | host only, any time, another seated player; ack `{hostId}`; room gets `lobby` |
 | `replay {index}` | the redacted state after `index` accepted actions (0 = initial); `badRequest` outside `0..actions.length` or when the room predates phase 6 |
 
-Server → client: `lobby(LobbyView)`, `state({state, action})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
+Server → client: `lobby(LobbyView)`, `state({state, action, deadlineAt?, serverNow?})`, `error(NetError | GameError)`, `chat(ChatMessage)`.
+Phase 7 added `LobbyView.deadlineAt?`, the `state` payload's `deadlineAt?` / `serverNow?` and timer chat lines
+(`from: 'timer'`), and the test ids `timer-select`, `lobby-timer`, `turn-timer`, `chat-timer`.
+Host controls (§8.3) added `kickPlayer` / `transferHost`, the server event `kicked`, `LobbyView.expiresAt?` /
+`idleMs?` / `hostHandoverAt?`, room notice chat lines (`from: 'room'`, `ROOM_CHAT_ID`) and the test ids
+`kick-<playerId>`, `make-host-<playerId>`, `lobby-host`, `lobby-expires` (`data-expires-at`), `game-host`,
+`transfer-host`, `transfer-host-confirm`, `chat-room`.
 
 Test ids added for the online screens: `online-screen`, `player-name`,
 `room-name`, `create-room`, `room-code`, `join-room`, `rejoin`, `net-error`,
@@ -388,23 +542,23 @@ Phase 6 added `variant-select`, `variant-description`, `lobby-variant`,
 `node-<id>` like build picks), and `JoinReply.initial` (the redacted initial
 state) next to `actions`.
 
-Known gaps, now scheduled in §8: no "kick" or host hand-over (§8.3); the turn
-timer is config only (§8.2); the join screen does not validate the code format
-(§8.4); `replay` has no rate limit (§8.6); no spectators (§8.10). Rooms are
-persisted and expired since phase 6 (§5.18).
+Known gaps, scheduled in §8 part B/C: `replay` has no rate limit (§8.6); no
+spectators (§8.10). Kick, host hand-over and the turn timer are done in phase 7
+(§5.24, §5.25), the join screen validates the code (§5.27); rooms are persisted
+and expired since phase 6 (§5.18).
 
-## 8. Phase 7 — finish the game, then ship it (next)
+## 8. Phase 7 — finish the game, then ship it (part A done, part B next)
 
-Spec §15 is complete except two §15.6 items (animations, turn timer) and the
-rule confirmations in §16. Part A closes the spec; part B makes the app safe to
-put in front of strangers; part C is optional. Each numbered item is one
-commit (or a few) with tests, verified green and driven in headless Chromium
-before it is called done (§9). Stop after part A and report if the budget
-looks tight.
+Part A closed spec §15 (commits in the §4 table, judgment calls §5.24–§5.29);
+only the physical readings in `RULES-CHECKLIST.md` remain from it. Part B makes
+the app safe to put in front of strangers; part C is optional. Each numbered
+item is one commit (or a few) with tests, verified green and driven in
+headless Chromium before it is called done (§9). Part A as planned is kept
+below for reference.
 
-### Part A — close the spec
+### Part A — close the spec (done)
 
-1. **Animations** (§14): the ship slides along `moveShip.path` node by node;
+1. **Animations** (done, see §5.26) (§14): the ship slides along `moveShip.path` node by node;
    a discovered tile flips (`hidden-<slot>` → sector) and a disc flips on
    exploration; the VP marker slides along `vp-track`; the mothership shake
    already animates. Drive them from the accepted action attached to each
@@ -413,7 +567,7 @@ looks tight.
    transitions on the SVG `transform` are enough; no library. Add a
    `prefers-reduced-motion` switch and a test that the final positions equal
    the state (animation is presentation only; the engine is untouched).
-2. **Turn timer** (§13 "optional, off by default"): `RoomConfig.turnTimerSeconds`
+2. **Turn timer** (done, see §5.24) (§13 "optional, off by default"): `RoomConfig.turnTimerSeconds`
    is stored and shown but unenforced. Server side only: `RoomStore` gets a
    deadline per room set when `activePlayer` changes (`startWith`, after each
    accepted action), `attachSockets` arms one `setTimeout` per room (unref'd,
@@ -429,13 +583,13 @@ looks tight.
    the client shows a countdown (`turn-timer`) from `deadlineAt` in the `state`
    payload. Tests: expiry runs the sequence, a timely action re-arms, a
    restart keeps the deadline, `null` disables.
-3. **Host controls** (HANDOFF §7 known gaps): `kickPlayer {playerId}` (host,
+3. **Host controls** (done, see §5.25) (HANDOFF §7 known gaps): `kickPlayer {playerId}` (host,
    lobby only — a started game keeps every seat), `transferHost {playerId}`
    (host, any time), automatic hand-over when the host has been disconnected
    for `HOST_HANDOVER_MS` (config, default 5 min) to the longest-connected
    player, and the room's expiry shown in the lobby (`lobby-expires`, from
    `updatedAt` + `idleMs` sent in `LobbyView`). Protocol rows + socket tests.
-4. **Keyboard navigation and the §6 cosmetic gaps**: Tab order through the
+4. **Keyboard navigation and the §6 cosmetic gaps** (done, see §5.27): Tab order through the
    action bar, dialogs and the board (nodes are `<circle>`s; give the
    highlighted ones `tabIndex` and Enter/Space handlers), Escape closes
    dialogs, arrow keys move the log slider; the outpost civ label on the
@@ -443,7 +597,8 @@ looks tight.
    docks); show the pending trade-ship marker's spaceport-site rule in the UI
    (today only the log); validate the room code format on the join screen
    before sending. Component tests for the keyboard paths.
-5. **Rule confirmation checklist** (spec §16 + the phase 6 `[VERIFY]` items).
+5. **Rule confirmation checklist** (prepared, see §5.28 and
+   `RULES-CHECKLIST.md`; waiting on the physical readings) (spec §16 + the phase 6 `[VERIFY]` items).
    Someone with the physical box reads these off and flips the config where
    needed; each is pinned by a test so the change is deliberate:
    `board.json` `sectors[*].stars` (tile backs); `beginner.json` `shipSide`;
@@ -455,8 +610,14 @@ looks tight.
    `BLOCKER_SPACEPORT_SITES_BLOCK_END_NODES`; judgment calls §5.1–§5.7. Record
    the outcome in §5 and remove the `[VERIFY]` tag from confirmed items.
 
-### Part B — make it a real multiplayer app
+### Part B — make it a real multiplayer app (next)
 
+6a. **Stuck parked colony ship** (§5.29d): a ship flagged must-found-or-leave
+   that can neither found nor reach a legal end node blocks `endTurn`. Read
+   spec §9.2 ("must either found or leave") and decide: let `endTurn` pass
+   when no legal move exists (clearing the flag, with a test), or keep the
+   block and surface it in the UI. Engine change, so it gets its own rule
+   test and a timer test.
 6. **Server hardening**: rate-limit `replay` per socket (e.g. 2/s, burst 5)
    or keep a checkpoint state every 50 actions per room so a request is at
    most 50 engine steps; coalesce persistence writes (one write per room per
@@ -485,7 +646,7 @@ looks tight.
    debugging. Smoke-test the deployed URL with the drive script (§9) pointed
    at it instead of a local server.
 9. **Real-play feedback**: play three full games with people (one per board
-   type, one with the draft) and revisit HANDOFF §5 (23 judgment calls) and
+   type, one with the draft) and revisit HANDOFF §5 (29 judgment calls) and
    the `[VERIFY]` list with what felt wrong; file each change as its own
    commit with the rule reference.
 
@@ -526,6 +687,10 @@ looks tight.
   an agent that must build on the branch has to `git reset --hard` to it
   first. Shared-file edits stayed additive, so every cherry-pick applied
   cleanly.
+- Phase 7 ran items in two waves (1, 2, 5 in parallel; then 3 and 4 on top of
+  the cherry-picked 1–2) because 2/3 share the server files and 1/4 share
+  `Board.tsx`; every cherry-pick applied cleanly. Each intermediate commit was
+  re-verified in a throwaway `git worktree` before pushing.
 - The phase 6 drive script plays any set-up by clicking test ids in priority
   order (take-seat, draft panel / highlighted site, encounter and 7 dialogs,
   roll / reserve / shake / found / one move / end), reloads a guest, restarts
@@ -540,26 +705,27 @@ Paste this as the first message of a new Claude Code session on
 
 ```
 The Starfarers Online project lives in starfarers-online/ on main of
-brogwalkerh/Clone-appies (phases 1–6 merged; PR #3 is phase 6). Read, in
+brogwalkerh/Clone-appies (phases 1–6 and phase 7 part A merged). Read, in
 this order:
 1. starfarers-online/CLAUDE.md
-2. starfarers-online/HANDOFF.md (all of it; §8 is your work list)
-3. starfarers-online/starfarers-clone-spec.md §3, §9, §13, §14, §15, §16
+2. starfarers-online/HANDOFF.md (all of it; §8 part B is your work list)
+3. starfarers-online/starfarers-clone-spec.md §9, §12, §13, §16
+4. starfarers-online/RULES-CHECKLIST.md
 
 Confirm the baseline is green before changing code:
 cd starfarers-online && pnpm install && pnpm typecheck && pnpm test && pnpm build
-Expect 550 tests passing across shared, server and client.
+Expect 627 tests passing across shared, server and client.
 
-Create one branch from main for phase 7. If HANDOFF.md's header is stale,
-fix it in the first commit.
+Create one branch from main for phase 7 part B. If HANDOFF.md's header is
+stale, fix it in the first commit.
 
-Then phase 7 (HANDOFF §8) in order, one commit per item with tests,
-verified green before each commit:
-Part A: 1 animations, 2 turn timer, 3 host controls, 4 keyboard navigation
-and cosmetic gaps, 5 rule-confirmation checklist (prepare the checklist and
-leave the config values unchanged unless I give you the physical readings).
-Stop after part A and report if the budget looks tight; part B (6 server
-hardening, 7 stable identity, 8 deployment, 9 real-play feedback) can wait.
+Then HANDOFF §8 part B in order, one commit per item with tests, verified
+green before each commit: 6a stuck parked colony ship, 6 server hardening,
+7 stable identity, 8 deployment (stop and ask before creating anything on an
+external host or database), 9 real-play feedback only if I give you notes
+from games played. If I give you readings for RULES-CHECKLIST.md, apply them
+first: flip the config, update the pins, record each outcome in HANDOFF §5
+and remove the [VERIFY] tag from confirmed items.
 
 Rules that held so far and must keep holding: engine in shared/ stays pure
 with all randomness through the injected Rng; every rule gets a test; every

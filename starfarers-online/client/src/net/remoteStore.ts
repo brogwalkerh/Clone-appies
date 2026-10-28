@@ -7,6 +7,13 @@
  * shows. Replay uses the redacted states received since joining; positions
  * before the join are asked from the server (`replay`), which re-runs the
  * engine and answers with this player's redacted view (HANDOFF §8.4).
+ * The turn timer's `deadlineAt` (HANDOFF §8.2) comes with every `state` and
+ * lobby; `clockOffset` (server clock minus ours, from `serverNow`) lets the
+ * countdown ignore a skewed local clock.
+ * Host controls (HANDOFF §8.3): `kickPlayer` / `transferHost` are plain acked
+ * calls; the result comes back as a `lobby`. A `kicked` event forgets the
+ * session (the token is dead) and leaves `netError` set, so the room route
+ * falls back to the join screen showing why.
  */
 
 import type {
@@ -61,6 +68,10 @@ export interface RemoteStoreState extends GameStoreState {
   replayMin: number;
   /** Bumped whenever a server-replayed state lands in the cache. */
   replayVersion: number;
+  /** When the current turn's timer runs out (server clock, Unix ms); `null` = no timer. */
+  deadlineAt: number | null;
+  /** Server clock minus the local clock (ms), measured on the last `state`; 0 until known. */
+  clockOffset: number;
   /** Ask the server for the state after `k` actions unless it is known locally; one request per index. */
   ensureReplay(k: number): Promise<void>;
 
@@ -69,9 +80,13 @@ export interface RemoteStoreState extends GameStoreState {
   joinRoom(code: string, playerName: string): Promise<NetResult<JoinReply>>;
   resume(session?: Session | null): Promise<NetResult<JoinReply>>;
   /** Host only, before the start: pick the board set-up (spec §3.2) and/or the start mode (§3.3 / §3.4). */
-  configureRoom(patch: { variant?: GameVariant; setup?: SetupMode }): Promise<NetResult<{ configured: true }>>;
+  configureRoom(patch: { variant?: GameVariant; setup?: SetupMode; turnTimerSeconds?: number | null }): Promise<NetResult<{ configured: true }>>;
   startGame(): Promise<NetResult<{ started: true }>>;
   sendChat(text: string): Promise<NetResult<{ sent: true }>>;
+  /** Host only, before the start: remove another player's seat. */
+  kickPlayer(playerId: string): Promise<NetResult<{ kicked: string }>>;
+  /** Host only, any time: make another seated player the host. */
+  transferHost(playerId: string): Promise<NetResult<{ hostId: string }>>;
   /** Forget the session and return to the lobby screens. */
   leaveRoom(): void;
 }
@@ -119,6 +134,7 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         snapshots: reply.state ? [reply.state] : [],
         snapshotBase: reply.actions.length,
         replayMin: serverInitial || reply.actions.length === 0 ? 0 : reply.actions.length,
+        deadlineAt: reply.lobby.deadlineAt ?? null,
         error: null,
         netError: null,
         replayIndex: null,
@@ -137,15 +153,22 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
 
     socket.on('connect', () => set({ connection: 'connected', netError: null }));
     socket.on('disconnect', () => set({ connection: 'disconnected' }));
-    socket.on('lobby', (lobby) => set({ lobby, chat: lobby.messages }));
+    socket.on('lobby', (lobby) => set({ lobby, chat: lobby.messages, ...(lobby.deadlineAt !== undefined ? { deadlineAt: lobby.deadlineAt } : {}) }));
     socket.on('chat', (message) => set({ chat: [...get().chat, message] }));
+    socket.on('kicked', ({ message }) => {
+      persist(null);
+      resetReplays();
+      set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, replayMin: 0, viewer: null, error: null, netError: message, deadlineAt: null });
+    });
     socket.on('error', (error) => {
       if ('kind' in error) set({ error });
       else set({ netError: error.message });
     });
-    socket.on('state', ({ state, action }) => {
+    socket.on('state', ({ state, action, deadlineAt, serverNow }) => {
       const { actions, snapshots } = get();
       set({
+        deadlineAt: deadlineAt ?? null,
+        ...(serverNow !== undefined ? { clockOffset: serverNow - Date.now() } : {}),
         game: state,
         initial: get().initial ?? state,
         actions: action ? [...actions, action] : actions,
@@ -180,6 +203,8 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
       snapshotBase: 0,
       replayMin: 0,
       replayVersion: 0,
+      deadlineAt: null,
+      clockOffset: 0,
 
       newGame() {
         throw new Error('newGame is a hot-seat action; online games start from the lobby');
@@ -295,6 +320,16 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
         if (!reply.ok) set({ netError: reply.error.message });
         return reply;
       },
+      async kickPlayer(playerId) {
+        const reply = await emit('kickPlayer', { playerId });
+        if (!reply.ok) set({ netError: reply.error.message });
+        return reply;
+      },
+      async transferHost(playerId) {
+        const reply = await emit('transferHost', { playerId });
+        if (!reply.ok) set({ netError: reply.error.message });
+        return reply;
+      },
       async sendChat(text) {
         const reply = await emit('chat', { text });
         if (!reply.ok) set({ netError: reply.error.message });
@@ -303,7 +338,7 @@ export function createRemoteGameStore(socket: SocketLike, options: RemoteStoreOp
       leaveRoom() {
         persist(null);
         resetReplays();
-        set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, replayMin: 0, viewer: null, error: null, netError: null });
+        set({ session: null, lobby: null, chat: [], game: null, initial: null, actions: [], snapshots: [], snapshotBase: 0, replayMin: 0, viewer: null, error: null, netError: null, deadlineAt: null });
         socket.disconnect();
         set({ connection: 'idle' });
       },

@@ -11,19 +11,12 @@
 import {
   BUILD_COSTS,
   canFoundColony,
-  discardCountFor,
-  draftSpaceportCandidates,
-  draftableSites,
   handHas,
-  isColonyRound,
   isOccupied,
   legalMoves,
-  outpostAtNode,
-  pickableFriendshipCards,
   shipsOf,
   spaceportSites,
   spaceportsOf,
-  handSize,
   encounterCard,
   type Action,
   type GameState,
@@ -31,17 +24,19 @@ import {
   type PlayerId,
   type Resource,
 } from '@starfarers/shared';
+import { actor, draftAction, encounterPickAction, pendingFoundAction, sevenAction } from '../src/autoplay.js';
 
-/** Who must act next (same rule as the client's requiredViewer). */
-export function actor(state: GameState): PlayerId {
-  const awaiting = state.turn.encounter?.awaiting;
-  if (state.phase === 'flight.encounter' && awaiting) return awaiting.playerId;
-  const seven = state.turn.seven;
-  if (state.phase === 'production' && seven && seven.awaitingDiscard.length > 0) return seven.awaitingDiscard[0] as PlayerId;
-  const trade = state.openTrade;
-  if (state.phase === 'tradeBuild' && trade && trade.to !== 'supply') return trade.to;
-  return state.activePlayer;
-}
+// The pieces the turn timer also uses (who acts, the draft, a 7, encounter picks, a pending station) live in src/autoplay.ts.
+export { actor } from '../src/autoplay.js';
+
+/**
+ * Timeout for tests that play whole bot games (pure CPU: 3–25 s each when the
+ * machine is idle). The server default (30 s) is only ~2× the slowest of them
+ * (the wild-space game, ~13 s), so a full `pnpm test` running next to another
+ * suite, or on a cold cache, timed out now and then. Generous on purpose: what
+ * these tests assert is the game, not its speed.
+ */
+export const BOT_GAME_TIMEOUT_MS = 240_000;
 
 function freeSites(state: GameState, pid: PlayerId): NodeId[] {
   return spaceportsOf(state, pid)
@@ -57,27 +52,12 @@ export function nextAction(state: GameState, rnd: () => number): Action | null {
   const ships = shipsOf(state, pid);
 
   switch (state.phase) {
-    case 'setup': {
-      const draft = state.draft;
-      if (!draft) return null;
-      if (isColonyRound(draft)) return { type: 'draftColony', playerId: pid, siteId: draftableSites(state)[0] as NodeId };
-      const spaceportSiteId = draftSpaceportCandidates(state, pid)[0] as NodeId;
-      const shipSiteId = spaceportSites(state.board, spaceportSiteId).find((n) => !isOccupied(state.board, n)) as NodeId;
-      return { type: 'draftFinish', playerId: pid, spaceportSiteId, ship: 'colony', shipSiteId, upgrade: draft.pool[0] ?? 'booster' };
-    }
+    case 'setup':
+      return draftAction(state, pid);
     case 'production': {
       if (state.turn.rolled === undefined) return { type: 'rollDice', playerId: pid };
-      const seven = state.turn.seven;
-      if (seven) {
-        if (seven.awaitingDiscard.includes(pid)) {
-          return { type: 'discardForSeven', playerId: pid, cards: me.hand.slice(0, discardCountFor(me.hand.length)) };
-        }
-        if (!seven.stealDone) {
-          // Opponents' hands are empty in a redacted view; `handSize` reads the count instead.
-          const targets = state.players.filter((p) => p.id !== pid && handSize(p) > 0);
-          return { type: 'stealForSeven', playerId: pid, target: targets[0]!.id };
-        }
-      }
+      const seven = sevenAction(state, pid);
+      if (seven) return seven;
       return { type: 'takeReserveDraw', playerId: pid };
     }
     case 'tradeBuild': {
@@ -118,28 +98,7 @@ export function nextAction(state: GameState, rnd: () => number): Action | null {
     }
     case 'flight.encounter': {
       const ctx = state.turn.encounter!;
-      if (ctx.awaiting && ctx.awaiting.playerId === pid) {
-        const aw = ctx.awaiting;
-        const count = aw.count ?? 1;
-        switch (aw.kind) {
-          case 'resources': {
-            const picks: Resource[] = [];
-            const pool = (['ore', 'fuel', 'carbon', 'food', 'goods'] as Resource[]).filter((r) => state.supply[r] > 0);
-            for (let i = 0; i < count; i++) picks.push(pool[i % pool.length] ?? 'ore');
-            return { type: 'encounterPick', playerId: pid, resources: picks };
-          }
-          case 'payResources':
-          case 'giveOne':
-            return { type: 'encounterPick', playerId: pid, resources: me.hand.slice(0, count) };
-          case 'upgradeKind':
-          case 'removeUpgrade':
-            return { type: 'encounterPick', playerId: pid, upgrade: (aw.options?.[0] ?? 'booster') as 'booster' };
-          case 'immobilizeShip':
-            return { type: 'encounterPick', playerId: pid, shipId: aw.options?.[0] ?? '' };
-          case 'spaceJump':
-            return { type: 'encounterPick', playerId: pid, decline: true };
-        }
-      }
+      if (ctx.awaiting && ctx.awaiting.playerId === pid) return encounterPickAction(state, pid);
       if (ctx.stage === 'choice' && pid === state.activePlayer) {
         const card = encounterCard(ctx.cardId);
         const offerStep = card.choice === 'offer0to3' || (card.choice === 'offerThenYesno' && ctx.offerPaid === undefined);
@@ -153,14 +112,7 @@ export function nextAction(state: GameState, rnd: () => number): Action | null {
       return null;
     }
     case 'flight.move': {
-      const pending = state.turn.pendingFound;
-      if (pending) {
-        const ship = state.board.ships[pending]!;
-        const outpost = outpostAtNode(state.board, ship.nodeId)!;
-        const dock = outpost.docks!.findIndex((d) => d === null);
-        const card = pickableFriendshipCards(state, outpost.civ!)[0]!;
-        return { type: 'foundTradeStation', playerId: pid, shipId: pending, dockIndex: dock, friendshipCardId: card };
-      }
+      if (state.turn.pendingFound) return pendingFoundAction(state, pid);
       for (const ship of ships) {
         if (ship.kind === 'colony' && canFoundColony(state, ship.id) === null) return { type: 'foundColony', playerId: pid, shipId: ship.id };
       }

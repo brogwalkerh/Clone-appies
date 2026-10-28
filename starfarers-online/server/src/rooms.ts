@@ -8,6 +8,28 @@
  *
  * One `Rng` per room is created from a server-generated seed when the game
  * starts and reused across actions; `snapshot()` carries `rng.getState()`.
+ *
+ * Turn timer (spec §13, HANDOFF §8.2): with `config.turnTimerSeconds` set,
+ * `deadlineAt` is `now + seconds` whenever a new turn begins — the game
+ * starts, or an accepted action changes `turnKey()` (the turn number and
+ * active player; in the draft, the pick). Actions inside a turn do not extend
+ * it: the budget is per turn. `expireTurn()` finishes an overdue turn through
+ * the engine (autoplay.ts); the socket layer (timer.ts) only schedules it.
+ *
+ * Host controls (HANDOFF §8.3, §5.25): `kickPlayer` (host, lobby only) removes
+ * a seat and with it the token; `transferHost` (host, any time) moves the
+ * role. While the host is disconnected, `hostAwaySince` records since when;
+ * once `handoverMs` has passed and another player is connected,
+ * `handOverHostIfDue` makes the longest-connected player host: the connected
+ * player with the earliest `connectedAt` (start of the current, unbroken
+ * connection; a second tab replacing the first keeps it), ties by seat order.
+ * It runs on every bind (a returning player may find the hand-over overdue)
+ * and from a timeout the socket layer arms at `handoverDueAt` (handover.ts).
+ * Every host change is activity: it bumps `updatedAt`, writes the room and
+ * adds a `from: 'room'` chat line. `hostAwaySince` / `connectedAt` are memory
+ * only: after a restart nobody is connected, the host's absence counts from
+ * boot (`restore`), so a hand-over never happens earlier than one full window
+ * after the restart.
  */
 
 import {
@@ -22,6 +44,10 @@ import {
   createRng,
   isGameVariant,
   isSetupMode,
+  isTurnTimerChoice,
+  TURN_TIMER_CHOICES,
+  HOST_HANDOVER_MS,
+  ROOM_CHAT_ID,
   redactState,
   rngFromState,
   type Action,
@@ -38,6 +64,7 @@ import {
   type SetupMode,
 } from '@starfarers/shared';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { describeAutoAction, timeoutAction } from './autoplay.js';
 import type { RoomPersistence } from './persist.js';
 
 export interface RoomPlayer {
@@ -48,6 +75,8 @@ export interface RoomPlayer {
   token: string;
   socketId: string | null;
   connected: boolean;
+  /** When the current, unbroken connection began (Unix ms); `null` while disconnected. Memory only (snapshots store `null`). */
+  connectedAt: number | null;
 }
 
 export interface Room {
@@ -68,6 +97,12 @@ export interface Room {
   /** Accepted actions since the start, authoritative (unredacted). */
   actions: Action[];
   messages: ChatMessage[];
+  /** Turn timer: when the current turn runs out (Unix ms), `null` = no timer / not started / over. Persisted. */
+  deadlineAt: number | null;
+  /** `turnKey(game)` the deadline was set for (memory only; recomputed on restore). */
+  deadlineKey: string | null;
+  /** Since when the host has been disconnected (Unix ms); `null` while the host is connected. Memory only; `restore` sets it to now. */
+  hostAwaySince: number | null;
 }
 
 /** Serialisable form of a room: what `RoomPersistence` stores. */
@@ -88,6 +123,8 @@ export interface RoomSnapshot {
   rngState: [number, number, number, number] | null;
   actions: Action[];
   messages: ChatMessage[];
+  /** Added in phase 7 (turn timer); older snapshots lack it and `restore()` recomputes it. */
+  deadlineAt: number | null;
 }
 
 export type RoomResult<T> = { ok: true; value: T } | { ok: false; error: NetError | GameError };
@@ -101,11 +138,36 @@ function netError(code: NetError['code'], message: string): RoomResult<never> {
 }
 
 /** A snapshot as it may come back from storage (written before `updatedAt`, `initial` or `config.setup` existed). */
-export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial' | 'config'> & {
+export type StoredRoomSnapshot = Omit<RoomSnapshot, 'updatedAt' | 'initial' | 'config' | 'deadlineAt'> & {
   updatedAt?: number;
   initial?: GameState | null;
+  deadlineAt?: number | null;
   config: Omit<RoomConfig, 'setup'> & { setup?: SetupMode };
 };
+
+/** What identifies "one turn" for the timer: a change starts a fresh deadline. */
+export function turnKey(game: GameState): string {
+  const draft = game.phase === 'setup' ? game.draft : undefined;
+  return draft ? `draft:${draft.round}:${draft.index}:${game.activePlayer}` : `turn:${game.turnNumber}:${game.activePlayer}`;
+}
+
+/** Upper bound on automatic actions per expiry (a turn needs ~10 at most); a guard, never reached in practice. */
+export const MAX_TIMER_STEPS = 40;
+
+/** Chat sender id / name of the timer's "timer: …" lines (not a player id). */
+export const TIMER_CHAT_ID = 'timer';
+
+/** What `expireTurn` did. */
+export interface TimerRun {
+  /** Accepted automatic actions, in order. */
+  actions: Action[];
+  /** The "timer: …" chat line, when anything happened or the run had to stop. */
+  message: ChatMessage | null;
+  /** Why nothing ran: no deadline, not yet due, or nobody connected (the room waits). */
+  skipped: 'noDeadline' | 'notDue' | 'nobodyConnected' | null;
+  /** The automatic action the engine refused, if any (the timer then stops for this turn). */
+  rejected: string | null;
+}
 
 export const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_FINISHED_MS = 24 * 60 * 60 * 1000;
@@ -123,6 +185,15 @@ export interface RoomStoreOptions {
   finishedMs?: number;
   /** Persistence failures are logged here, never thrown (default console.warn). */
   warn?: (message: string) => void;
+  /** How long the host may be offline before the role passes on (default `HOST_HANDOVER_MS`). */
+  handoverMs?: number;
+}
+
+/** What `handOverHostIfDue` / `transferHost` did. */
+export interface HostChange {
+  from: PlayerId;
+  to: PlayerId;
+  message: ChatMessage;
 }
 
 export function randomRoomCode(): string {
@@ -151,6 +222,7 @@ export class RoomStore {
   private readonly idleMs: number;
   private readonly finishedMs: number;
   private readonly warn: (message: string) => void;
+  private readonly handoverMs: number;
   /** Tail of the write chain per room code: writes for one room never interleave. */
   private readonly writes = new Map<string, Promise<void>>();
   /**
@@ -168,6 +240,7 @@ export class RoomStore {
     this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
     this.finishedMs = options.finishedMs ?? DEFAULT_FINISHED_MS;
     this.warn = options.warn ?? ((m) => console.warn(`[rooms] ${m}`));
+    this.handoverMs = options.handoverMs ?? HOST_HANDOVER_MS;
   }
 
   get size(): number {
@@ -185,7 +258,7 @@ export class RoomStore {
     let code = this.codeFactory();
     for (let tries = 0; this.rooms.has(code) && tries < 100; tries++) code = this.codeFactory();
     if (this.rooms.has(code)) return netError('badRequest', 'Could not allocate a room code');
-    const player: RoomPlayer = { id: 'p1', name, color: PLAYER_COLORS[0] as PlayerColor, token: randomUUID(), socketId: null, connected: false };
+    const player: RoomPlayer = { id: 'p1', name, color: PLAYER_COLORS[0] as PlayerColor, token: randomUUID(), socketId: null, connected: false, connectedAt: null };
     const now = this.now();
     const room: Room = {
       code,
@@ -202,6 +275,9 @@ export class RoomStore {
       rng: null,
       actions: [],
       messages: [],
+      deadlineAt: null,
+      deadlineKey: null,
+      hostAwaySince: now,
     };
     this.rooms.set(code, room);
     this.changed(room);
@@ -222,7 +298,7 @@ export class RoomStore {
     const usedIds = new Set(room.players.map((p) => p.id));
     let n = 1;
     while (usedIds.has(`p${n}`)) n++;
-    const player: RoomPlayer = { id: `p${n}`, name, color, token: randomUUID(), socketId: null, connected: false };
+    const player: RoomPlayer = { id: `p${n}`, name, color, token: randomUUID(), socketId: null, connected: false, connectedAt: null };
     room.players.push(player);
     this.changed(room);
     return { ok: true, value: { room, player } };
@@ -241,10 +317,17 @@ export class RoomStore {
   /** Attach a socket to a player (connected = true). Returns the previous socket id, if another was bound. */
   bindSocket(room: Room, player: RoomPlayer, socketId: string): string | null {
     const previous = player.socketId !== socketId ? player.socketId : null;
+    // An overdue turn in a room nobody was in (the timer waits for players): the first one back gets a fresh turn budget.
+    if (!room.players.some((p) => p.connected) && room.deadlineAt !== null && room.deadlineAt <= this.now() && room.config.turnTimerSeconds !== null) {
+      room.deadlineAt = this.now() + room.config.turnTimerSeconds * 1000;
+    }
     player.socketId = socketId;
+    if (!player.connected) player.connectedAt = this.now();
     player.connected = true;
     this.mirrorConnected(room);
     room.updatedAt = this.now();
+    this.syncHostAway(room);
+    this.handOverHostIfDue(room);
     return previous;
   }
 
@@ -255,8 +338,10 @@ export class RoomStore {
       if (player) {
         player.socketId = null;
         player.connected = false;
+        player.connectedAt = null;
         this.mirrorConnected(room);
         room.updatedAt = this.now();
+        this.syncHostAway(room);
         return { room, player };
       }
     }
@@ -275,18 +360,96 @@ export class RoomStore {
     };
   }
 
-  /** Host only, before the start: change the room's set-up (`variant` and/or `setup`). Unknown keys are ignored; nothing changes on a bad value. */
+  /** Start the host's absence clock when the host is offline, stop it when online. */
+  private syncHostAway(room: Room): void {
+    const host = room.players.find((p) => p.id === room.hostId);
+    if (host?.connected) room.hostAwaySince = null;
+    else room.hostAwaySince ??= this.now();
+  }
+
+  /** The connected non-host player who has been connected longest (earliest `connectedAt`, ties by seat order). */
+  handoverCandidate(room: Room): RoomPlayer | null {
+    let best: RoomPlayer | null = null;
+    for (const p of room.players) {
+      if (p.id === room.hostId || !p.connected || p.connectedAt === null) continue;
+      if (!best || p.connectedAt < (best.connectedAt as number)) best = p;
+    }
+    return best;
+  }
+
+  /** When the host role passes on if nothing changes: host offline and someone else connected; else `null`. */
+  handoverDueAt(room: Room): number | null {
+    if (room.hostAwaySince === null || !this.handoverCandidate(room)) return null;
+    return room.hostAwaySince + this.handoverMs;
+  }
+
+  /** Hand the host role to the longest-connected player once the host has been offline for `handoverMs`. */
+  handOverHostIfDue(room: Room): HostChange | null {
+    const due = this.handoverDueAt(room);
+    if (due === null || this.now() < due) return null;
+    const to = this.handoverCandidate(room) as RoomPlayer;
+    const from = room.players.find((p) => p.id === room.hostId);
+    const minutes = Math.round(this.handoverMs / 60_000);
+    return this.setHost(room, to, `room: ${from?.name ?? room.hostId} has been offline for ${minutes > 0 ? `${minutes} min` : `${Math.round(this.handoverMs / 1000)} s`}; ${to.name} is now the host`);
+  }
+
+  private setHost(room: Room, to: RoomPlayer, text: string): HostChange {
+    const from = room.hostId;
+    room.hostId = to.id;
+    this.syncHostAway(room);
+    const message = this.systemChat(room, text, ROOM_CHAT_ID, 'Room');
+    return { from, to: to.id, message };
+  }
+
+  /** Host only, any time: make another seated player the host (written like any activity). */
+  transferHost(room: Room, byPlayerId: PlayerId, targetId: unknown): RoomResult<HostChange> {
+    if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can hand the host role on');
+    const target = room.players.find((p) => p.id === targetId);
+    if (!target) return netError('badRequest', `No player ${String(targetId)} in this room`);
+    if (target.id === byPlayerId) return netError('badRequest', 'You are already the host');
+    const by = room.players.find((p) => p.id === byPlayerId);
+    return { ok: true, value: this.setHost(room, target, `room: ${by?.name ?? byPlayerId} made ${target.name} the host`) };
+  }
+
+  /**
+   * Host only, before the start: remove another player's seat. The token goes
+   * with it, so the kicked client cannot resume (it may join again by name
+   * like anyone else; a kick is not a ban). Returns the removed player, whose
+   * `socketId` the socket layer notifies.
+   */
+  kickPlayer(room: Room, byPlayerId: PlayerId, targetId: unknown): RoomResult<{ player: RoomPlayer; message: ChatMessage }> {
+    if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can remove a player');
+    if (room.started) return netError('alreadyStarted', 'The game has started; every seat stays');
+    const index = room.players.findIndex((p) => p.id === targetId);
+    const target = room.players[index];
+    if (!target) return netError('badRequest', `No player ${String(targetId)} in this room`);
+    if (target.id === byPlayerId) return netError('badRequest', 'The host cannot remove themself');
+    room.players.splice(index, 1);
+    const by = room.players.find((p) => p.id === byPlayerId);
+    const message = this.systemChat(room, `room: ${by?.name ?? byPlayerId} removed ${target.name} from the room`, ROOM_CHAT_ID, 'Room');
+    return { ok: true, value: { player: target, message } };
+  }
+
+  /**
+   * Host only, before the start: change the room's set-up (`variant`, `setup`, `turnTimerSeconds`).
+   * Unknown keys are ignored; nothing changes on a bad value. `turnTimerSeconds` is `null` or one of
+   * `TURN_TIMER_CHOICES`.
+   */
   configureRoom(room: Room, byPlayerId: PlayerId, patch: unknown): RoomResult<Room> {
     if (room.hostId !== byPlayerId) return netError('notHost', 'Only the host can change the set-up');
     if (room.started) return netError('alreadyStarted', 'The game has already started');
     if (typeof patch !== 'object' || patch === null) return netError('badRequest', 'A room configuration is needed');
-    const { variant, setup } = patch as { variant?: unknown; setup?: unknown };
+    const { variant, setup, turnTimerSeconds } = patch as { variant?: unknown; setup?: unknown; turnTimerSeconds?: unknown };
     if (variant !== undefined && !isGameVariant(variant)) return netError('badRequest', `Unknown set-up ${String(variant)}`);
     if (setup !== undefined && !isSetupMode(setup)) return netError('badRequest', `Unknown start mode ${String(setup)}`);
+    if (turnTimerSeconds !== undefined && !isTurnTimerChoice(turnTimerSeconds)) {
+      return netError('badRequest', `Turn timer must be off (null) or one of ${TURN_TIMER_CHOICES.join(', ')} seconds`);
+    }
     if (variant !== undefined && isGameVariant(variant)) room.config.variant = variant;
     if (setup !== undefined && isSetupMode(setup)) room.config.setup = setup;
+    if (turnTimerSeconds !== undefined && isTurnTimerChoice(turnTimerSeconds)) room.config.turnTimerSeconds = turnTimerSeconds;
     // Configuring is activity (HANDOFF §5.18): without a write the choice is lost on restart.
-    if (variant !== undefined || setup !== undefined) this.changed(room);
+    if (variant !== undefined || setup !== undefined || turnTimerSeconds !== undefined) this.changed(room);
     return { ok: true, value: room };
   }
 
@@ -319,9 +482,93 @@ export class RoomStore {
     room.rng = createRng(rngSeed);
     room.started = true;
     room.actions = [];
+    room.deadlineKey = null;
     this.mirrorConnected(room);
+    this.refreshDeadline(room);
     this.changed(room);
     return room;
+  }
+
+  /**
+   * Turn timer policy: no timer → `null`; game over → `null`; a new turn
+   * (`turnKey` differs from the one the deadline was set for) → a fresh
+   * `now + turnTimerSeconds`; otherwise the deadline stands.
+   */
+  private refreshDeadline(room: Room): void {
+    const seconds = room.config.turnTimerSeconds;
+    const game = room.game;
+    if (seconds === null || !game || game.phase === 'gameOver' || game.winner !== null) {
+      room.deadlineAt = null;
+      room.deadlineKey = game ? turnKey(game) : null;
+      return;
+    }
+    const key = turnKey(game);
+    if (key !== room.deadlineKey) {
+      room.deadlineAt = this.now() + seconds * 1000;
+      room.deadlineKey = key;
+    }
+  }
+
+  /**
+   * The turn timer ran out: if `deadlineAt` has passed and somebody is in the
+   * room, submit `timeoutAction` through `applyAction` (as the active player,
+   * or whoever the game waits on) until the turn passes, calling `onApplied`
+   * after each accepted action, and add a "timer: …" chat line. A refused
+   * automatic action stops the run and clears the deadline for this turn, so
+   * the timer can never loop; a room nobody is connected to waits instead
+   * (the first player back gets a fresh budget, see `bindSocket`).
+   */
+  expireTurn(room: Room, onApplied: (action: Action) => void = () => {}): TimerRun {
+    const run: TimerRun = { actions: [], message: null, skipped: null, rejected: null };
+    if (!room.game || room.deadlineAt === null) return { ...run, skipped: 'noDeadline' };
+    if (this.now() < room.deadlineAt) return { ...run, skipped: 'notDue' };
+    if (!room.players.some((p) => p.connected)) return { ...run, skipped: 'nobodyConnected' };
+    const startKey = turnKey(room.game);
+    const late = room.players.find((p) => p.id === room.game?.activePlayer);
+    const lateName = late?.name ?? room.game.activePlayer;
+    for (let step = 0; step < MAX_TIMER_STEPS; step++) {
+      const game: GameState | null = room.game;
+      if (!game || game.phase === 'gameOver' || game.winner !== null || turnKey(game) !== startKey) break;
+      const action = timeoutAction(game);
+      if (!action) {
+        run.rejected = `no automatic action in phase ${game.phase}`;
+        break;
+      }
+      const result = this.applyAction(room, action.playerId, action);
+      if (!result.ok) {
+        run.rejected = `${action.type}: ${result.error.message}`;
+        break;
+      }
+      run.actions.push(action);
+      onApplied(action);
+    }
+    const game = room.game;
+    if (game && turnKey(game) === startKey && game.phase !== 'gameOver' && game.winner === null) {
+      // Stuck (refused, or no move left): stop for this turn rather than fire again.
+      run.rejected ??= `the turn did not pass after ${MAX_TIMER_STEPS} automatic actions`;
+      room.deadlineAt = null;
+      this.warn(`timer in room ${room.code}: stopped, ${run.rejected}`);
+    }
+    const did = run.actions.map(describeAutoAction).join(', ');
+    const text = run.rejected
+      ? `timer: ${lateName} ran out of time; ${did ? `${did}, then ` : ''}the timer stopped (${run.rejected})`
+      : `timer: ${lateName} ran out of time; ${did}`;
+    run.message = this.systemChat(room, text);
+    return run;
+  }
+
+  /** A chat line from the server itself (`from: TIMER_CHAT_ID` by default, `ROOM_CHAT_ID` for host notices). */
+  private systemChat(room: Room, text: string, from: string = TIMER_CHAT_ID, name = 'Timer'): ChatMessage {
+    const message: ChatMessage = { from, name, text: text.slice(0, MAX_CHAT), at: this.now() };
+    room.messages.push(message);
+    if (room.messages.length > MAX_MESSAGES) room.messages.splice(0, room.messages.length - MAX_MESSAGES);
+    this.changed(room);
+    return message;
+  }
+
+  /** Every room in memory (the timer arms them after a restart). */
+  allRooms(): Room[] {
+    return [...this.rooms.values()];
   }
 
   /** Validate the sender and run the engine. The state is replaced only on success. */
@@ -336,6 +583,7 @@ export class RoomStore {
     if (!result.ok) return { ok: false, error: result.error };
     room.game = result.value;
     room.actions.push(a);
+    this.refreshDeadline(room);
     this.changed(room);
     return { ok: true, value: result.value };
   }
@@ -360,6 +608,10 @@ export class RoomStore {
       messages: [...room.messages],
       minPlayers: ROOM_MIN_PLAYERS,
       maxPlayers: ROOM_MAX_PLAYERS,
+      deadlineAt: room.deadlineAt,
+      expiresAt: room.updatedAt + this.idleMs,
+      idleMs: this.idleMs,
+      hostHandoverAt: this.handoverDueAt(room),
     };
   }
 
@@ -441,7 +693,7 @@ export class RoomStore {
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
       hostId: room.hostId,
-      players: room.players.map((p) => ({ ...p, socketId: null, connected: false })),
+      players: room.players.map((p) => ({ ...p, socketId: null, connected: false, connectedAt: null })),
       config: { ...room.config },
       started: room.started,
       seed: room.seed,
@@ -450,6 +702,7 @@ export class RoomStore {
       rngState: room.rng ? room.rng.getState() : null,
       actions: [...room.actions],
       messages: [...room.messages],
+      deadlineAt: room.deadlineAt,
     };
   }
 
@@ -465,7 +718,7 @@ export class RoomStore {
       createdAt: snapshot.createdAt,
       updatedAt: snapshot.updatedAt ?? snapshot.createdAt,
       hostId: snapshot.hostId,
-      players: snapshot.players.map((p) => ({ ...p, socketId: null, connected: false })),
+      players: snapshot.players.map((p) => ({ ...p, socketId: null, connected: false, connectedAt: null })),
       config: { ...snapshot.config, setup: snapshot.config.setup ?? 'preset' },
       started: snapshot.started,
       seed: snapshot.seed,
@@ -474,7 +727,16 @@ export class RoomStore {
       rng: snapshot.rngState ? rngFromState(snapshot.rngState) : null,
       actions: [...snapshot.actions],
       messages: [...snapshot.messages],
+      deadlineAt: snapshot.deadlineAt ?? null,
+      deadlineKey: snapshot.game ? turnKey(snapshot.game) : null,
+      // Nobody is connected after a restart: the host's absence (for the hand-over) counts from now.
+      hostAwaySince: this.now(),
     };
+    // A snapshot from before the timer existed: a configured timer starts a fresh budget now.
+    if (snapshot.deadlineAt === undefined) {
+      room.deadlineKey = null;
+      this.refreshDeadline(room);
+    }
     this.mirrorConnected(room);
     this.rooms.set(room.code, room);
     return room;
