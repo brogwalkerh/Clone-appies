@@ -5,7 +5,7 @@
  * injected clock: no real waiting.
  */
 
-import { TURN_TIMER_CHOICES, isTurnTimerChoice, type Action, type ActionType, type GameState } from '@starfarers/shared';
+import { TURN_TIMER_CHOICES, isTurnTimerChoice, shipsOf, type Action, type ActionType, type GameState } from '@starfarers/shared';
 import { describe, expect, it } from 'vitest';
 import { timeoutAction } from '../src/autoplay.js';
 import { MemoryRoomPersistence } from '../src/persist.js';
@@ -277,6 +277,55 @@ describe('turn timer deadline', () => {
     expect(room.game.phase).toBe('gameOver');
     expect(room.deadlineAt).toBeNull();
     expect(timeoutAction(room.game)).toBeNull();
+  });
+
+  /** The active player's colony ship parked on a free colony site and flagged "must found or leave" (spec §9.2). */
+  function parked(coloniesLeft?: number) {
+    const { clock, store, room } = timedRoom(60);
+    store.startGame(room, 'p1');
+    const g = structuredClone(room.game!);
+    const ship = shipsOf(g, g.activePlayer).find((s) => s.kind === 'colony')!;
+    const site = 'S(0,5)'; // a free colony site where the seeded game's active colony ship may found
+    expect(g.board.nodes[site]?.siteType).toBe('colonySite');
+    g.board.ships[ship.id]!.nodeId = site;
+    g.board.ships[ship.id]!.mustFoundOrLeave = true;
+    if (coloniesLeft !== undefined) g.players.find((p) => p.id === g.activePlayer)!.pieces.coloniesLeft = coloniesLeft;
+    // No action yet: the edited position is the replay start too, so replay must reproduce the automatic turn.
+    room.game = g;
+    room.initial = g;
+    clock.t = room.deadlineAt! + 1;
+    return { store, room, ship: ship.id, site, pid: g.activePlayer };
+  }
+
+  it('the one forced move: a parked colony ship that may found founds, then the turn ends', () => {
+    const { store, room, ship, pid } = parked();
+    const run = store.expireTurn(room);
+    expect(run.rejected).toBeNull();
+    expect(room.game!.activePlayer).not.toBe(pid);
+    const types = run.actions.map((a) => a.type);
+    expect(types).toContain('foundColony');
+    expect(types).not.toContain('moveShip');
+    expect(types.indexOf('foundColony')).toBe(types.length - 2);
+    expect(types.at(-1)).toBe('endTurn');
+    expect(run.actions.find((a) => a.type === 'foundColony')).toMatchObject({ playerId: pid, shipId: ship });
+    expect(run.message!.text).toMatch(/founded the colony, ended the turn$/);
+    expect(store.replayState(room, room.actions.length).board).toEqual(room.game!.board);
+  });
+
+  it('the one forced move: a parked colony ship that cannot found takes its shortest legal move off the site', () => {
+    const { store, room, ship, site, pid } = parked(0);
+    const run = store.expireTurn(room);
+    expect(run.rejected).toBeNull();
+    expect(room.game!.activePlayer).not.toBe(pid);
+    const types = run.actions.map((a) => a.type);
+    expect(types).not.toContain('foundColony');
+    expect(types.filter((t) => t === 'moveShip')).toHaveLength(1);
+    const move = run.actions.find((a) => a.type === 'moveShip');
+    expect(move).toMatchObject({ playerId: pid, shipId: ship });
+    expect(room.game!.board.ships[ship]!.nodeId).not.toBe(site);
+    expect([...types].every((t) => TIMER_ACTIONS.has(t) || t === 'moveShip')).toBe(true);
+    expect(run.message!.text).toMatch(/moved the parked ship off its site, ended the turn$/);
+    expect(store.replayState(room, room.actions.length).board).toEqual(room.game!.board);
   });
 });
 

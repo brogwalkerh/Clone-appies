@@ -102,17 +102,26 @@ describe('host controls over sockets', () => {
     expect(view.messages.at(-1)?.from).toBe('room');
 
     // The kicked socket is out of the room: no more lobby broadcasts, room events refused, the token is dead.
-    let laterLobby = false;
-    d.on('lobby', () => {
-      laterLobby = true;
-    });
+    const heardByKicked: string[] = [];
+    d.on('lobby', () => heardByKicked.push('lobby'));
+    d.on('chat', () => heardByKicked.push('chat'));
+    d.on('state', () => heardByKicked.push('state'));
     expect(await call(d, 'chat', { text: 'still here?' })).toMatchObject({ ok: false, error: { code: 'notInRoom' } });
     expect(await call(d, 'resume', { roomCode: code, playerToken: replies[3]!.session.playerToken })).toMatchObject({ ok: false, error: { code: 'badToken' } });
+    // A room chat and a lobby broadcast reach the others; once they have arrived, the kicked socket has heard neither.
+    const chatC = once(c, 'chat');
+    const lobbyB = once(b, 'lobby');
     expectOk(await call(c, 'chat', { text: 'bye Dee' }));
-    expect(laterLobby).toBe(false);
+    expectOk(await call(a, 'configureRoom', { variant: 'explorer' }));
+    expect((await chatC).text).toBe('bye Dee');
+    expect((await lobbyB).config.variant).toBe('explorer');
+    // A started game's per-socket states do not reach it either.
+    const stateB = once(b, 'state');
 
     // A started game keeps every seat.
     expectOk(await call(a, 'startGame', {}));
+    await stateB;
+    expect(heardByKicked).toEqual([]);
     expect(await call(a, 'kickPlayer', { playerId: 'p3' })).toMatchObject({ ok: false, error: { code: 'alreadyStarted' } });
     expect(store.getRoom(code)!.players).toHaveLength(3);
   });
