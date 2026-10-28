@@ -147,11 +147,15 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
   const winner = state.winner;
   const hidden = pendingViewer !== null;
   const restart = () => setup && newGame({ ...setup, seed: `${setup.seed}-${Date.now().toString(36)}` });
+  // Mid-game the header link would throw the game away on one stray click, so it asks first.
+  const confirmRestart = () => {
+    if (winner || window.confirm('Start a new game? The current game will be lost.')) restart();
+  };
 
   return (
     <div className="app">
       <header className="topbar">
-        <strong>Starfarers Online</strong>
+        <h1 className="brand">Starfarers Online</h1>
         <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
         {headerExtra}
         <span className="spacer" />
@@ -171,7 +175,7 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
         )}
         <span className="swatch" style={{ background: PLAYER_COLOR[state.players.find((p) => p.id === viewer)?.color ?? 'white'] }} />
         {mode === 'local' ? (
-          <button type="button" className="link" onClick={restart}>
+          <button type="button" className="link" onClick={confirmRestart} data-testid="new-game">
             New game
           </button>
         ) : (
@@ -298,8 +302,18 @@ function useHash(): string {
   return hash;
 }
 
+const TITLES: [prefix: string, title: string][] = [
+  ['#/local', 'Hot-seat'],
+  ['#/room/', 'Room'],
+  ['#/online', 'Play online'],
+];
+
 export function App() {
   const hash = useHash();
+  const section = TITLES.find(([prefix]) => hash.startsWith(prefix))?.[1];
+  useEffect(() => {
+    document.title = section ? `${section} — Starfarers Online` : 'Starfarers Online';
+  }, [section]);
   if (hash.startsWith('#/local')) return <LocalRoute />;
   if (hash.startsWith('#/room/')) {
     const code = decodeURIComponent(hash.slice('#/room/'.length)).toUpperCase().slice(0, 6);

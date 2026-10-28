@@ -3,9 +3,11 @@
 import {
   FRIENDSHIP_CARDS,
   RESOURCES,
+  type ActionType,
   type Civ,
   type FriendshipCardId,
   type GameState,
+  type LogEntry,
   type PlayerColor,
   type PlayerId,
   type Resource,
@@ -100,6 +102,34 @@ export function phaseLabel(phase: GameState['phase']): string {
     case 'gameOver':
       return 'Game over';
   }
+}
+
+/** Verb phrases for the engine's action log lines, whose `message` is the raw action type. */
+export const ACTION_LABEL: Readonly<Record<ActionType, string>> = {
+  rollDice: 'rolls the dice',
+  takeReserveDraw: 'takes reserve cards',
+  discardForSeven: 'discards for the 7',
+  stealForSeven: 'steals a card',
+  proposeTrade: 'proposes a trade',
+  respondTrade: 'answers a trade',
+  tradeWithSupply: 'trades with the supply',
+  build: 'builds',
+  useFriendshipCard: 'plays a friendship card',
+  shakeMothership: 'shakes the mothership',
+  encounterChoice: 'chooses in the encounter',
+  encounterPick: 'picks in the encounter',
+  moveShip: 'moves a ship',
+  foundColony: 'founds a colony',
+  foundTradeStation: 'founds a trade station',
+  endTurn: 'ends the turn',
+  draftColony: 'drafts a colony site',
+  draftFinish: 'finishes the set-up draft',
+};
+
+/** A log line as shown: events verbatim, actions as "<player> <verb phrase>". */
+export function logText(state: GameState, entry: LogEntry): string {
+  if (entry.kind !== 'action' || !entry.action) return entry.message;
+  return `${playerName(state, entry.playerId)} ${ACTION_LABEL[entry.action.type] ?? entry.message}`;
 }
 
 /** 2..12 → 1..6 ways to roll it (6/8 are 5, 7 is 6). */
