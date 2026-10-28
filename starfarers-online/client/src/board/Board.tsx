@@ -33,6 +33,8 @@ import { onActivateKey } from '../ui/keyboard.js';
 import { DOCK_R, LABEL_FONT, outpostLayout } from './outpostLayout.js';
 
 export const SCALE = 58;
+/** Pointer radius of a highlighted node: just under half the edge length (33) so neighbours never overlap. */
+const HIT_R = 16;
 const PAD = 26;
 
 export interface BoardProps {
@@ -320,6 +322,8 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
               onMouseEnter={() => setHover(node.id)}
               onMouseLeave={() => setHover((h) => (h === node.id ? null : h))}
             >
+              {/* Invisible hit area: the halo alone is ~13 px wide when the board is scaled down. */}
+              {hl && <circle cx={p.x} cy={p.y} r={HIT_R} className="hit" fill="transparent" />}
               {hl && <circle cx={p.x} cy={p.y} r={12} className="halo" fill="#ffd166" fillOpacity={0.25} stroke="#ffd166" strokeWidth={2} />}
               <circle cx={p.x} cy={p.y} r={r} fill={isDock ? '#f6c667' : isSite ? '#cfe3ff' : '#8d97ab'} stroke="#0d1017" strokeWidth={1} />
             </g>

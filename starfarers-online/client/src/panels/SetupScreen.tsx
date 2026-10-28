@@ -68,10 +68,10 @@ export function SetupScreen() {
             <tr key={i}>
               <td>Seat {i + 1}</td>
               <td>
-                <input value={names[i] ?? ''} data-testid={`name-${i}`} onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))} />
+                <input value={names[i] ?? ''} aria-label={`Seat ${i + 1} name`} data-testid={`name-${i}`} onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))} />
               </td>
               <td>
-                <select value={colors[i]} data-testid={`color-${i}`} onChange={(e) => setColors(colors.map((c, j) => (j === i ? (e.target.value as PlayerColor) : c)))}>
+                <select value={colors[i]} aria-label={`Seat ${i + 1} colour`} data-testid={`color-${i}`} onChange={(e) => setColors(colors.map((c, j) => (j === i ? (e.target.value as PlayerColor) : c)))}>
                   {PLAYER_COLORS.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -87,9 +87,14 @@ export function SetupScreen() {
       <label>
         Seed <input value={seed} data-testid="seed" onChange={(e) => setSeed(e.target.value)} />
       </label>
-      {duplicateColors && <p className="error">Each player needs a different colour.</p>}
+      {duplicateColors && (
+        <p className="error" role="alert">
+          Each player needs a different colour.
+        </p>
+      )}
       <button
         type="button"
+        className="primary"
         data-testid="start-game"
         disabled={duplicateColors || seats.some((i) => !(names[i] ?? '').trim())}
         onClick={() => {
