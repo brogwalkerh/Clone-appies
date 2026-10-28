@@ -1,7 +1,7 @@
 import type { GameState } from '@starfarers/shared';
 import { useEffect, useRef } from 'react';
 import { useGame } from '../store/gameStore.js';
-import { playerColor } from '../ui/format.js';
+import { logText, playerColor } from '../ui/format.js';
 
 /** Debounce for remote replay fetches while the slider is dragged. */
 export const REPLAY_FETCH_DELAY_MS = 150;
@@ -13,9 +13,12 @@ export function LogPane({ state }: { state: GameState }) {
   const setReplayIndex = useGame((s) => s.setReplayIndex);
   const replayMin = useGame((s) => Math.min(s.replayMin ?? 0, s.actions.length));
   const ensureReplay = useGame((s) => s.ensureReplay);
-  const bottom = useRef<HTMLDivElement>(null);
+  // Pin the list to its newest line. Scroll the list itself: scrollIntoView would also scroll the
+  // sidebar and push the hand panel out of view on every new line.
+  const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
-    bottom.current?.scrollIntoView?.({ block: 'nearest' });
+    const el = list.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [state.log.length]);
   // Ask only once the slider rests: every server-side backward jump replays from the initial state.
   useEffect(() => {
@@ -67,13 +70,12 @@ export function LogPane({ state }: { state: GameState }) {
           </button>
         )}
       </div>
-      <ol className="log-list">
+      <ol className="log-list" ref={list}>
         {state.log.map((e) => (
           <li key={e.seq} className={e.kind} style={{ borderLeftColor: playerColor(state, e.playerId) }}>
-            <span className="muted small">T{e.turnNumber}</span> {e.message}
+            <span className="muted small">T{e.turnNumber}</span> {logText(state, e)}
           </li>
         ))}
-        <div ref={bottom} />
       </ol>
     </section>
   );
