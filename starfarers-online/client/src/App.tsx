@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { Board } from './board/Board.js';
 import { legalJumpTargets, legalMoves } from './board/legalMoves.js';
+import { useBoardMotion } from './board/motion.js';
 import { VpTrack } from './board/VpTrack.js';
 import type { RemoteStore } from './net/remoteStore.js';
 import { remoteStore } from './net/socket.js';
@@ -66,6 +67,7 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
   const newGame = useGame((s) => s.newGame);
   const setup = useGame((s) => s.setup);
   const act = useAct();
+  const motion = useBoardMotion();
 
   const replaying = replayIndex !== null;
   const awaitingJump = state?.phase === 'flight.encounter' && state.turn.encounter?.awaiting?.kind === 'spaceJump' && state.turn.encounter.awaiting.playerId === viewer;
@@ -160,8 +162,8 @@ export function GameScreen({ extraPanels, subtitle }: GameScreenProps) {
       {replaying && <div className="toast info">Replay view — the board shows an earlier state. Use the slider in the log to return to live play.</div>}
       <main className="layout">
         <div className="board-col">
-          <VpTrack state={state} />
-          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} />
+          <VpTrack state={state} motion={motion} />
+          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} />
           {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
         </div>
         <aside className="side">

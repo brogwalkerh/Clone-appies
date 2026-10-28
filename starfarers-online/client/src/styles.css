@@ -40,14 +40,23 @@ h4 { font-size: 13px; }
 .node.highlight .halo { animation: pulse 1.2s ease-in-out infinite; }
 .ship { cursor: pointer; }
 .path-preview { pointer-events: none; }
+/* Board animations (HANDOFF §8.1): presentation only; every transform ends at the identity. */
+.flip { transform-box: fill-box; transform-origin: center; animation: flip 0.6s ease-out both; }
+@keyframes flip { 0% { transform: scaleX(0.02); opacity: 0.4; } 60% { transform: scaleX(1.06); opacity: 1; } 100% { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ship-motion, .vp-slot, .flip, .ball, .encounter-text .box, .node.highlight .halo { transition: none !important; animation: none !important; }
+}
 @keyframes pulse { 0%, 100% { fill-opacity: 0.15; } 50% { fill-opacity: 0.45; } }
 
-.vp-track { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; }
+.vp-track { position: relative; display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; }
 .vp-cell { background: var(--panel); border: 1px solid #222a3a; border-radius: 6px; min-height: 34px; display: flex; flex-direction: column; align-items: center; padding: 2px; }
 .vp-cell.win { border-color: var(--accent); }
 .vp-num { font-size: 11px; color: var(--muted); }
-.vp-markers { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
-.vp-marker { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #000; }
+/* Markers sit in an overlay lane; each slot is one cell wide and moved by transform (VpTrack.tsx). */
+.vp-lane { position: absolute; inset: 0; pointer-events: none; }
+.vp-slot { position: absolute; left: 0; bottom: 5px; width: calc((100% - 45px) / 16); display: flex; justify-content: center; }
+.vp-track.animate .vp-slot { transition: transform 0.6s ease-in-out; }
+.vp-marker { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #000; pointer-events: auto; }
 
 .action-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid #222a3a; border-radius: 10px; padding: 8px 12px; }
 .action-bar .phase { font-weight: 600; margin-right: auto; }

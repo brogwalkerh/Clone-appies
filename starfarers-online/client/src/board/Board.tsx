@@ -28,6 +28,7 @@ import {
 } from '@starfarers/shared';
 import { useMemo, useState } from 'react';
 import { CIV_COLOR, CIV_LABEL, PLAYER_COLOR, RESOURCE_COLOR, dicePips, playerColor } from '../ui/format.js';
+import { NO_MOTION, useFlips, useShipSlide, type BoardMotion, type Point } from './motion.js';
 
 export const SCALE = 58;
 const PAD = 26;
@@ -40,6 +41,8 @@ export interface BoardProps {
   selectedShip: ShipId | null;
   onNodeClick(nodeId: NodeId): void;
   onShipClick(shipId: ShipId): void;
+  /** Latest live action to animate (motion.ts); absent = no animations. */
+  motion?: BoardMotion | undefined;
 }
 
 function px(p: { x: number; y: number }): { x: number; y: number } {
@@ -53,7 +56,7 @@ function hexPoints(hex: readonly [number, number]): string {
     .join(' ');
 }
 
-function PlanetHex({ planet }: { planet: Planet }) {
+function PlanetHex({ planet, flip }: { planet: Planet; flip: boolean }) {
   const c = px(hexCenter(planet.hex));
   const disc = planet.disc;
   const token = planet.token;
@@ -62,7 +65,7 @@ function PlanetHex({ planet }: { planet: Planet }) {
   if (token) {
     const pirate = token.kind === 'pirateBase';
     discNode = (
-      <g data-testid={`token-${planet.id}`}>
+      <g data-testid={`token-${planet.id}`} className={flip ? 'flip' : undefined}>
         <circle cx={c.x} cy={c.y} r={r} fill={pirate ? '#1b1b1b' : '#bfe3f2'} stroke={pirate ? '#ff5e5e' : '#2b7a99'} strokeWidth={2.5} />
         <text x={c.x} y={c.y + 5} textAnchor="middle" fontSize={14} fontWeight={700} fill={pirate ? '#ff5e5e' : '#114'}>
           {pirate ? 'P' : 'I'}
@@ -76,7 +79,7 @@ function PlanetHex({ planet }: { planet: Planet }) {
     const size = nums.length > 1 ? 11 : 9 + best * 1.7;
     const hot = best >= 5;
     discNode = (
-      <g data-testid={`disc-${planet.id}`}>
+      <g data-testid={`disc-${planet.id}`} className={flip ? 'flip' : undefined}>
         <circle cx={c.x} cy={c.y} r={r} fill="#f7f1dc" stroke="#4a4030" strokeWidth={1.5} />
         <text x={c.x} y={c.y + size * 0.36} textAnchor="middle" fontSize={size} fontWeight={700} fill={hot ? '#b3261e' : '#222'}>
           {disc.label}
@@ -96,14 +99,14 @@ function PlanetHex({ planet }: { planet: Planet }) {
   );
 }
 
-function Outpost({ state, sector }: { state: GameState; sector: Sector }) {
+function Outpost({ state, sector, flip }: { state: GameState; sector: Sector; flip: boolean }) {
   const civ = sector.civ;
   if (!civ) return null;
   const centre = px(vertexPosition(sector.centreVertex));
   const docks = sector.docks ?? [];
   const dockSpread = 16;
   return (
-    <g data-testid={`outpost-${sector.id}`}>
+    <g data-testid={`outpost-${sector.id}`} className={flip ? 'flip' : undefined}>
       {sector.lobes.map((hex) => (
         <polygon key={hex.join(',')} points={hexPoints(hex)} fill={CIV_COLOR[civ]} fillOpacity={0.45} stroke="#0d1017" strokeWidth={1.2} />
       ))}
@@ -129,9 +132,9 @@ function Outpost({ state, sector }: { state: GameState; sector: Sector }) {
   );
 }
 
-function EmptySector({ sector }: { sector: Sector }) {
+function EmptySector({ sector, flip }: { sector: Sector; flip: boolean }) {
   return (
-    <g>
+    <g data-testid={`empty-${sector.id}`} className={flip ? 'flip' : undefined}>
       {sector.lobes.map((hex) => (
         <polygon key={hex.join(',')} points={hexPoints(hex)} fill="#141a26" stroke="#0d1017" strokeWidth={1.2} />
       ))}
@@ -154,8 +157,23 @@ function HiddenSector({ sector }: { sector: Sector }) {
   );
 }
 
-function ShipGlyph({ ship, state, selected, onClick }: { ship: Ship; state: GameState; selected: boolean; onClick(): void }) {
+function ShipGlyph({
+  ship,
+  state,
+  selected,
+  motion,
+  posOf,
+  onClick,
+}: {
+  ship: Ship;
+  state: GameState;
+  selected: boolean;
+  motion: BoardMotion;
+  posOf(id: NodeId): Point;
+  onClick(): void;
+}) {
   const p = px(state.board.nodes[ship.nodeId]?.pos ?? { x: 0, y: 0 });
+  const slide = useShipSlide(ship.id, ship.nodeId, motion, posOf);
   const fill = playerColor(state, ship.owner);
   const stroke = selected ? '#ffffff' : '#0d1017';
   const shape =
@@ -168,25 +186,31 @@ function ShipGlyph({ ship, state, selected, onClick }: { ship: Ship; state: Game
     <g
       data-testid={`ship-${ship.id}`}
       data-selected={selected ? 'true' : undefined}
+      data-node={ship.nodeId}
+      data-moving={slide ? 'true' : undefined}
       className="ship"
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
     >
-      {shape}
-      {ship.mustFoundOrLeave && (
-        <text x={p.x + 10} y={p.y - 8} fontSize={12} fontWeight={700} fill="#ffd166">
-          !
-        </text>
-      )}
+      <g className="ship-motion" style={slide}>
+        {shape}
+        {ship.mustFoundOrLeave && (
+          <text x={p.x + 10} y={p.y - 8} fontSize={12} fontWeight={700} fill="#ffd166">
+            !
+          </text>
+        )}
+      </g>
     </g>
   );
 }
 
-export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick }: BoardProps) {
+export function Board({ state, viewer, highlights, selectedShip, onNodeClick, onShipClick, motion = NO_MOTION }: BoardProps) {
   const [hover, setHover] = useState<NodeId | null>(null);
   const board = useMemo(() => redactBoard(state.board), [state.board]);
+  const flips = useFlips(board, motion);
+  const posOf = (id: NodeId): Point => px(board.nodes[id]?.pos ?? { x: 0, y: 0 });
 
   const viewBox = useMemo(() => {
     let minX = Infinity;
@@ -236,13 +260,14 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
       <g className="sectors">
         {sectors.map((sector) => {
           if (sector.kind === 'hidden') return <HiddenSector key={sector.id} sector={sector} />;
-          if (sector.kind === 'outpost') return <Outpost key={sector.id} state={state} sector={sector} />;
-          if (sector.kind === 'empty') return <EmptySector key={sector.id} sector={sector} />;
+          const flip = flips.sectors.has(sector.id);
+          if (sector.kind === 'outpost') return <Outpost key={sector.id} state={state} sector={sector} flip={flip} />;
+          if (sector.kind === 'empty') return <EmptySector key={sector.id} sector={sector} flip={flip} />;
           return (
-            <g key={sector.id} data-testid={`sector-${sector.id}`}>
+            <g key={sector.id} data-testid={`sector-${sector.id}`} className={flip ? 'flip' : undefined}>
               {sector.planetIds.map((pid) => {
                 const planet = board.planets[pid];
-                return planet ? <PlanetHex key={pid} planet={planet} /> : null;
+                return planet ? <PlanetHex key={pid} planet={planet} flip={flips.discs.has(pid)} /> : null;
               })}
             </g>
           );
@@ -317,6 +342,8 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
             ship={ship}
             state={state}
             selected={ship.id === selectedShip}
+            motion={motion}
+            posOf={posOf}
             onClick={() => {
               // Clicking a highlighted node that happens to hold a ship is a move/pick target.
               if (highlights.has(ship.nodeId)) onNodeClick(ship.nodeId);
