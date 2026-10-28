@@ -92,6 +92,10 @@ describe('lobby turn-timer picker', () => {
     act(() => socket.fire('lobby', lobby(shortest)));
     expect((screen.getByTestId('timer-select') as HTMLSelectElement).value).toBe(String(shortest));
     expect(screen.getByTestId('lobby-timer')).toHaveTextContent(`${timerLabel(shortest)} per turn`);
+    // Accurate about the one forced move (HANDOFF §5.24): no building or trading, a parked ship founds or leaves.
+    expect(screen.getByTestId('lobby-timer')).toHaveTextContent('never builds or trades');
+    expect(screen.getByTestId('lobby-timer')).toHaveTextContent('moves a ship only when a parked ship must found or leave');
+    expect(screen.getByTestId('lobby-timer')).not.toHaveTextContent('no building, trading or moving');
     await userEvent.selectOptions(screen.getByTestId('timer-select'), 'off');
     expect(socket.emitted.at(-1)).toEqual({ event: 'configureRoom', payload: { turnTimerSeconds: null } });
     unmount();

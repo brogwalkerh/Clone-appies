@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createRemoteGameStore, type SocketLike } from '../src/net/remoteStore.js';
 import type { SessionStorageLike } from '../src/net/session.js';
+import { ChatPanel } from '../src/panels/ChatPanel.js';
 import { GameHostControls } from '../src/panels/HostControls.js';
 import { RoomLobby } from '../src/panels/OnlineLobby.js';
 
@@ -152,5 +153,26 @@ describe('in-game host transfer', () => {
     render(<GameHostControls store={guest.store} />);
     expect(screen.getByTestId('game-host')).toHaveTextContent('host Bob');
     expect(screen.queryByTestId('transfer-host')).toBeNull();
+  });
+});
+
+describe('chat lines from the server and reused seats', () => {
+  it('system lines show the sender once ("Timer …", "Room …"), and a removed player\'s old line is not "mine" for the seat that reuses the id', () => {
+    const view = lobby();
+    view.messages = [
+      { from: 'p2', name: 'Dee', text: 'I was p2 before the kick', at: 1 },
+      { from: 'room', name: 'Room', text: 'room: Ann removed Dee from the room', at: 2 },
+      { from: 'p2', name: 'Bob', text: 'hello, I am the new p2', at: 3 },
+      { from: 'timer', name: 'Timer', text: 'timer: Bob ran out of time; rolled, ended the turn', at: 4 },
+    ];
+    const { store } = storeFor('p2', view);
+    store.setState({ chat: view.messages });
+    render(<ChatPanel store={store} />);
+    expect(screen.getByTestId('chat-room')).toHaveTextContent(/^Room Ann removed Dee from the room$/);
+    expect(screen.getByTestId('chat-timer')).toHaveTextContent(/^Timer Bob ran out of time; rolled, ended the turn$/);
+    const items = screen.getByTestId('chat-panel').querySelectorAll('li');
+    expect(items[0]).not.toHaveClass('mine');
+    expect(items[2]).toHaveClass('mine');
+    expect(screen.getByTestId('chat-timer')).toHaveClass('system');
   });
 });

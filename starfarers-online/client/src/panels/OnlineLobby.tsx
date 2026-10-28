@@ -246,7 +246,7 @@ export function RoomLobby({ store }: { store: RemoteStore }) {
         <span className="muted" data-testid="lobby-timer">
           {lobby.config.turnTimerSeconds === null
             ? 'No turn timer'
-            : `${timerLabel(lobby.config.turnTimerSeconds)} per turn — when it runs out, the server rolls, resolves what is pending and ends the turn (no building, trading or moving)`}
+            : `${timerLabel(lobby.config.turnTimerSeconds)} per turn — when it runs out, the server rolls, resolves what is pending and ends the turn; it never builds or trades, and moves a ship only when a parked ship must found or leave (it founds the colony if it can)`}
           {isHost ? '' : ' (the host chooses)'}
         </span>
       </label>
