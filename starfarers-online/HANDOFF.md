@@ -3,10 +3,9 @@
 Last updated after phase 7 part A. On `main`: phases 1–5 via PR #2
 (`45b6c0c`), phase 6 (persistence, variable set-ups, advanced draft, 3-player
 review, server-side replay) via PR #3 (`e473ca2`), the phase 7 plan via PR #4
-(`063b21f`). Phase 7 part A (animations, turn timer, host controls, keyboard
-navigation, rule-confirmation checklist, review) is on branch
-`starfarers-phase-7`, pushed, no PR yet; land it with a merge commit like the
-earlier phases before starting part B.
+(`063b21f`), phase 7 part A (animations, turn timer, host controls, keyboard
+navigation, rule-confirmation checklist, review) via PR #5 from
+`starfarers-phase-7`. No open branches.
 
 **Starting a new session:** paste the prompt in §10 into the new session. It
 says to read `CLAUDE.md`, then this file top to bottom, then
@@ -702,9 +701,7 @@ below for reference.
 ## 10. Kickoff prompt for the next session
 
 Paste this as the first message of a new Claude Code session on
-`brogwalkerh/Clone-appies` (after the phase 7 part A branch has been merged
-to `main`; if it has not, branch from `starfarers-phase-7` instead and say so
-in the first commit):
+`brogwalkerh/Clone-appies`:
 
 ```
 The Starfarers Online project lives in starfarers-online/ on main of
