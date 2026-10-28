@@ -67,7 +67,9 @@ function expectOk<T>(reply: { ok: true; value: T } | { ok: false; error: { messa
 }
 
 const until = async (cond: () => boolean, what: string) => {
-  for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
+  // A wall-clock budget, not a count of 10 ms polls: under load each poll can take far longer than 10 ms.
+  const end = Date.now() + 10_000;
+  while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
   if (!cond()) throw new Error(`timed out waiting for ${what}`);
 };
 

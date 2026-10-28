@@ -6,7 +6,7 @@ import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RoomStore } from '../src/rooms.js';
 import { attachSockets, type GameServer } from '../src/socket.js';
-import { botRandom, nextAction } from './bot.js';
+import { BOT_GAME_TIMEOUT_MS, botRandom, nextAction } from './bot.js';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -223,7 +223,7 @@ describe('socket transport', () => {
     }
     expect(final.phase).toBe('gameOver');
     expect(log.length).toBe(steps);
-  }, 120_000);
+  }, BOT_GAME_TIMEOUT_MS);
 
   it('a late resume gets the initial state and can replay the log; a non-member cannot', async () => {
     const { a, b, c, code, rb } = await threePlayerRoom();

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileRoomPersistence, MemoryRoomPersistence, type RoomPersistence } from '../src/persist.js';
 import { RoomStore, type Room, type RoomSnapshot } from '../src/rooms.js';
-import { botRandom, nextAction } from './bot.js';
+import { BOT_GAME_TIMEOUT_MS, botRandom, nextAction } from './bot.js';
 
 const dirs: string[] = [];
 async function tempDir(): Promise<string> {
@@ -84,7 +84,7 @@ describe('FileRoomPersistence', () => {
   });
 });
 
-describe('RoomStore with persistence', () => {
+describe('RoomStore with persistence', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   it('saves after create, join, start, each accepted action and chat — not after a rejected action', async () => {
     const mem = new MemoryRoomPersistence();
     let t = 1000;

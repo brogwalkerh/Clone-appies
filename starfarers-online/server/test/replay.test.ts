@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FileRoomPersistence } from '../src/persist.js';
 import { RoomStore, type Room } from '../src/rooms.js';
-import { botRandom, nextAction } from './bot.js';
+import { BOT_GAME_TIMEOUT_MS, botRandom, nextAction } from './bot.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -39,7 +39,7 @@ function withoutConnected(state: GameState): GameState {
   return { ...state, players: state.players.map((p) => ({ ...p, connected: false })) };
 }
 
-describe('RoomStore.replayState', () => {
+describe('RoomStore.replayState', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   it('reproduces the state after every k-th action of a bot game, in any query order', () => {
     const store = new RoomStore({ seedFactory: () => 'replay-seed' });
     const room = startedRoom(store, 4);
@@ -132,7 +132,7 @@ describe('RoomStore.replayFor', () => {
   });
 });
 
-describe('initial state and persistence', () => {
+describe('initial state and persistence', { timeout: BOT_GAME_TIMEOUT_MS }, () => {
   it('a snapshot keeps the initial state, so replay works after a restart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'starfarers-replay-'));
     dirs.push(dir);

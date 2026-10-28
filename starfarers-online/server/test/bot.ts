@@ -29,6 +29,15 @@ import { actor, draftAction, encounterPickAction, pendingFoundAction, sevenActio
 // The pieces the turn timer also uses (who acts, the draft, a 7, encounter picks, a pending station) live in src/autoplay.ts.
 export { actor } from '../src/autoplay.js';
 
+/**
+ * Timeout for tests that play whole bot games (pure CPU: 3–25 s each when the
+ * machine is idle). The server default (30 s) is only ~2× the slowest of them
+ * (the wild-space game, ~13 s), so a full `pnpm test` running next to another
+ * suite, or on a cold cache, timed out now and then. Generous on purpose: what
+ * these tests assert is the game, not its speed.
+ */
+export const BOT_GAME_TIMEOUT_MS = 240_000;
+
 function freeSites(state: GameState, pid: PlayerId): NodeId[] {
   return spaceportsOf(state, pid)
     .flatMap((sp) => spaceportSites(state.board, sp.nodeId))
