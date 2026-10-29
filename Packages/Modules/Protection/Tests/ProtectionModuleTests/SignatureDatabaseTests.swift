@@ -74,6 +74,16 @@ struct SignatureDatabaseTests {
         #expect(!db.isAllowlisted("Other"))
     }
 
+    @Test func ign2NameWithMD5FieldUsesTheName() {
+        var db = database(ndb: "Withdrawn.Pattern:0:*:4142\nOther:0:*:4344")
+        db.load(ign2: "Withdrawn.Pattern:\(eicarMD5)\n:\(eicarMD5)")
+        #expect(db.isAllowlisted("Withdrawn.Pattern"))
+        #expect(!db.isAllowlisted(eicarMD5))
+        #expect(db.patterns.map(\.name) == ["Other"])
+        #expect(db.stats.allowlisted == 1)
+        #expect(db.stats.skippedLines == 1)
+    }
+
     @Test func commentsAndBlankLinesAreSilent() {
         let db = database(hdb: "# a comment\n\n   \n\(eicarMD5):68:Eicar-Test-Signature\r\n")
         #expect(db.stats.hashSignatures == 1)

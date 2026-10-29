@@ -44,6 +44,16 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertEqual(link("maccleaner:///protection?scope=normal"), .protection(scope: .normal))
     }
 
+    func testScheduleAndActionSet() {
+        let id = UUID(uuidString: "6F1D2C3B-0001-4A5B-9C8D-000000000001")!
+        XCTAssertEqual(link("maccleaner://schedule?id=\(id.uuidString)"), .schedule(id: id))
+        XCTAssertEqual(link("maccleaner://schedule?id=\(id.uuidString.lowercased())"), .schedule(id: id),
+                       "UUIDs parse in either case")
+        XCTAssertEqual(link("maccleaner://action-set?id=\(id.uuidString)"), .actionSet(id: id))
+        XCTAssertNil(link("maccleaner://schedule"), "a schedule link needs an id")
+        XCTAssertNil(link("maccleaner://action-set?id=not-a-uuid"))
+    }
+
     func testBadURLs() {
         XCTAssertNil(link("https://example.com/smart-care"), "wrong scheme")
         XCTAssertNil(link("maccleaner://nope"), "unknown route")
@@ -58,7 +68,9 @@ final class DeepLinkRouterTests: XCTestCase {
             .cleanup(scannerID: "cleanup.logs"),
             .performance(taskID: "maintenance.freeRAM"),
             .protection(scope: nil),
-            .protection(scope: .deep)
+            .protection(scope: .deep),
+            .schedule(id: UUID()),
+            .actionSet(id: UUID())
         ]
         for original in links {
             let url = try XCTUnwrap(original.url)

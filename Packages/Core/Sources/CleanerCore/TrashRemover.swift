@@ -5,6 +5,12 @@ import Foundation
 /// `remove` never stops at the first failure: every finding gets a
 /// `RemovalRecord`, and failures are recorded with a message. `undo` moves each
 /// successfully trashed item back from its recorded `trashedTo` location.
+///
+/// A finding that already lives in a Trash (`~/.Trash`, a volume's
+/// `.Trashes/<uid>`, or the configured trash directory) is deleted even in
+/// `.trash` mode: moving it to the Trash again would free nothing. Emptying the
+/// Trash is the one case CLAUDE.md rule 3 allows permanent deletion; its record
+/// has `trashedTo == nil`, so `undo` reports it as not restorable.
 public struct TrashRemover: Remover {
     private let fileSystem: any FileSystem
     /// When set, items are moved here instead of using the system Trash. Used
@@ -38,7 +44,7 @@ public struct TrashRemover: Remover {
             let record: RemovalRecord
             switch mode {
             case .trash:
-                record = trash(finding)
+                record = isInsideTrash(finding.path) ? removePermanently(finding) : trash(finding)
             case .permanent:
                 record = removePermanently(finding)
             }
@@ -141,6 +147,26 @@ public struct TrashRemover: Remover {
     }
 
     // MARK: - Helpers
+
+    /// True when `url` is strictly inside a Trash folder (never the folder itself).
+    func isInsideTrash(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.pathComponents
+        var roots = [fileSystem.homeDirectory().appendingPathComponent(".Trash", isDirectory: true)]
+        if let trashDirectory {
+            // The XDG layout keeps `files/` and `info/` under one `Trash/` root.
+            roots.append(trashDirectory.lastPathComponent == "files"
+                         ? trashDirectory.deletingLastPathComponent()
+                         : trashDirectory)
+        }
+        for root in roots {
+            let prefix = root.standardizedFileURL.pathComponents
+            if path.count > prefix.count, Array(path.prefix(prefix.count)) == prefix {
+                return true
+            }
+        }
+        // /Volumes/<name>/.Trashes/<uid>/<item>
+        return path.count > 5 && path[1] == "Volumes" && path[3] == ".Trashes"
+    }
 
     private func isSymlink(_ url: URL) -> Bool {
         (try? fileSystem.attributes(of: url).isSymlink) ?? false

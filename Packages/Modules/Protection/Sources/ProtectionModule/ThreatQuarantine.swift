@@ -117,11 +117,13 @@ public actor ThreatQuarantine {
     }
 
     /// Moves the manifest's items back to their original paths and resets
-    /// their permissions. Records that were never stored are returned as-is.
+    /// their permissions. Records with no stored item (never quarantined, or
+    /// already restored) are returned as-is; a record whose earlier restore
+    /// failed still has `storedAt` and is retried.
     public func restore(_ manifest: QuarantineManifest) async -> [QuarantineRecord] {
         var results: [QuarantineRecord] = []
         for record in manifest.records {
-            guard record.succeeded, let stored = record.storedAt else {
+            guard let stored = record.storedAt else {
                 results.append(record)
                 continue
             }
@@ -133,7 +135,17 @@ public actor ThreatQuarantine {
                 }
                 try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
                                                         withIntermediateDirectories: true)
-                try FileManager.default.moveItem(at: stored, to: destination)
+                // Unlock before moving: across volumes the move is a copy,
+                // which cannot read a mode-000 item. Re-lock if it fails.
+                try? FileManager.default.setAttributes([.posixPermissions: Int(record.restoredPermissions)],
+                                                       ofItemAtPath: stored.path)
+                do {
+                    try FileManager.default.moveItem(at: stored, to: destination)
+                } catch {
+                    try? FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: stored.path)
+                    throw error
+                }
+                // A cross-volume copy need not carry the mode over.
                 try? FileManager.default.setAttributes([.posixPermissions: Int(record.restoredPermissions)],
                                                        ofItemAtPath: destination.path)
                 try? FileManager.default.removeItem(at: stored.deletingLastPathComponent())

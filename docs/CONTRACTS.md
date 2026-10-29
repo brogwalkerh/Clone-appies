@@ -59,12 +59,21 @@ public protocol FileSystem: Sendable {
     func temporaryDirectory() -> URL
 }
 public struct FileAttributes: Sendable, Hashable {
-    public let sizeBytes: Int64         // allocated size for files, 0 for directories
+    public let sizeBytes: Int64         // allocated (on-disk) size for files, 0 for directories
+    public let logicalSizeBytes: Int64  // byte length of the contents (st_size); == sizeBytes on Linux
     public let modifiedAt: Date?
     public let isDirectory: Bool
     public let isSymlink: Bool
     public let isPackage: Bool          // macOS bundle; always false on Linux
+    public init(sizeBytes: Int64, logicalSizeBytes: Int64? = nil /* defaults to sizeBytes */,
+                modifiedAt: Date? = nil, isDirectory: Bool = false, isSymlink: Bool = false,
+                isPackage: Bool = false)
 }
+// `sizeBytes` (Darwin: totalFileAllocatedSizeKey) is what reclaim figures and
+// `Finding.sizeBytes` report. `logicalSizeBytes` (Darwin: fileSizeKey) is what
+// content comparison must use: APFS compression and clonefile make byte-identical
+// files report different allocated sizes. `MockFileSystem` nodes take an optional
+// `allocatedSize:` to model this.
 public struct LocalFileSystem: FileSystem { public init() }
 
 public struct ScanContext: Sendable {
@@ -201,6 +210,9 @@ On Linux `CGPoint` comes from Foundation; keep it or define `Point` typealias in
 ## CLI (CLI/)
 Executable `maccleaner`: `scan [--module cleanup|...] [--json] [--home PATH]`,
 `list-scanners`, `remove --manifest-out PATH --dry-run`. Depends on swift-argument-parser.
+M5 adds `smart-care [--home] [--json] [--run --yes] [--no-malware]`, `actions list|run <name|id>
+[--dry-run]` and `activity [--weeks N] [--json]`; all three take `--data-dir PATH` and
+`--no-history` and share the app's SmartCareStorage files.
 
 ## App (App/) — SwiftUI, macOS 27 only
 Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
@@ -217,7 +229,10 @@ Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
   interrupted scanner, then `.completed`.
 - Extra public inits exist on `FileAttributes`, `ScanSummary`, `RemovalRecord`,
   `RemovalManifest`; `TrashRemover(fileSystem:trashDirectory:)` forces move-based
-  trash on every platform (for tests). `CleanerCoreTesting` ships `MockFileSystem`
+  trash on every platform (for tests). In `.trash` mode `TrashRemover` deletes a
+  finding that is already inside a Trash (`~/.Trash`, `/Volumes/*/.Trashes/<uid>`,
+  the configured trash directory) instead of re-trashing it; its record has
+  `trashedTo == nil` (CLAUDE.md rule 3: emptying the Trash). `CleanerCoreTesting` ships `MockFileSystem`
   (dictionary-literal trees) and `FixtureBuilder` (real temp trees).
 
 ## M2 — ClutterModule (Packages/Modules/Clutter)
@@ -581,7 +596,7 @@ public struct QuarantineManifest: Codable, Sendable, Hashable, Identifiable { pu
 public struct SignatureUpdater: Sendable {
     public init(baseURL: URL, session: URLSession = .shared, destination: URL)
     public func currentVersion() -> String?
-    public func update() async throws -> SignatureUpdateResult   // downloads manifest, fetches changed files, verifies sha256, atomically swaps, writes version
+    public func update() async throws -> SignatureUpdateResult   // downloads manifest, fetches changed files, verifies sha256, atomically swaps, deletes files a previous update installed (INSTALLED) that the manifest no longer lists, writes version
 }
 public struct SignatureUpdateResult: Sendable, Hashable { public let version: String; public let filesUpdated: Int; public let bytes: Int64 }
 
@@ -615,3 +630,225 @@ public enum ProtectionEvent: Sendable { case started, threat(Threat), scanned(UR
 MenuAgent's Protection Monitor row becomes live (green = running, red = threat
 found, with count; click opens `maccleaner://protection`). The monitor runs
 inside the MenuAgent process so it survives the main window closing.
+
+## M5 — SmartCareModule (Packages/Modules/SmartCare, Foundation-only)
+
+Depends on CleanerCore, CleanupModule (rule descriptions for insights) and
+PerformanceModule (maintenance steps in action sets). Persistence follows ADR 0007.
+
+```swift
+// MARK: Smart Care run
+public enum SmartCareEvent: Sendable {
+    case moduleStarted(ModuleID)
+    case moduleProgress(ModuleID, fraction: Double?)
+    case finding(ModuleID, Finding)
+    case scannerFailed(ModuleID, scannerID: String, message: String)
+    case moduleFinished(ModuleID, ScanSummary)
+    case completed(SmartCareReport)
+}
+public struct SmartCareReport: Sendable, Hashable, Codable {
+    public let startedAt: Date; public let duration: TimeInterval
+    public let summaries: [ModuleID: ScanSummary]; public let findings: [Finding]
+    public let failures: [String: String]          // scanner id -> message
+    public func findings(in module: ModuleID) -> [Finding]
+}
+/// Which findings Smart Care's single "Run" acts on. Default: non-risky Cleanup and Performance
+/// findings; Applications, My Clutter and Protection are "review" modules (nothing auto-selected;
+/// threats go through ThreatQuarantine in the Protection flow, never through a Remover).
+public struct SmartCarePolicy: Sendable, Hashable {
+    public static let `default`: SmartCarePolicy
+    public init(autoSelect: [ModuleID: Set<RiskLevel>])
+    public func isSelectedByDefault(_ finding: Finding) -> Bool
+    public func defaultSelection(_ report: SmartCareReport) -> [Finding]
+    public func reclaimableBytes(_ report: SmartCareReport) -> Int64   // bytes of defaultSelection
+}
+/// One ScanCoordinator per module, all modules concurrently; events merged into one stream.
+/// Module order in `modules` is the order of `.moduleStarted`. Ends with `.completed`, also after cancel.
+public actor SmartCareCoordinator {
+    public init(modules: [(ModuleID, [any CleanerScanner])], maxConcurrencyPerModule: Int = 2)
+    public func run(_ context: ScanContext) -> AsyncStream<SmartCareEvent>
+    public func cancel()
+}
+
+// MARK: Activity (My Activity, PLAN.md §3.12)
+public enum ActivityKind: String, Codable, Sendable { case scan, removal, undo, quarantine, maintenance, actionSet }
+public struct ActivityEvent: Codable, Sendable, Hashable, Identifiable {
+    public let id: UUID; public let date: Date; public let kind: ActivityKind; public let module: ModuleID?
+    public let title: String; public let bytes: Int64; public let items: Int; public let reference: String?
+    public init(id: UUID = UUID(), date: Date = .now, kind: ActivityKind, module: ModuleID?, title: String,
+                bytes: Int64 = 0, items: Int = 0, reference: String? = nil)
+    public static func scan(_ summary: ScanSummary, module: ModuleID, date: Date = .now) -> ActivityEvent
+    public static func removal(_ manifest: RemovalManifest, module: ModuleID) -> ActivityEvent      // bytes = bytesReclaimed, items = succeeded count, reference = manifest id
+    public static func removals(_ manifest: RemovalManifest) -> [ActivityEvent]                    // one per module, for cross-module runs
+    public static func undo(_ restored: [RemovalRecord], module: ModuleID, date: Date = .now) -> ActivityEvent
+    public static func quarantine(threats: Int, bytes: Int64, date: Date = .now) -> ActivityEvent
+    public static func maintenance(_ result: MaintenanceResult, date: Date = .now) -> ActivityEvent
+}
+public protocol ActivityStore: Sendable {
+    func append(_ events: [ActivityEvent]) async throws
+    func events(since: Date?) async throws -> [ActivityEvent]   // oldest first
+    func removeAll() async throws
+}
+public actor JSONLinesActivityStore: ActivityStore { public init(fileURL: URL, maxEvents: Int = 5_000) }
+public actor InMemoryActivityStore: ActivityStore { public init(_ events: [ActivityEvent] = []) }
+public struct ActivityStats: Sendable, Hashable {
+    public struct Week: Sendable, Hashable, Identifiable { public var id: Date { start }; public let start: Date; public let bytesByModule: [ModuleID: Int64] }
+    public let bytesReclaimed: Int64            // removals minus undos, all time
+    public let bytesReclaimedLast30Days: Int64
+    public let itemsRemoved: Int; public let threatsQuarantined: Int; public let maintenanceRuns: Int
+    public let estimatedTimeSaved: TimeInterval // TimeSavedModel
+    public let weeks: [Week]                     // `weeks` buckets ending with the current week, oldest first
+    public let lastScan: [ModuleID: Date]; public let lastRemoval: Date?
+    public init(events: [ActivityEvent], now: Date, calendar: Calendar = .current, weeks: Int = 8)
+}
+public enum TimeSavedModel { public static func estimate(_ event: ActivityEvent) -> TimeInterval }  // documented constants
+
+// MARK: Inbox (Notification Center, PLAN.md §3.12)
+public enum InboxKind: String, Codable, Sendable { case info, scanResult, reminder, threat, update }
+public struct InboxMessage: Codable, Sendable, Hashable, Identifiable {
+    public let id: UUID; public let date: Date; public let kind: InboxKind
+    public let title: String; public let body: String; public var isRead: Bool; public let link: String?   // maccleaner:// URL
+}
+/// Whole-file JSON (ADR 0007): every call re-reads, newest first, capped at `capacity`.
+public actor InboxStore {
+    public init(fileURL: URL, capacity: Int = 50)
+    public func messages() -> [InboxMessage]
+    @discardableResult public func post(_ message: InboxMessage) -> [InboxMessage]
+    @discardableResult public func markRead(_ id: UUID?) -> [InboxMessage]   // nil = all
+    @discardableResult public func removeAll() -> [InboxMessage]
+}
+/// Generic whole-file JSON record used by InboxStore, schedules and action sets.
+public struct JSONFileRecord<Value: Codable & Sendable>: Sendable {
+    public init(fileURL: URL)
+    public func load() -> Value?            // nil when missing or undecodable
+    public func save(_ value: Value) throws // atomic, creates parent directory
+}
+
+// MARK: Assistant (rule-based, PLAN.md §3.1)
+public struct AssistantSnapshot: Sendable, Hashable {
+    public var now: Date
+    public var lastScan: [ModuleID: Date]; public var summaries: [ModuleID: ScanSummary]
+    public var lastSmartCare: Date?; public var lastRemoval: Date?; public var lastMaintenance: Date?
+    public var trashBytes: Int64?; public var diskFreeBytes: Int64?; public var diskCapacityBytes: Int64?
+    public var hasFullDiskAccess: Bool?; public var helperInstalled: Bool?
+    public var updatesAvailable: Int?; public var openThreats: Int; public var signaturesUpdated: Date?
+    public var hasEnabledSchedule: Bool
+    public init(now: Date = .now)   // everything else empty / nil / 0 / false
+}
+public enum AssistantDestination: String, Codable, Sendable { case smartCare, cleanup, protection, performance, applications, clutter, spaceLens, myActivity, scheduler }
+public enum AssistantAction: Codable, Sendable, Hashable { case open(AssistantDestination), grantFullDiskAccess, installHelper, runSmartCare, updateSignatures }
+public struct AssistantRecommendation: Sendable, Hashable, Identifiable {
+    public let id: String          // rule id; stable, used for dismissal
+    public let priority: Int       // higher first
+    public let symbol: String      // SF Symbol name
+    public let title: String; public let detail: String; public let action: AssistantAction
+}
+public protocol AssistantRule: Sendable { var id: String { get }; func evaluate(_ snapshot: AssistantSnapshot) -> AssistantRecommendation? }
+public struct Assistant: Sendable {
+    public static let defaultRules: [any AssistantRule]   // fullDiskAccess, threats, lowDisk, junk, trash, firstScan, staleScan,
+                                                          // updates, signatures, helper, maintenance, schedule
+    public init(rules: [any AssistantRule] = Assistant.defaultRules)
+    /// Sorted by priority (ties: rule order); a rule dismissed within `dismissalPeriod` is skipped.
+    public func recommendations(for snapshot: AssistantSnapshot, dismissed: [String: Date] = [:],
+                                dismissalPeriod: TimeInterval = 7 * 86_400, limit: Int = 5) -> [AssistantRecommendation]
+}
+
+// MARK: My Tools action sets (PLAN.md §3.12)
+public enum ActionStep: Codable, Sendable, Hashable {
+    case clean(scannerIDs: [String], includeCaution: Bool)   // scan, then remove .safe (+ .caution if asked) findings; .risky never
+    case maintenance(taskID: String)                          // MaintenanceCatalog id
+}
+public struct ActionSet: Codable, Sendable, Hashable, Identifiable {
+    public let id: UUID; public var name: String; public var steps: [ActionStep]; public let createdAt: Date
+    public init(id: UUID = UUID(), name: String, steps: [ActionStep], createdAt: Date = .now)
+    /// Human-readable problems (empty name, no steps, unknown scanner or task id).
+    public func validate(knownScannerIDs: Set<String>, knownTaskIDs: Set<String>) -> [String]
+}
+public enum ActionSetPresets { public static let all: [ActionSet] }   // "Friday clean", "Developer cleanup", "Quick tune-up"
+public struct ActionStepResult: Sendable, Hashable {
+    public let index: Int; public let step: ActionStep; public let succeeded: Bool; public let message: String
+    public let bytesReclaimed: Int64; public let manifest: RemovalManifest?; public let maintenance: MaintenanceResult?
+}
+public struct ActionSetReport: Sendable, Hashable { public let actionSetID: UUID; public let results: [ActionStepResult]; public var bytesReclaimed: Int64 { get } }
+public enum ActionSetEvent: Sendable { case stepStarted(index: Int, ActionStep), stepFinished(ActionStepResult), completed(ActionSetReport) }
+/// Steps run in order; a failing step is recorded and the next one still runs. Removal goes through
+/// `remover` (callers pass a GuardedRemover) with `removalMode`; dry runs scan but never remove.
+public struct ActionSetRunner: Sendable {
+    public init(scanners: [any CleanerScanner], remover: any Remover, maintenance: MaintenanceRunner?,
+                removalMode: RemovalMode = .trash, dryRun: Bool = false)
+    public func run(_ set: ActionSet, context: ScanContext) -> AsyncStream<ActionSetEvent>
+}
+
+// MARK: Scheduler (PLAN.md §3.12)
+public enum ScheduleCadence: Codable, Sendable, Hashable { case daily, weekly(weekday: Int), monthly(day: Int) }   // weekday 1 = Sunday; day 1...28
+public enum ScheduleTarget: Codable, Sendable, Hashable { case smartCareScan, moduleScan(ModuleID), actionSet(UUID) }
+public struct ScanSchedule: Codable, Sendable, Hashable, Identifiable {
+    public let id: UUID; public var isEnabled: Bool; public var cadence: ScheduleCadence
+    public var hour: Int; public var minute: Int; public var target: ScheduleTarget; public let createdAt: Date
+    public init(id: UUID = UUID(), isEnabled: Bool = true, cadence: ScheduleCadence, hour: Int, minute: Int,
+                target: ScheduleTarget, createdAt: Date = .now)
+    public func nextFire(after date: Date, calendar: Calendar) -> Date?
+}
+/// Missed occurrences (Mac asleep) collapse into one run on the next check.
+public struct ScheduleEvaluator: Sendable {
+    public init(calendar: Calendar = .current)
+    public func due(_ schedules: [ScanSchedule], lastRuns: [UUID: Date], now: Date) -> [ScanSchedule]
+    public func nextFire(_ schedules: [ScanSchedule], lastRuns: [UUID: Date], now: Date) -> Date?
+}
+
+// MARK: Smart Insights fallback (PLAN.md §3.2; the Foundation Models provider lives in App/)
+public enum InsightSource: String, Codable, Sendable { case rules, onDeviceModel }
+public struct Insight: Sendable, Hashable, Codable { public let title: String; public let explanation: String; public let advice: String; public let source: InsightSource }
+public protocol InsightProvider: Sendable { func insight(for finding: Finding, home: URL) async -> Insight? }
+/// Cleanup rule descriptions by path, then a built-in category table; advice from the finding's risk.
+public struct RuleTableInsightProvider: InsightProvider { public init(rules: CleanupRules = .shared) }
+/// Asks `primary` (e.g. the on-device model) and falls back when it returns nil.
+public struct FallbackInsightProvider: InsightProvider { public init(primary: any InsightProvider, fallback: any InsightProvider) }
+/// Prompt text for the on-device model: facts only (path relative to home, size, age, category, rule text).
+public enum InsightPrompt { public static let instructions: String; public static func make(for finding: Finding, home: URL, ruleText: String?) -> String }
+
+// MARK: Storage layout (ADR 0007) shared by App, MenuAgent and CLI
+public struct SmartCareStorage: Sendable {
+    public init(directory: URL)                       // activity.jsonl, inbox.json, schedules.json, schedule-runs.json,
+    public let activity: JSONLinesActivityStore       // action-sets.json, assistant-dismissed.json
+    public let inbox: InboxStore
+    public let schedules: JSONFileRecord<[ScanSchedule]>; public let scheduleRuns: JSONFileRecord<[UUID: Date]>
+    public let actionSets: JSONFileRecord<[ActionSet]>; public let dismissedRecommendations: JSONFileRecord<[String: Date]>
+    public static func defaultDirectory(home: URL = …) -> URL   // ~/Library/Application Support/com.example.maccleaner
+}
+```
+
+Implementation notes (SmartCareModule as built):
+- Extra public API: `SmartCarePolicy.isReviewOnly(_:)`, `ClosureRule` (closure-backed
+  `AssistantRule`; the default rules are written with it), `ActionSetReport.succeeded`,
+  `ActivityStats.Week.totalBytes`, `ActivityStats.lastMaintenance`,
+  `RuleTableInsightProvider.ruleText(for:home:)`, `ModuleID.displayName`,
+  `FindingSelection.droppingNested(_:)`. `SmartCarePolicy.defaultSelection` and the
+  action-set clean step drop findings nested inside another selected folder.
+- `SmartCareCoordinator` builds module summaries from the findings it keeps, so a path
+  two modules report counts once, under whichever module reported it first.
+- `JSONLinesActivityStore.append` starts a new line when the file does not end in one,
+  so a torn write loses only the torn event.
+- Rules never fire on unknown (`nil`) facts; a fresh install sees only "firstScan".
+
+## M5 — App and MenuAgent side (macOS only)
+- `ActivityCenter.shared` (`@MainActor @Observable`, App/State) owns the activity log and
+  `ActivityStats`. Models record into it where the disk changes, so every path counts once:
+  `ScanViewModel` (finished scan, `remove`, `undoLastRemoval`), `MalwareScanModel` (finished
+  scan, quarantine), `MaintenanceState` (each result), `AppInventoryStore.uninstall`,
+  `AutomationState.run`.
+- `SmartCareModel` runs the module view models concurrently (`ScanViewModel.runToCompletion()`,
+  `MalwareScanModel.runToCompletion()` with the quick scope, `AppInventoryStore.checkForUpdates()`),
+  so each Smart Care card opens a module that already holds its results. Run removes the current
+  selection of the modules `SmartCarePolicy` does not mark review-only, via `FindingsActions.clean`.
+- `AutomationState` holds action sets (presets plus `SmartCareStorage.actionSets`) and schedules;
+  `AppState.runSchedule(id:)` performs a schedule's target and posts the result to the inbox and as
+  a system notification. The Notification Center reads and writes `SmartCareStorage.inbox`.
+- New deep links: `maccleaner://schedule?id=<uuid>` (run a due schedule, no navigation) and
+  `maccleaner://action-set?id=<uuid>`.
+- MenuAgent checks `schedules.json` every 60 s with `ScheduleEvaluator`, writes the run time to
+  `schedule-runs.json` first, then opens `maccleaner://schedule?id=` without activating the app.
+  The agent still never scans or talks to the helper itself (ADR 0002).
+- Smart Insights: `InsightService.provider` is `FallbackInsightProvider(primary:
+  OnDeviceInsightProvider (Foundation Models, `#if canImport(FoundationModels)`), fallback:
+  RuleTableInsightProvider)`; every findings row has a "What is this?" popover.

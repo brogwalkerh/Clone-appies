@@ -5,6 +5,12 @@ import CleanerCore
 /// streaming SHA-256 -> group. Each group's *keeper* is the oldest file (ties
 /// broken by path); every other member is emitted as a finding.
 ///
+/// Bucketing, the minimum-size gate and the tail-sample offset all use the
+/// *logical* size (`FileAttributes.logicalSizeBytes`): on APFS, compression
+/// and `clonefile` make byte-identical files report different allocated
+/// sizes. Each finding still reports the allocated size (`sizeBytes`) so
+/// reclaim figures stay accurate.
+///
 /// The walk only records paths and metadata. Content is read afterwards,
 /// bucket by bucket (largest sizes first), one file at a time, so at most one
 /// hashing chunk is resident and findings start flowing before the smaller
@@ -27,6 +33,8 @@ public struct DuplicatesScanner: CleanerScanner {
 
     struct Candidate: Sendable, Hashable {
         let url: URL
+        /// Allocated size, reported on the emitted `Finding`.
+        let sizeBytes: Int64
         let modifiedAt: Date?
 
         /// Oldest first; files without a date sort last; ties by path.
@@ -45,19 +53,20 @@ public struct DuplicatesScanner: CleanerScanner {
             // Phase 1: metadata only.
             var buckets: [Int64: [Candidate]] = [:]
             try await context.forEachRegularFile(under: context.scanRoots(roots)) { url, attributes in
-                guard attributes.sizeBytes >= minSizeBytes else { return }
-                buckets[attributes.sizeBytes, default: []].append(Candidate(url: url, modifiedAt: attributes.modifiedAt))
+                guard attributes.logicalSizeBytes >= minSizeBytes else { return }
+                buckets[attributes.logicalSizeBytes, default: []].append(
+                    Candidate(url: url, sizeBytes: attributes.sizeBytes, modifiedAt: attributes.modifiedAt))
             }
 
             // Phase 2: hash and emit, one bucket at a time.
-            for size in buckets.keys.sorted(by: >) {
-                guard let bucket = buckets[size], bucket.count > 1 else { continue }
-                buckets[size] = nil
+            for logicalSize in buckets.keys.sorted(by: >) {
+                guard let bucket = buckets[logicalSize], bucket.count > 1 else { continue }
+                buckets[logicalSize] = nil
                 try Task.checkCancellation()
-                for group in try Self.duplicateGroups(in: bucket, size: size, fileSystem: context.fileSystem) {
+                for group in try Self.duplicateGroups(in: bucket, size: logicalSize, fileSystem: context.fileSystem) {
                     let keeper = group[0]
                     for duplicate in group.dropFirst() {
-                        emitter.emit(Finding(path: duplicate.url, sizeBytes: size,
+                        emitter.emit(Finding(path: duplicate.url, sizeBytes: duplicate.sizeBytes,
                                              category: ClutterCategory.duplicates, scannerID: Self.id,
                                              risk: .caution, detail: "Duplicate of \(keeper.url.path)",
                                              modifiedAt: duplicate.modifiedAt, isDirectory: false))
@@ -67,8 +76,9 @@ public struct DuplicatesScanner: CleanerScanner {
         }
     }
 
-    /// Groups of byte-identical files within one size bucket, each sorted
-    /// keeper first; groups ordered by keeper path. Unreadable files are dropped.
+    /// Groups of byte-identical files within one logical-size bucket, each
+    /// sorted keeper first; groups ordered by keeper path. Unreadable files are
+    /// dropped.
     static func duplicateGroups(in bucket: [Candidate], size: Int64,
                                 fileSystem: any FileSystem) throws -> [[Candidate]] {
         var byPrefilter: [UInt64: [Candidate]] = [:]
@@ -95,7 +105,8 @@ public struct DuplicatesScanner: CleanerScanner {
     }
 
     /// FNV-1a over the first and last `sampleLength` bytes (the whole file
-    /// when it is no longer than both samples together).
+    /// when it is no longer than both samples together). `size` is the
+    /// logical size: the tail sample starts `sampleLength` bytes before EOF.
     static func prefilterHash(of url: URL, size: Int64, fileSystem: any FileSystem) throws -> UInt64 {
         var hasher = FNV1a64()
         let sample = Int64(sampleLength)

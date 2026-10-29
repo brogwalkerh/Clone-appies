@@ -28,6 +28,33 @@ struct HexPatternParserTests {
         #expect(throws: (any Error).self) { try HexPatternParser.parse("4") }
         #expect(throws: (any Error).self) { try HexPatternParser.parse("4g") }
     }
+
+    @Test func rejectsAbsurdSkipRanges() throws {
+        let limit = HexPatternParser.maxSkipLength
+        #expect(throws: Never.self) { try HexPatternParser.parse("41{0-\(limit)}42") }
+        #expect(throws: HexPatternError.invalidRange("0-\(limit + 1)")) { try HexPatternParser.parse("41{0-\(limit + 1)}42") }
+        #expect(throws: HexPatternError.invalidRange("\(limit + 1)-")) { try HexPatternParser.parse("41{\(limit + 1)-}42") }
+        #expect(throws: HexPatternError.invalidRange("9223372036854775806")) {
+            try HexPatternParser.parse("41{9223372036854775806}42")
+        }
+        // A line that used to trap PatternMatcher.init on Int overflow.
+        var db = SignatureDatabase()
+        db.load(ndb: "x:0:*:41{0-9223372036854775806}42\ny:0:*:41{9223372036854775807-}42\nok:0:*:41{2}42")
+        #expect(db.stats.skippedLines == 2)
+        #expect(db.patterns.map(\.name) == ["ok"])
+        #expect(PatternMatcher(patterns: db.patterns).matches(in: Data("A..B".utf8)) == ["ok"])
+    }
+
+    @Test func handBuiltHugeSpansDoNotOverflow() {
+        let huge = HexPattern(name: "huge", target: 0, offset: .fromEnd(Int.max), tokens: [
+            .byte(0x41), .skipRange(min: Int.max - 1, max: Int.max - 1), .skipRange(min: 0, max: Int.max - 1), .byte(0x42),
+        ])
+        let matcher = PatternMatcher(patterns: [huge])
+        #expect(matcher.maxPatternLength == PatternMatcher.maxPatternLengthCap)
+        #expect(matcher.matches(in: Data("AB".utf8), fileSize: 2, chunkOffset: 0).isEmpty)
+        // A file that grew while being read: chunkOffset beyond the stat size.
+        #expect(matcher.matches(in: Data("AB".utf8), fileSize: 2, chunkOffset: 10).isEmpty)
+    }
 }
 
 @Suite("PatternMatcher")
@@ -166,6 +193,21 @@ struct PatternMatcherTests {
             try pattern(hex("AB"), name: "ab"), try pattern(hex("CD"), name: "cd"), try pattern(hex("EF"), name: "ef"),
         ])
         #expect(Set(matcher.matches(in: Data("xxCDxxABxx".utf8))) == ["ab", "cd"])
+    }
+
+    /// Without memoizing failed (token, position) pairs, each `*` multiplies
+    /// the work by the number of `B`s: ~n^4/24 (about 2e11) steps here, which
+    /// hangs (the time limit cannot interrupt synchronous code). With it: well
+    /// under a second.
+    @Test(.timeLimit(.minutes(1))) func nestedSkipsDoNotBacktrackCombinatorially() throws {
+        let n = 1_500
+        let data = Data("A".utf8) + Data(repeating: UInt8(ascii: "B"), count: n)
+        let matcher = PatternMatcher(patterns: [try pattern("41*42*42*42*42*43", name: "never"),
+                                                try pattern("41*42{0-9}42*42*42", name: "hit")])
+        let start = ContinuousClock.now
+        #expect(matcher.matches(in: data) == ["hit"])
+        #expect(matcher.matches(in: data + Data("C".utf8)) == ["never", "hit"])
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 }
 

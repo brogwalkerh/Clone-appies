@@ -9,6 +9,8 @@ import ProtectionModule
 /// - `maccleaner://cleanup[?scanner=<scanner id>]`
 /// - `maccleaner://performance[?task=<maintenance task id>]`
 /// - `maccleaner://protection[?scope=quick|normal|deep]`
+/// - `maccleaner://schedule?id=<schedule uuid>` (the menu bar agent, when a schedule comes due)
+/// - `maccleaner://action-set?id=<action set uuid>`
 ///
 /// Parsing is pure so `DeepLinkRouterTests` can cover it without a window.
 /// The route may be given as the host (`maccleaner://cleanup`) or, for callers
@@ -19,6 +21,10 @@ enum DeepLink: Hashable, Sendable {
     case performance(taskID: String?)
     /// Opens Protection › Malware and starts a scan; an unknown or missing scope keeps the current one.
     case protection(scope: ScanScope?)
+    /// Runs a due schedule's target in the background (no navigation).
+    case schedule(id: UUID)
+    /// Opens Smart Care and runs a My Tools action set.
+    case actionSet(id: UUID)
 
     static let scheme = "maccleaner"
 
@@ -27,6 +33,8 @@ enum DeepLink: Hashable, Sendable {
         case cleanup
         case performance
         case protection
+        case schedule
+        case actionSet = "action-set"
     }
 
     init?(url: URL) {
@@ -57,6 +65,12 @@ enum DeepLink: Hashable, Sendable {
             self = .performance(taskID: value("task"))
         case .protection:
             self = .protection(scope: value("scope").flatMap { ScanScope(rawValue: $0.lowercased()) })
+        case .schedule:
+            guard let id = value("id").flatMap(UUID.init(uuidString:)) else { return nil }
+            self = .schedule(id: id)
+        case .actionSet:
+            guard let id = value("id").flatMap(UUID.init(uuidString:)) else { return nil }
+            self = .actionSet(id: id)
         }
     }
 
@@ -66,6 +80,8 @@ enum DeepLink: Hashable, Sendable {
         case .cleanup: return .cleanup
         case .performance: return .performance
         case .protection: return .protection
+        case .schedule: return .schedule
+        case .actionSet: return .actionSet
         }
     }
 
@@ -83,6 +99,8 @@ enum DeepLink: Hashable, Sendable {
             if let taskID { components.queryItems = [URLQueryItem(name: "task", value: taskID)] }
         case .protection(let scope):
             if let scope { components.queryItems = [URLQueryItem(name: "scope", value: scope.rawValue)] }
+        case .schedule(let id), .actionSet(let id):
+            components.queryItems = [URLQueryItem(name: "id", value: id.uuidString)]
         }
         return components.url
     }
@@ -126,6 +144,15 @@ struct DeepLinkRouter {
             // the scan starts right away so the user lands on live progress.
             appState.select(.protection)
             appState.runMalwareScan(scope: scope)
+
+        case .schedule(let id):
+            // Scheduled work runs where the user is; results arrive as a notification.
+            Task { await appState.runSchedule(id: id) }
+
+        case .actionSet(let id):
+            appState.select(.smartCare)
+            guard let set = appState.automation.actionSet(withID: id) else { return }
+            Task { await appState.automation.run(set) }
         }
     }
 }

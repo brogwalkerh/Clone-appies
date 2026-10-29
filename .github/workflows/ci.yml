@@ -37,6 +37,7 @@ jobs:
           - Packages/Modules/Applications
           - Packages/Modules/Performance
           - Packages/Modules/Protection
+          - Packages/Modules/SmartCare
           - CLI
     steps:
       - name: Checkout

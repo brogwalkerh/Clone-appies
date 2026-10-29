@@ -51,6 +51,7 @@ public enum SignatureUpdateError: Error, Sendable, Hashable, LocalizedError {
     case digestMismatch(name: String, expected: String, actual: String)
     case sizeMismatch(name: String, expected: Int64, actual: Int64)
     case replaceFailed(name: String, reason: String)
+    case removeFailed(name: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -60,6 +61,7 @@ public enum SignatureUpdateError: Error, Sendable, Hashable, LocalizedError {
         case .digestMismatch(let name, _, _): "\(name) failed SHA-256 verification"
         case .sizeMismatch(let name, let expected, let actual): "\(name) is \(actual) bytes, expected \(expected)"
         case .replaceFailed(let name, let reason): "Could not install \(name): \(reason)"
+        case .removeFailed(let name, let reason): "Could not remove withdrawn \(name): \(reason)"
         }
     }
 }
@@ -69,11 +71,17 @@ public enum SignatureUpdateError: Error, Sendable, Hashable, LocalizedError {
 /// Only files whose manifest SHA-256 differs from the local copy are fetched.
 /// Every download is verified before anything is installed; files are
 /// written to a staging directory and then swapped into `destination` with
-/// `rename(2)`, so a reader never sees a partial file. The manifest version is
-/// stored in `<destination>/VERSION`.
+/// `rename(2)`, so a reader never sees a partial file. Files an earlier
+/// update installed (listed in `<destination>/INSTALLED`) that the manifest
+/// no longer lists are then deleted, so withdrawn signatures stop loading;
+/// files the updater never installed, such as a user's own `.ign2`
+/// allowlist, are never touched. The manifest version is stored in
+/// `<destination>/VERSION`.
 public struct SignatureUpdater: Sendable {
     public static let manifestFileName = "manifest.json"
     public static let versionFileName = "VERSION"
+    /// Names of the files the last successful update installed, one per line.
+    public static let installedFileName = "INSTALLED"
     public static let allowedExtensions = SignatureDatabase.supportedExtensions
 
     public let baseURL: URL
@@ -137,6 +145,10 @@ public struct SignatureUpdater: Sendable {
         for item in pending {
             try Self.atomicReplace(item.staged, with: destination.appendingPathComponent(item.name), name: item.name)
         }
+        let listed = Set(manifest.files.map(\.name))
+        try removeWithdrawnFiles(installedNames().subtracting(listed))
+        try Data(listed.sorted().joined(separator: "\n").utf8)
+            .write(to: destination.appendingPathComponent(Self.installedFileName), options: .atomic)
         let versionFile = destination.appendingPathComponent(Self.versionFileName)
         try Data(manifest.version.utf8).write(to: versionFile, options: .atomic)
         return SignatureUpdateResult(version: manifest.version, filesUpdated: pending.count,
@@ -152,6 +164,31 @@ public struct SignatureUpdater: Sendable {
             throw SignatureUpdateError.badResponse(url, statusCode: http.statusCode)
         }
         return data
+    }
+
+    /// What the previous update installed. Missing (first update, or a
+    /// destination from before this list existed) means nothing is removed.
+    private func installedNames() -> Set<String> {
+        let url = destination.appendingPathComponent(Self.installedFileName)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return Set(text.split(separator: "\n").map(String.init))
+    }
+
+    /// Deletes the named regular files from `destination`. Names that fail the
+    /// manifest's own name rules (a tampered INSTALLED file) are ignored.
+    private func removeWithdrawnFiles(_ names: Set<String>) throws {
+        let fm = FileManager.default
+        for name in names.sorted() {
+            guard (try? Self.validate(name: name)) != nil else { continue }
+            let url = destination.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
+            do {
+                try fm.removeItem(at: url)
+            } catch {
+                throw SignatureUpdateError.removeFailed(name: name, reason: "\(error)")
+            }
+        }
     }
 
     /// Manifest entries must be bare file names with a signature extension.

@@ -3,6 +3,7 @@ import CleanerCore
 import Foundation
 import Observation
 import ProtectionModule
+import SmartCareModule
 import UIKitBridge
 import UserNotifications
 
@@ -21,6 +22,10 @@ final class AgentState {
         static let freeRAM = "maccleaner://performance?task=maintenance.freeRAM"
         static let emptyTrash = "maccleaner://cleanup?scanner=cleanup.trash"
         static let protection = "maccleaner://protection"
+
+        static func schedule(_ id: UUID) -> String {
+            "maccleaner://schedule?id=\(id.uuidString)"
+        }
     }
 
     /// Keys shared with the main app through the `com.example.maccleaner.shared`
@@ -100,6 +105,11 @@ final class AgentState {
     @ObservationIgnored private let clock = ContinuousClock()
     @ObservationIgnored private var hasRequestedNotificationAuthorization = false
 
+    /// Settings › Scheduler's schedules and run times, shared with the app (ADR 0007).
+    @ObservationIgnored private let storage = SmartCareStorage(directory: SmartCareStorage.defaultDirectory())
+    @ObservationIgnored private var schedulerTask: Task<Void, Never>?
+    @ObservationIgnored private let schedulerInterval: Duration = .seconds(60)
+
     init(sampler: SystemStatsSampler = SystemStatsSampler(interval: .seconds(2))) {
         self.sampler = sampler
         start()
@@ -126,6 +136,13 @@ final class AgentState {
         if SharedSettings.isMonitorEnabled() {
             startMonitor()
         }
+        schedulerTask = Task { [weak self, interval = self.schedulerInterval] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.runDueSchedules()
+                try? await Task.sleep(for: interval)
+            }
+        }
     }
 
     func stop() {
@@ -133,7 +150,34 @@ final class AgentState {
         trashTask?.cancel()
         samplerTask = nil
         trashTask = nil
+        schedulerTask?.cancel()
+        schedulerTask = nil
         stopMonitor()
+    }
+
+    // MARK: Scheduler
+
+    /// Hands each due schedule to the main app (which owns scanning, removal
+    /// and the helper, ADR 0002). The run time is written first, so a slow
+    /// scan is never started twice; runs missed while asleep collapse into one.
+    func runDueSchedules(now: Date = .now) {
+        let schedules = storage.schedules.load() ?? []
+        guard !schedules.isEmpty else { return }
+        var runs = storage.scheduleRuns.load() ?? [:]
+        let due = ScheduleEvaluator().due(schedules, lastRuns: runs, now: now)
+        guard !due.isEmpty else { return }
+        for schedule in due {
+            runs[schedule.id] = now
+        }
+        do {
+            try storage.scheduleRuns.save(runs)
+        } catch {
+            // Without a recorded run the same schedule would fire every minute.
+            return
+        }
+        for schedule in due {
+            openMainApp(route: Route.schedule(schedule.id), activates: false)
+        }
     }
 
     // MARK: Protection Monitor
@@ -326,14 +370,19 @@ final class AgentState {
     /// scheme yet, launches the main app by bundle id (or by walking up from
     /// `Contents/Library/LoginItems/` to the enclosing bundle) so the button
     /// never silently does nothing.
-    private func openMainApp(route: String) {
+    ///
+    /// Scheduled runs pass `activates: false` so the app does its work without
+    /// taking focus from whatever the user is doing.
+    private func openMainApp(route: String, activates: Bool = true) {
         guard let url = URL(string: route) else { return }
-        if NSWorkspace.shared.open(url) { return }
+        if activates, NSWorkspace.shared.open(url) { return }
         let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
+        configuration.activates = activates
         if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AgentState.mainAppBundleIdentifier)
             ?? AgentState.enclosingAppURL() {
             NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration) { _, _ in }
+        } else if !activates {
+            NSWorkspace.shared.open(url)
         }
     }
 

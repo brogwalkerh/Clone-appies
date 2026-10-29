@@ -3,6 +3,7 @@ import Observation
 import CleanerCore
 import ApplicationsModule
 import UIKitBridge
+import SmartCareModule
 
 /// Installed apps, their leftovers and available updates, for the Applications
 /// module's Uninstaller and Updater tabs and for `UninstallAppIntent`.
@@ -219,6 +220,7 @@ final class AppInventoryStore {
         }
 
         lastUninstallManifest = manifest
+        ActivityCenter.shared.record(.removal(manifest, module: .applications))
         let removed = Set(manifest.records.lazy.filter(\.succeeded).map(\.finding.path))
         if removed.contains(app.bundleURL) {
             apps.removeAll { $0.id == app.id }

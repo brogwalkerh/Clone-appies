@@ -175,5 +175,7 @@ describe('initial state and persistence', { timeout: BOT_GAME_TIMEOUT_MS }, () =
     // The game itself carries on.
     const a = nextAction(restored.game!, botRandom(1));
     expect(after.applyAction(restored, a!.playerId, a!).ok).toBe(true);
+    // The save is fire-and-forget; let it land before afterEach removes `dir`.
+    await after.flush();
   });
 });

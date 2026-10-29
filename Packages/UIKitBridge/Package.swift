@@ -47,6 +47,7 @@ let package = Package(
             name: "UIKitBridgeTests",
             dependencies: [
                 "UIKitBridge",
+                .product(name: "CleanerCore", package: "Core"),
                 .product(name: "ApplicationsModule", package: "Applications"),
                 .product(name: "PerformanceModule", package: "Performance"),
                 .product(name: "ProtectionModule", package: "Protection"),

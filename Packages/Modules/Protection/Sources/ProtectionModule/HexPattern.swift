@@ -92,6 +92,11 @@ public enum HexPatternError: Error, Sendable, Hashable {
 
 /// Parses the ClamAV hex body grammar into `PatternToken`s.
 enum HexPatternParser {
+    /// Largest finite skip bound accepted in `{n}`, `{n-m}`, `{-m}` and
+    /// `{n-}`. Real signatures use far less; larger values are rejected as
+    /// malformed so span arithmetic cannot overflow.
+    static let maxSkipLength = 1 << 20
+
     static func parse(_ text: String) throws -> [PatternToken] {
         let chars = Array(text)
         guard !chars.isEmpty else { throw HexPatternError.empty }
@@ -158,10 +163,13 @@ enum HexPatternParser {
             if lowText.isEmpty && highText.isEmpty { throw HexPatternError.invalidRange(inner) }
             let low = lowText.isEmpty ? 0 : Int(lowText)
             let high = highText.isEmpty ? Int.max : Int(highText)
-            guard let low, let high, low >= 0, high >= low else { throw HexPatternError.invalidRange(inner) }
+            guard let low, let high, low >= 0, high >= low, low <= maxSkipLength,
+                  highText.isEmpty || high <= maxSkipLength else {
+                throw HexPatternError.invalidRange(inner)
+            }
             return .skipRange(min: low, max: high)
         }
-        guard let n = Int(inner), n >= 0 else { throw HexPatternError.invalidRange(inner) }
+        guard let n = Int(inner), n >= 0, n <= maxSkipLength else { throw HexPatternError.invalidRange(inner) }
         return .skipRange(min: n, max: n)
     }
 

@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "../Packages/Modules/Applications"),
         .package(path: "../Packages/Modules/Performance"),
         .package(path: "../Packages/Modules/Protection"),
+        .package(path: "../Packages/Modules/SmartCare"),
         .package(path: "../Packages/HelperProtocol"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
@@ -27,6 +28,7 @@ let package = Package(
                 .product(name: "ApplicationsModule", package: "Applications"),
                 .product(name: "PerformanceModule", package: "Performance"),
                 .product(name: "ProtectionModule", package: "Protection"),
+                .product(name: "SmartCareModule", package: "SmartCare"),
                 .product(name: "HelperProtocol", package: "HelperProtocol"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -41,6 +43,7 @@ let package = Package(
                 .product(name: "CleanerHashing", package: "Core"),
                 .product(name: "PerformanceModule", package: "Performance"),
                 .product(name: "ProtectionModule", package: "Protection"),
+                .product(name: "SmartCareModule", package: "SmartCare"),
                 .product(name: "HelperProtocol", package: "HelperProtocol"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

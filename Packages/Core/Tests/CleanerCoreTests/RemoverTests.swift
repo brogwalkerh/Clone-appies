@@ -107,6 +107,53 @@ struct TrashRemoverTests {
         #expect(dir.path.hasSuffix("Trash/files"))
     }
     #endif
+
+    @Test func itemsAlreadyInTheTrashDirectoryAreDeletedNotReTrashed() async throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let trash = fixture.url("Trash/files")
+        let old = try fixture.file("Trash/files/old.bin", size: 300)
+        let live = try fixture.file("data/live.txt", size: 10)
+
+        let remover = TrashRemover(fileSystem: LocalFileSystem(), trashDirectory: trash)
+        let manifest = try await remover.remove([finding(old, size: 300), finding(live, size: 10)],
+                                                mode: .trash, progress: nil)
+
+        #expect(manifest.records.allSatisfy { $0.succeeded })
+        #expect(manifest.records[0].trashedTo == nil)
+        #expect(manifest.records[1].trashedTo != nil)
+        #expect(manifest.bytesReclaimed == 310)
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        // Exactly one item (the live file) now sits in the trash: the old one was not renamed to "old 2.bin".
+        let trashContents = try FileManager.default.contentsOfDirectory(atPath: trash.path)
+        #expect(trashContents == ["live.txt"])
+
+        let restored = try await remover.undo(manifest)
+        #expect(!restored[0].succeeded)
+        #expect(restored[0].error == "permanently removed; nothing to restore")
+        #expect(restored[1].succeeded)
+    }
+
+    @Test func itemsInTheHomeTrashAreDeleted() async throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let home = fixture.url("home")
+        let trashed = try fixture.directory("home/.Trash/Old Project")
+        try fixture.file("home/.Trash/Old Project/a.txt", size: 40)
+
+        let remover = TrashRemover(fileSystem: HomeOverride(home: home), trashDirectory: fixture.url("xdg/files"))
+        #expect(remover.isInsideTrash(trashed))
+        #expect(!remover.isInsideTrash(home.appendingPathComponent(".Trash")))
+        #expect(!remover.isInsideTrash(home.appendingPathComponent(".Trashy/x")))
+        #expect(remover.isInsideTrash(URL(fileURLWithPath: "/Volumes/Backup/.Trashes/501/file")))
+        #expect(!remover.isInsideTrash(URL(fileURLWithPath: "/Volumes/Backup/.Trashes/501")))
+
+        let manifest = try await remover.remove([finding(trashed, size: 40, isDirectory: true)], mode: .trash, progress: nil)
+        #expect(manifest.records[0].succeeded)
+        #expect(manifest.records[0].trashedTo == nil)
+        #expect(!FileManager.default.fileExists(atPath: trashed.path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("xdg/files").path))
+    }
 }
 
 @Suite("GuardedRemover")
@@ -144,4 +191,16 @@ final class ProgressLog: @unchecked Sendable {
     private var _entries: [(Int, Int)] = []
     var entries: [(Int, Int)] { lock.withLock { _entries } }
     func record(_ done: Int, _ total: Int) { lock.withLock { _entries.append((done, total)) } }
+}
+
+/// `LocalFileSystem` with a fixture home, so `~/.Trash` resolves inside the fixture.
+private struct HomeOverride: FileSystem {
+    let home: URL
+    private let local = LocalFileSystem()
+    func exists(_ url: URL) -> Bool { local.exists(url) }
+    func attributes(of url: URL) throws -> FileAttributes { try local.attributes(of: url) }
+    func children(of url: URL) throws -> [URL] { try local.children(of: url) }
+    func contents(of url: URL) throws -> Data { try local.contents(of: url) }
+    func homeDirectory() -> URL { home }
+    func temporaryDirectory() -> URL { local.temporaryDirectory() }
 }

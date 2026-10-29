@@ -1,3 +1,4 @@
+import CleanerCore
 import CoreServices
 import Foundation
 import ProtectionModule
@@ -99,22 +100,57 @@ final class ProtectionBridgeTests: XCTestCase {
         XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagKernelDropped)), .rescanDirectory)
     }
 
-    // MARK: Executable detection
+    func testRenamedDirectoryIsWalked() {
+        func flags(_ bits: Int...) -> FSEventStreamEventFlags {
+            FSEventStreamEventFlags(bits.reduce(0, |))
+        }
+        // Foo.app moved into /Applications: one event, for the directory.
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRenamed, kFSEventStreamEventFlagItemIsDir)), .scanDirectoryTree)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRenamed, kFSEventStreamEventFlagItemIsDir, kFSEventStreamEventFlagItemIsSymlink)), .ignore)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRemoved, kFSEventStreamEventFlagItemIsDir)), .ignore)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemInodeMetaMod, kFSEventStreamEventFlagItemIsDir)), .ignore)
+    }
 
-    func testExecutableKindDetection() {
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xFE, 0xED, 0xFA, 0xCF, 0x00]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xCF, 0xFA, 0xED, 0xFE]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xCA, 0xFE, 0xBA, 0xBE]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0x7F, 0x45, 0x4C, 0x46]), .elf)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: Array("MZ\u{90}\0".utf8)), .pe)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: Array("#!/bin/sh".utf8)), .script)
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: Array("%PDF".utf8)))
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: [0x7F]))
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: []))
-        XCTAssertEqual(FileInspector.ExecutableKind.machO.ndbTarget, 9)
-        XCTAssertEqual(FileInspector.ExecutableKind.pe.ndbTarget, 1)
-        XCTAssertEqual(FileInspector.ExecutableKind.elf.ndbTarget, 6)
-        XCTAssertNil(FileInspector.ExecutableKind.script.ndbTarget)
+    func testDirectoryWalkIsBoundedAndSkipsSymlinks() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("monitor-walk-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let app = root.appendingPathComponent("Foo.app", isDirectory: true)
+        let macOS = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        try fm.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: macOS.appendingPathComponent("Foo"))
+        try Data("y".utf8).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let link = app.appendingPathComponent("Contents/Link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: macOS)
+
+        let files = ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 100)
+        XCTAssertEqual(Set(files.map { URL(fileURLWithPath: $0).lastPathComponent }), ["Foo", "Info.plist"])
+        // Only "Contents" is examined: no files.
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 1), [])
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: link, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 100), [])
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(),
+                                                      protectedPaths: ProtectedPaths(prefixes: [app]), limit: 100), [])
+    }
+
+    // MARK: Pattern targets
+
+    /// Same target split as MalwareScanner: target 0 on every file, plus the
+    /// detected type's own target (7 for `#!` scripts, 9 for Mach-O, ...).
+    func testPatternMatchersFollowScannerTargets() throws {
+        func pattern(_ name: String, _ target: Int) -> HexPattern {
+            HexPattern(name: name, target: target, offset: .any, tokens: [.byte(0x41)])
+        }
+        let matchers = FileInspector.matchers(for: [pattern("any", 0), pattern("script", 7), pattern("macho", 9)])
+        XCTAssertEqual(Set(matchers.keys), [0, 7, 9])
+        func names(_ type: DetectedFileType) -> Set<String> {
+            Set(FileInspector.matcher(for: type, in: matchers)?.patterns.map(\.name) ?? [])
+        }
+        XCTAssertEqual(names(.script), ["any", "script"])
+        XCTAssertEqual(names(.machO), ["any", "macho"])
+        XCTAssertEqual(names(.unknown), ["any"], "non-executables still get the target-0 patterns")
+        XCTAssertEqual(names(.pdf), ["any"])
+        XCTAssertNil(FileInspector.matcher(for: .unknown, in: FileInspector.matchers(for: [pattern("macho", 9)])))
+        XCTAssertEqual(DetectedFileType.detect(head: Data("#!/bin/sh".utf8)), .script)
     }
 
     func testLaunchdPlistDetection() {

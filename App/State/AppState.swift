@@ -6,22 +6,33 @@ import ClutterModule
 import ApplicationsModule
 import PerformanceModule
 import ProtectionModule
+import SmartCareModule
 import UIKitBridge
 
 /// An in-app message shown in the toolbar bell popover (Notification Center, PLAN.md §3.12).
+/// Persisted through `InboxStore`, shared with the menu bar agent (ADR 0007).
 struct AppNotification: Identifiable, Hashable, Sendable {
     let id: UUID
     let title: String
     let message: String
     let date: Date
     var isRead: Bool
+    /// A `maccleaner://` URL the notification opens.
+    let link: String?
 
-    init(id: UUID = UUID(), title: String, message: String, date: Date = .now, isRead: Bool = false) {
+    init(id: UUID = UUID(), title: String, message: String, date: Date = .now, isRead: Bool = false,
+         link: String? = nil) {
         self.id = id
         self.title = title
         self.message = message
         self.date = date
         self.isRead = isRead
+        self.link = link
+    }
+
+    init(_ message: InboxMessage) {
+        self.init(id: message.id, title: message.title, message: message.body, date: message.date,
+                  isRead: message.isRead, link: message.link)
     }
 }
 
@@ -93,6 +104,15 @@ final class AppState {
     /// Installed apps, leftovers and available updates for Applications › Uninstaller / Updater.
     let appInventory: AppInventoryStore
 
+    /// Smart Care's combined scan and single Run (PLAN.md §3.1).
+    let smartCare: SmartCareModel
+
+    /// My Tools action sets and scheduled scans (PLAN.md §3.12).
+    let automation: AutomationState
+
+    /// Notification Center storage, shared with the menu bar agent.
+    @ObservationIgnored private let inbox: InboxStore
+
     /// True while `cleanup` runs a subset of `CleanupScanners.all()` (deep link
     /// `maccleaner://cleanup?scanner=`); the next plain scan restores the full set.
     private var cleanupScannersRestricted = false
@@ -132,6 +152,10 @@ final class AppState {
             context: SettingsStore.scanContext()
         )
         appInventory = AppInventoryStore()
+        smartCare = SmartCareModel()
+        automation = AutomationState()
+        inbox = ActivityCenter.shared.storage.inbox
+        smartCare.appState = self
     }
 
     /// `ClutterScanners.all` with Vision feature prints, with the Large & Old
@@ -168,16 +192,21 @@ final class AppState {
     /// An unknown id falls back to the full scan. A previous restriction is lifted
     /// on the next unrestricted call so the Cleanup screen's "Scan" stays complete.
     func runCleanup(restrictedTo scannerID: String? = nil) {
-        let all = CleanupScanners.all()
-        if let scannerID, let only = all.first(where: { type(of: $0).id == scannerID }) {
+        if let scannerID, let only = CleanupScanners.all().first(where: { type(of: $0).id == scannerID }) {
             cleanup.replaceScanners([only])
             cleanupScannersRestricted = true
-        } else if cleanupScannersRestricted {
-            cleanup.replaceScanners(all)
-            cleanupScannersRestricted = false
+        } else {
+            restoreFullCleanupScanners()
         }
         cleanup.context = SettingsStore.scanContext()
         cleanup.run()
+    }
+
+    /// Lifts a deep link's single-scanner restriction so the next Cleanup run is complete.
+    func restoreFullCleanupScanners() {
+        guard cleanupScannersRestricted else { return }
+        cleanup.replaceScanners(CleanupScanners.all())
+        cleanupScannersRestricted = false
     }
 
     /// Starts a malware scan, optionally switching scope first (deep link
@@ -213,20 +242,108 @@ final class AppState {
     // MARK: Notification actions
 
     func post(title: String, message: String) {
-        notifications.insert(AppNotification(title: title, message: message), at: 0)
+        post(InboxMessage(title: title, body: message))
+    }
+
+    /// Shows the message at once and stores it for the next launch.
+    func post(_ message: InboxMessage) {
+        notifications.insert(AppNotification(message), at: 0)
         if notifications.count > 50 {
             notifications.removeLast(notifications.count - 50)
         }
+        let inbox = self.inbox
+        Task { await inbox.post(message) }
     }
 
     func markAllRead() {
         for index in notifications.indices {
             notifications[index].isRead = true
         }
+        let inbox = self.inbox
+        Task { await inbox.markRead(nil) }
     }
 
     func clearNotifications() {
         notifications.removeAll()
+        let inbox = self.inbox
+        Task { await inbox.removeAll() }
+    }
+
+    /// Re-reads the inbox: picks up what the menu bar agent posted while the window was closed.
+    func reloadNotifications() async {
+        notifications = await inbox.messages().map(AppNotification.init)
+    }
+
+    /// Notifications, activity history, action sets and schedules live in files
+    /// the agent and the CLI also write (ADR 0007); re-read them on activation.
+    func reloadSharedState() async {
+        await reloadNotifications()
+        await ActivityCenter.shared.reload()
+        automation.reload()
+    }
+
+    // MARK: Scheduled runs
+
+    /// Runs one schedule's target. The menu bar agent opens
+    /// `maccleaner://schedule?id=` when a schedule comes due and has already
+    /// recorded the run, so a slow scan never fires twice.
+    func runSchedule(id: UUID) async {
+        automation.reload()
+        guard let schedule = automation.schedules.first(where: { $0.id == id }) else { return }
+        switch schedule.target {
+        case .smartCareScan:
+            await smartCare.scan()
+            notifyScheduled(title: "Scheduled Smart Care scan", body: smartCare.resultSummary(),
+                            link: "maccleaner://smart-care")
+        case .moduleScan(let module):
+            let summary = await scan(module)
+            let found = summary.map { "\($0.totalFindings) items, \(ByteFormatter.string($0.totalBytes))" } ?? "no results"
+            notifyScheduled(title: "Scheduled \(module.displayName) scan", body: "Found \(found).",
+                            link: "maccleaner://smart-care")
+        case .actionSet(let setID):
+            guard let set = automation.actionSet(withID: setID) else {
+                notifyScheduled(title: "Scheduled action set missing",
+                                body: "The action set for a schedule was deleted. Edit the schedule in Settings › Scheduler.",
+                                link: nil)
+                return
+            }
+            if let report = await automation.run(set) {
+                let failed = report.results.filter { !$0.succeeded }.count
+                let tail = failed == 0 ? "" : " \(failed) step(s) failed."
+                notifyScheduled(title: "Ran \(set.name)",
+                                body: "Reclaimed \(ByteFormatter.string(report.bytesReclaimed)).\(tail)",
+                                link: "maccleaner://smart-care")
+            }
+        }
+    }
+
+    /// Scans one module to completion and records its summary.
+    @discardableResult
+    func scan(_ module: ModuleID) async -> ScanSummary? {
+        let context = SettingsStore.scanContext()
+        switch module {
+        case .protection:
+            await malware.runToCompletion()
+            if let summary = malware.summary { record(summary: summary, for: .protection) }
+            return malware.summary
+        case .cleanup:
+            restoreFullCleanupScanners()
+            cleanup.context = context
+            await cleanup.runToCompletion()
+            if let summary = cleanup.summary { record(summary: summary, for: .cleanup) }
+            return cleanup.summary
+        case .performance, .applications, .clutter:
+            let model = module == .performance ? performanceModel : (module == .applications ? applicationsModel : clutterModel)
+            model.context = context
+            await model.runToCompletion()
+            if let summary = model.summary { record(summary: summary, for: module) }
+            return model.summary
+        }
+    }
+
+    private func notifyScheduled(title: String, body: String, link: String?) {
+        post(InboxMessage(kind: .scanResult, title: title, body: body, link: link))
+        UserNotifier.post(title: title, body: body, link: link)
     }
 
     // MARK: Permissions and onboarding actions

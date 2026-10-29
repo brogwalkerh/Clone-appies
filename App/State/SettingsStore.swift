@@ -20,6 +20,24 @@ enum SettingsStore {
         static let signatureFeedURL = "protection.signatureFeedURL"
         static let autoUpdateSignatures = "protection.autoUpdateSignatures"
         static let quarantineRetentionDays = "protection.quarantineRetentionDays"
+        /// Smart Care (M5): when the last full scan finished, for the Assistant and the hero.
+        static let lastSmartCareScan = "smartCare.lastScan"
+        /// When malware signatures last updated successfully, for the Assistant.
+        static let signaturesUpdatedAt = "protection.signaturesUpdatedAt"
+    }
+
+    // MARK: Smart Care
+
+    static func lastSmartCareScan() -> Date? {
+        defaults.object(forKey: Key.lastSmartCareScan) as? Date
+    }
+
+    static func setLastSmartCareScan(_ date: Date) {
+        defaults.set(date, forKey: Key.lastSmartCareScan)
+    }
+
+    static func signaturesUpdatedAt() -> Date? {
+        defaults.object(forKey: Key.signaturesUpdatedAt) as? Date
     }
 
     // MARK: Protection

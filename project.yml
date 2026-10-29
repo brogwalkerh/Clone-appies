@@ -65,6 +65,8 @@ packages:
     path: Packages/Modules/Performance
   Protection:
     path: Packages/Modules/Protection
+  SmartCare:
+    path: Packages/Modules/SmartCare
   SpaceLens:
     path: Packages/SpaceLens
   DesignSystem:
@@ -114,6 +116,8 @@ targets:
         product: PerformanceModule
       - package: Protection
         product: ProtectionModule
+      - package: SmartCare
+        product: SmartCareModule
       - package: SpaceLens
         product: SpaceLens
       - package: DesignSystem
@@ -180,6 +184,8 @@ targets:
         product: CleanerCore
       - package: Protection
         product: ProtectionModule
+      - package: SmartCare
+        product: SmartCareModule
       - package: DesignSystem
         product: DesignSystem
       - package: UIKitBridge

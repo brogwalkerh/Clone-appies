@@ -7,6 +7,7 @@ import ApplicationsModule
 import HelperProtocol
 import PerformanceModule
 import ProtectionModule
+import SmartCareModule
 import UIKitBridge
 
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
@@ -215,10 +216,16 @@ struct RunSmartCareIntent: AppIntent {
         "Checks your Mac for junk, threats, slowdowns, outdated apps and clutter in one run.")
     static let openAppWhenRun = true
 
+    /// Scans only: removing files stays a click on Smart Care's Run button,
+    /// where the user sees what goes to the Trash.
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         AppServices.shared.show(.smartCare)
-        return .result(dialog: "Smart Care's combined scan arrives in M5. I opened Smart Care; you can run Cleanup from there now.")
+        guard let appState = AppServices.shared.appState else {
+            return .result(dialog: "I opened Smart Care. Press Scan to check your Mac.")
+        }
+        await appState.smartCare.scan()
+        return .result(dialog: "Smart Care finished. \(appState.smartCare.resultSummary()) Press Run in Smart Care to clean it up.")
     }
 }
 
@@ -245,6 +252,7 @@ struct CleanJunkIntent: AppIntent {
 
         let remover = await AppServices.shared.remover()
         let manifest = try await remover.remove(safe, mode: .trash, progress: nil)
+        await ActivityCenter.shared.record(.removal(manifest, module: .cleanup))
         await AppServices.shared.recordCleanup(manifest)
 
         let failed = manifest.records.filter { !$0.succeeded }.count

@@ -69,3 +69,6 @@ Icon?
 *.swp
 *.swo
 *~
+
+# ---- Claude Code local worktrees (agent scratch checkouts) ----
+.claude/worktrees/
