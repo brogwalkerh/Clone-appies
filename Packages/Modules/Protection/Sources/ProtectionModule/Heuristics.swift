@@ -153,7 +153,7 @@ public struct Heuristics: Sendable {
                          context: HeuristicContext) async -> [Threat] {
         let url = url.standardizedFileURL
         let type = DetectedFileType.detect(head: head)
-        guard type.isExecutable else { return [] }
+        guard type.isExecutable, type != .pe || Self.hasPESignature(head) else { return [] }
         var threats: [Threat] = []
         func flag(_ name: String, _ severity: ThreatSeverity, _ detail: String) {
             threats.append(Threat(path: url, name: name, kind: .heuristic, severity: severity,
@@ -176,6 +176,16 @@ public struct Heuristics: Sendable {
     }
 
     // MARK: Helpers
+
+    /// "MZ" alone also starts plain text (say, a CSV row for Mozambique); a
+    /// PE has `e_lfanew` (offset 0x3C) pointing at "PE\0\0" within `head`.
+    static func hasPESignature(_ head: Data) -> Bool {
+        let bytes = [UInt8](head)
+        guard bytes.count >= 0x40 else { return false }
+        let offset = Int(bytes[0x3C]) | Int(bytes[0x3D]) << 8 | Int(bytes[0x3E]) << 16 | Int(bytes[0x3F]) << 24
+        guard offset >= 0x40, offset <= bytes.count - 4 else { return false }
+        return bytes[offset] == 0x50 && bytes[offset + 1] == 0x45 && bytes[offset + 2] == 0 && bytes[offset + 3] == 0
+    }
 
     static func isTemporaryPath(_ token: String) -> Bool {
         temporaryPrefixes.contains { token == $0 || token.hasPrefix($0 + "/") }

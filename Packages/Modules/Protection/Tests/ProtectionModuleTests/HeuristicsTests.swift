@@ -168,4 +168,14 @@ struct ExecutableHeuristicsTests {
     @Test func nonExecutablesAreIgnored() async {
         #expect(await evaluate("/Users/test/Library/.hidden/notes.jpg", Data("plain".utf8)).isEmpty)
     }
+
+    @Test func textStartingWithMZIsNotADisguisedPE() async {
+        // "MZ" is Mozambique's country code: a CSV can start with it.
+        #expect(await evaluate("/Users/test/Downloads/countries.csv", Data("MZ,Mozambique,Maputo\nZA,South Africa\n".utf8)).isEmpty)
+        #expect(await evaluate("/Users/test/Library/.cache/notes.txt", Data("MZ".utf8)).isEmpty)
+        // A real PE: e_lfanew at 0x3C points at "PE\0\0".
+        var pe = Data("MZ".utf8) + Data(count: 0x3A)
+        pe += Data([0x40, 0, 0, 0]) + Data("PE\0\0".utf8)
+        #expect(await evaluate("/Users/test/Downloads/invoice.pdf", pe).names == ["Heuristic.MasqueradingExtension"])
+    }
 }
