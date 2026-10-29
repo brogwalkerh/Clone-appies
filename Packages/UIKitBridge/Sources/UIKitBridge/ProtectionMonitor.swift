@@ -23,7 +23,8 @@ public enum ProtectionEvent: Sendable {
 ///    paths wait in a bounded FIFO. Each inspection `lstat`s the file, skips
 ///    directories, symlinks, empty files and anything over `maxFileSize`,
 ///    hashes it (MD5 + SHA-256 in one streaming pass), runs `PatternMatcher`
-///    on executables (Mach-O, PE, ELF, `#!` scripts) with chunk overlap,
+///    with chunk overlap (target-0 patterns on every file, plus the target of
+///    the type `DetectedFileType` reports, as `MalwareScanner` does),
 ///    checks `SignatureDatabase.match`, runs `Heuristics` on launchd plists and
 ///    executables, and annotates hits with the `com.apple.quarantine` origin.
 /// 4. `.threat` / `.scanned` are yielded on the stream returned by `start()`.
@@ -358,7 +359,8 @@ public actor ProtectionMonitor {
 enum FileInspector {
     struct Configuration: Sendable {
         let database: SignatureDatabase
-        let matchers: [ExecutableKind: PatternMatcher]
+        /// Keyed by ClamAV target; see `matchers(for:)`.
+        let matchers: [Int: PatternMatcher]
         let heuristics: Heuristics
         let verifier: any CodeSignatureVerifier
         let fileSystem: LocalFileSystem
@@ -378,51 +380,23 @@ enum FileInspector {
         }
     }
 
-    /// ClamAV `.ndb` target types we scan: 1 PE, 6 ELF, 9 Mach-O. Scripts have
-    /// no dedicated target and only see the "any" (0) patterns.
-    enum ExecutableKind: Sendable, Hashable, CaseIterable {
-        case machO, pe, elf, script
-
-        var ndbTarget: Int? {
-            switch self {
-            case .machO: return 9
-            case .pe: return 1
-            case .elf: return 6
-            case .script: return nil
-            }
-        }
-
-        /// Magic-byte detection (pure, tested). Accepts both Mach-O byte orders
-        /// and fat binaries.
-        static func detect(magic: some Collection<UInt8>) -> ExecutableKind? {
-            let bytes = Array(magic.prefix(4))
-            guard bytes.count >= 2 else { return nil }
-            if bytes[0] == 0x23, bytes[1] == 0x21 { return .script }          // "#!"
-            if bytes[0] == 0x4D, bytes[1] == 0x5A { return .pe }              // "MZ"
-            guard bytes.count == 4 else { return nil }
-            if bytes == [0x7F, 0x45, 0x4C, 0x46] { return .elf }
-            switch bytes {
-            case [0xFE, 0xED, 0xFA, 0xCE], [0xFE, 0xED, 0xFA, 0xCF],
-                 [0xCE, 0xFA, 0xED, 0xFE], [0xCF, 0xFA, 0xED, 0xFE],
-                 [0xCA, 0xFE, 0xBA, 0xBE], [0xBE, 0xBA, 0xFE, 0xCA]:
-                return .machO
-            default:
-                return nil
-            }
-        }
-    }
-
-    /// One matcher per executable kind over the "any" patterns plus that
-    /// kind's own; kinds with nothing to match are left out entirely.
-    static func matchers(for patterns: [HexPattern]) -> [ExecutableKind: PatternMatcher] {
-        var result: [ExecutableKind: PatternMatcher] = [:]
-        for kind in ExecutableKind.allCases {
-            let subset = patterns.filter { $0.target == 0 || $0.target == kind.ndbTarget }
-            if !subset.isEmpty {
-                result[kind] = PatternMatcher(patterns: subset)
-            }
+    /// The same split `MalwareScanner` uses: key 0 holds the target-0
+    /// ("any file") patterns, every other target present holds target 0 plus
+    /// its own. Targets with nothing to match are left out entirely.
+    static func matchers(for patterns: [HexPattern]) -> [Int: PatternMatcher] {
+        var result: [Int: PatternMatcher] = [:]
+        let generic = patterns.filter { $0.target == 0 }
+        if !generic.isEmpty { result[0] = PatternMatcher(patterns: generic) }
+        for target in Set(patterns.map(\.target)) where target != 0 {
+            result[target] = PatternMatcher(patterns: patterns.filter { $0.target == 0 || $0.target == target })
         }
         return result
+    }
+
+    /// The matcher for a file of `type`: its target's, else the generic one.
+    static func matcher(for type: DetectedFileType, in matchers: [Int: PatternMatcher]) -> PatternMatcher? {
+        if let target = type.clamTarget, let specific = matchers[target] { return specific }
+        return matchers[0]
     }
 
     static let chunkSize = 1 << 20
@@ -431,7 +405,7 @@ enum FileInspector {
         let md5: String
         let sha256: String
         let bytesRead: Int64
-        let kind: ExecutableKind?
+        let type: DetectedFileType
         let patternMatches: Set<String>
     }
 
@@ -465,7 +439,7 @@ enum FileInspector {
         if isLaunchdPlist(url) {
             threats += await configuration.heuristics.evaluate(launchAgentPlist: url, context: context)
         }
-        if digest.kind != nil {
+        if digest.type.isExecutable {
             threats += await configuration.heuristics.evaluate(executable: url, attributes: attributes, context: context)
         }
 
@@ -495,19 +469,19 @@ enum FileInspector {
                       isDirectory: threat.isDirectory)
     }
 
-    /// One streaming pass: MD5 and SHA-256 over every chunk; for executables
-    /// the matcher sees each chunk prefixed with the previous chunk's last
+    /// One streaming pass: MD5 and SHA-256 over every chunk; the matcher for
+    /// the file's type sees each chunk prefixed with the previous chunk's last
     /// `maxPatternLength` bytes so a pattern straddling a boundary still hits.
     /// Returns nil when the file cannot be read or grows past `maxFileSize`
     /// while being read.
     static func hashAndMatch(url: URL, logicalSize: Int64,
-                             matchers: [ExecutableKind: PatternMatcher], maxFileSize: Int64) -> Digest? {
+                             matchers: [Int: PatternMatcher], maxFileSize: Int64) -> Digest? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
 
         var md5 = StreamingMD5()
         var sha256 = StreamingSHA256()
-        var kind: ExecutableKind?
+        var type = DetectedFileType.unknown
         var matcher: PatternMatcher?
         var carry = Data()
         var offset: Int64 = 0
@@ -525,8 +499,8 @@ enum FileInspector {
 
             if isFirstChunk {
                 isFirstChunk = false
-                kind = ExecutableKind.detect(magic: chunk.prefix(4))
-                matcher = kind.flatMap { matchers[$0] }
+                type = DetectedFileType.detect(head: chunk.prefix(8))
+                matcher = Self.matcher(for: type, in: matchers)
             }
 
             md5.update(chunk)
@@ -549,7 +523,7 @@ enum FileInspector {
         return Digest(md5: MD5.hexString(md5.finalize()),
                       sha256: SHA256.hexString(sha256.finalize()),
                       bytesRead: offset,
-                      kind: kind,
+                      type: type,
                       patternMatches: matches)
     }
 }

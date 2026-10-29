@@ -132,22 +132,25 @@ final class ProtectionBridgeTests: XCTestCase {
                                                       protectedPaths: ProtectedPaths(prefixes: [app]), limit: 100), [])
     }
 
-    // MARK: Executable detection
+    // MARK: Pattern targets
 
-    func testExecutableKindDetection() {
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xFE, 0xED, 0xFA, 0xCF, 0x00]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xCF, 0xFA, 0xED, 0xFE]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0xCA, 0xFE, 0xBA, 0xBE]), .machO)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: [0x7F, 0x45, 0x4C, 0x46]), .elf)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: Array("MZ\u{90}\0".utf8)), .pe)
-        XCTAssertEqual(FileInspector.ExecutableKind.detect(magic: Array("#!/bin/sh".utf8)), .script)
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: Array("%PDF".utf8)))
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: [0x7F]))
-        XCTAssertNil(FileInspector.ExecutableKind.detect(magic: []))
-        XCTAssertEqual(FileInspector.ExecutableKind.machO.ndbTarget, 9)
-        XCTAssertEqual(FileInspector.ExecutableKind.pe.ndbTarget, 1)
-        XCTAssertEqual(FileInspector.ExecutableKind.elf.ndbTarget, 6)
-        XCTAssertNil(FileInspector.ExecutableKind.script.ndbTarget)
+    /// Same target split as MalwareScanner: target 0 on every file, plus the
+    /// detected type's own target (7 for `#!` scripts, 9 for Mach-O, ...).
+    func testPatternMatchersFollowScannerTargets() throws {
+        func pattern(_ name: String, _ target: Int) -> HexPattern {
+            HexPattern(name: name, target: target, offset: .any, tokens: [.byte(0x41)])
+        }
+        let matchers = FileInspector.matchers(for: [pattern("any", 0), pattern("script", 7), pattern("macho", 9)])
+        XCTAssertEqual(Set(matchers.keys), [0, 7, 9])
+        func names(_ type: DetectedFileType) -> Set<String> {
+            Set(FileInspector.matcher(for: type, in: matchers)?.patterns.map(\.name) ?? [])
+        }
+        XCTAssertEqual(names(.script), ["any", "script"])
+        XCTAssertEqual(names(.machO), ["any", "macho"])
+        XCTAssertEqual(names(.unknown), ["any"], "non-executables still get the target-0 patterns")
+        XCTAssertEqual(names(.pdf), ["any"])
+        XCTAssertNil(FileInspector.matcher(for: .unknown, in: FileInspector.matchers(for: [pattern("macho", 9)])))
+        XCTAssertEqual(DetectedFileType.detect(head: Data("#!/bin/sh".utf8)), .script)
     }
 
     func testLaunchdPlistDetection() {
