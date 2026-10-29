@@ -47,6 +47,21 @@ public struct ActivityEvent: Codable, Sendable, Hashable, Identifiable {
                              reference: manifest.id.uuidString)
     }
 
+    /// One `.removal` event per module of the removed findings, for runs that
+    /// span modules (Smart Care, action sets). Modules with no successful
+    /// removal are left out.
+    public static func removals(_ manifest: RemovalManifest) -> [ActivityEvent] {
+        let succeeded = manifest.records.filter(\.succeeded)
+        let modules = ModuleID.allCases.filter { module in succeeded.contains { $0.finding.category.module == module } }
+        return modules.map { module in
+            let records = succeeded.filter { $0.finding.category.module == module }
+            return ActivityEvent(date: manifest.startedAt, kind: .removal, module: module,
+                                 title: "Cleaned \(module.displayName)",
+                                 bytes: records.reduce(0) { $0 + $1.finding.sizeBytes },
+                                 items: records.count, reference: manifest.id.uuidString)
+        }
+    }
+
     public static func undo(_ restored: [RemovalRecord], module: ModuleID, date: Date = .now) -> ActivityEvent {
         let succeeded = restored.filter(\.succeeded)
         return ActivityEvent(date: date, kind: .undo, module: module,

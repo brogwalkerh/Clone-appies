@@ -26,6 +26,19 @@ struct ActivityEventTests {
         #expect(event.reference != nil)
     }
 
+    @Test func removalsSplitByModule() {
+        let records = [
+            RemovalRecord(finding: finding("/tmp/a/1", 10), trashedTo: nil, succeeded: true, error: nil),
+            RemovalRecord(finding: finding("/tmp/a/2", 20, perfCategory), trashedTo: nil, succeeded: true, error: nil),
+            RemovalRecord(finding: finding("/tmp/a/3", 40), trashedTo: nil, succeeded: true, error: nil),
+            RemovalRecord(finding: finding("/tmp/a/4", 80, clutterCategory), trashedTo: nil, succeeded: false, error: "x"),
+        ]
+        let events = ActivityEvent.removals(RemovalManifest(startedAt: .now, mode: .trash, records: records))
+        #expect(events.map(\.module) == [.cleanup, .performance])
+        #expect(events.map(\.bytes) == [50, 20])
+        #expect(events.map(\.items) == [2, 1])
+    }
+
     @Test func maintenanceUsesCatalogNameAndIgnoresFailures() {
         let ok = ActivityEvent.maintenance(MaintenanceResult(taskID: "maintenance.flushDNS", succeeded: true,
                                                              message: "", bytesReclaimed: nil, duration: 1))

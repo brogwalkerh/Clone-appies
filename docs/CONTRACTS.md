@@ -201,6 +201,9 @@ On Linux `CGPoint` comes from Foundation; keep it or define `Point` typealias in
 ## CLI (CLI/)
 Executable `maccleaner`: `scan [--module cleanup|...] [--json] [--home PATH]`,
 `list-scanners`, `remove --manifest-out PATH --dry-run`. Depends on swift-argument-parser.
+M5 adds `smart-care [--home] [--json] [--run --yes] [--no-malware]`, `actions list|run <name|id>
+[--dry-run]` and `activity [--weeks N] [--json]`; all three take `--data-dir PATH` and
+`--no-history` and share the app's SmartCareStorage files.
 
 ## App (App/) — SwiftUI, macOS 27 only
 Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
@@ -667,6 +670,7 @@ public struct ActivityEvent: Codable, Sendable, Hashable, Identifiable {
                 bytes: Int64 = 0, items: Int = 0, reference: String? = nil)
     public static func scan(_ summary: ScanSummary, module: ModuleID, date: Date = .now) -> ActivityEvent
     public static func removal(_ manifest: RemovalManifest, module: ModuleID) -> ActivityEvent      // bytes = bytesReclaimed, items = succeeded count, reference = manifest id
+    public static func removals(_ manifest: RemovalManifest) -> [ActivityEvent]                    // one per module, for cross-module runs
     public static func undo(_ restored: [RemovalRecord], module: ModuleID, date: Date = .now) -> ActivityEvent
     public static func quarantine(threats: Int, bytes: Int64, date: Date = .now) -> ActivityEvent
     public static func maintenance(_ result: MaintenanceResult, date: Date = .now) -> ActivityEvent
