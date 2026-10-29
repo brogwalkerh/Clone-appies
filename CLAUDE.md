@@ -23,6 +23,7 @@ Packages/Modules/Clutter/  ClutterModule: large/old, duplicates, similar images,
 Packages/Modules/Applications/  ApplicationsModule: inventory, leftovers, orphans, updater
 Packages/Modules/Performance/  PerformanceModule: maintenance tasks, launchd items, process ranking
 Packages/Modules/Protection/  ProtectionModule: signatures, pattern matcher, heuristics, quarantine, privacy
+Packages/Modules/SmartCare/  SmartCareModule: Smart Care run, activity, Assistant, action sets, scheduler, insights
 Packages/SpaceLens/   Size tree + circle packing layout
 Packages/DesignSystem/  Colors, glass components, shared views (macOS only)
 Packages/UIKitBridge/ AppKit shims (macOS only)
@@ -33,7 +34,7 @@ project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
 
 ## Hard rules
 1. **Foundation-only packages.** `CleanerCore`, `HelperProtocol`, `CleanupModule`, `ClutterModule`,
-   `ApplicationsModule`, `PerformanceModule`, `ProtectionModule`, `SpaceLens` and `CLI`
+   `ApplicationsModule`, `PerformanceModule`, `ProtectionModule`, `SmartCareModule`, `SpaceLens` and `CLI`
    import Foundation only (`CleanerHashing` too). They must `swift build && swift test` on Linux
    (Ubuntu 24.04) and on macOS. No AppKit/SwiftUI/Vision/ServiceManagement there.
    Anything platform-specific lives in `App/`, `MenuAgent/`, `DesignSystem`,
@@ -64,6 +65,7 @@ cd Packages/Modules/Clutter && swift build && swift test
 cd Packages/Modules/Applications && swift build && swift test
 cd Packages/Modules/Performance && swift build && swift test
 cd Packages/Modules/Protection && swift build && swift test
+cd Packages/Modules/SmartCare && swift build && swift test
 cd Packages/SpaceLens && swift build && swift test
 cd CLI && swift build && swift test
 ```

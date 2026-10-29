@@ -792,5 +792,26 @@ public struct RuleTableInsightProvider: InsightProvider { public init(rules: Cle
 /// Asks `primary` (e.g. the on-device model) and falls back when it returns nil.
 public struct FallbackInsightProvider: InsightProvider { public init(primary: any InsightProvider, fallback: any InsightProvider) }
 /// Prompt text for the on-device model: facts only (path relative to home, size, age, category, rule text).
-public enum InsightPrompt { public static func make(for finding: Finding, home: URL, ruleText: String?) -> String }
+public enum InsightPrompt { public static let instructions: String; public static func make(for finding: Finding, home: URL, ruleText: String?) -> String }
+
+// MARK: Storage layout (ADR 0007) shared by App, MenuAgent and CLI
+public struct SmartCareStorage: Sendable {
+    public init(directory: URL)                       // activity.jsonl, inbox.json, schedules.json, schedule-runs.json,
+    public let activity: JSONLinesActivityStore       // action-sets.json, assistant-dismissed.json
+    public let inbox: InboxStore
+    public let schedules: JSONFileRecord<[ScanSchedule]>; public let scheduleRuns: JSONFileRecord<[UUID: Date]>
+    public let actionSets: JSONFileRecord<[ActionSet]>; public let dismissedRecommendations: JSONFileRecord<[String: Date]>
+    public static func defaultDirectory(home: URL = …) -> URL   // ~/Library/Application Support/com.example.maccleaner
+}
 ```
+
+Implementation notes (SmartCareModule as built):
+- Extra public API: `SmartCarePolicy.isReviewOnly(_:)`, `ClosureRule` (closure-backed
+  `AssistantRule`; the default rules are written with it), `ActionSetReport.succeeded`,
+  `ActivityStats.Week.totalBytes`, `ActivityStats.lastMaintenance`,
+  `RuleTableInsightProvider.ruleText(for:home:)`, `ModuleID.displayName`.
+- `SmartCareCoordinator` builds module summaries from the findings it keeps, so a path
+  two modules report counts once, under whichever module reported it first.
+- `JSONLinesActivityStore.append` starts a new line when the file does not end in one,
+  so a torn write loses only the torn event.
+- Rules never fire on unknown (`nil`) facts; a fresh install sees only "firstScan".
