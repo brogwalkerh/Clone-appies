@@ -1,22 +1,37 @@
 import SwiftUI
 import CleanerCore
 import DesignSystem
+import SmartCareModule
 
-/// Home screen: hero ring, five module cards, Assistant recommendations.
-/// The combined five-module scan lands in M5; today the primary action runs Cleanup.
+/// Home screen (PLAN.md §3.1): hero ring, five module cards, the Assistant and
+/// My Tools action sets. Scan runs every module at once; Run cleans what
+/// `SmartCarePolicy` selects (Cleanup and Performance), the rest is reviewed
+/// in its module.
 struct SmartCareView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
+    @AppStorage(SettingsStore.Key.removalMode) private var removalModeRaw = RemovalMode.trash.rawValue
+
+    @State private var confirmClean = false
+    /// Bumped after a dismissal so the Assistant re-reads the dismissal file.
+    @State private var dismissals = 0
 
     private let moduleItems: [SidebarItem] = [.cleanup, .protection, .performance, .applications, .myClutter]
+
+    private var smartCare: SmartCareModel { appState.smartCare }
+    private var removalMode: RemovalMode { RemovalMode(rawValue: removalModeRaw) ?? .trash }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 hero
                 moduleCards
-                AssistantPanel(recommendations: recommendations)
+                AssistantPanel(recommendations: recommendations) { id in
+                    appState.dismissRecommendation(id)
+                    dismissals += 1
+                }
+                ActionSetsPanel()
             }
             .padding(32)
             .frame(maxWidth: 1100)
@@ -25,13 +40,56 @@ struct SmartCareView: View {
         .navigationTitle("Smart Care")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
-                PrimaryActionButton(primaryTitle, isLoading: appState.cleanup.isScanning) {
-                    appState.select(.cleanup)
-                    appState.cleanup.context = SettingsStore.scanContext()
-                    appState.cleanup.run()
+                if smartCare.phase == .scanned, smartCare.selectedCount > 0 {
+                    Button("Scan Again") { startScan() }
+                        .buttonStyle(.glass)
                 }
+            } content: {
+                PrimaryActionButton(primaryTitle,
+                                    bytes: showsRunBytes ? smartCare.selectedBytes : nil,
+                                    isLoading: smartCare.isBusy) {
+                    primaryAction()
+                }
+                .disabled(smartCare.isBusy)
             }
         }
+        .removalConfirmation(isPresented: $confirmClean,
+                             count: smartCare.selectedCount,
+                             bytes: smartCare.selectedBytes,
+                             mode: removalMode) {
+            Task { await smartCare.clean(mode: removalMode) }
+        }
+        .messageAlert("Some items were not removed", message: Binding(
+            get: { smartCare.lastCleanupError },
+            set: { smartCare.lastCleanupError = $0 }))
+    }
+
+    // MARK: Primary action
+
+    private var showsRunBytes: Bool {
+        smartCare.phase == .scanned && smartCare.selectedCount > 0
+    }
+
+    private var primaryTitle: String {
+        switch smartCare.phase {
+        case .idle: return "Scan"
+        case .scanning: return "Scanning…"
+        case .cleaning: return "Cleaning…"
+        case .scanned: return smartCare.selectedCount > 0 ? "Run" : "Scan Again"
+        case .cleaned: return "Scan Again"
+        }
+    }
+
+    private func primaryAction() {
+        if showsRunBytes {
+            confirmClean = true
+        } else {
+            startScan()
+        }
+    }
+
+    private func startScan() {
+        Task { await smartCare.scan() }
     }
 
     // MARK: Hero
@@ -45,13 +103,13 @@ struct SmartCareView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Smart Care")
                     .font(.largeTitle.weight(.bold))
-                Text("One run checks for junk, threats, slowdowns, outdated apps, and clutter, then shows a single result you can act on.")
+                Text(heroText)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 10) {
                     StatPill(systemImage: "trash",
-                             value: cleanupSummary.map { ByteFormatter.string($0.totalBytes) } ?? "—",
+                             value: junkValue,
                              caption: "Junk found",
                              tint: ModuleTint.cleanup.color(for: scheme, contrast: contrast))
                     StatPill(systemImage: "shield",
@@ -59,7 +117,7 @@ struct SmartCareView: View {
                              caption: "Threats",
                              tint: ModuleTint.protection.color(for: scheme, contrast: contrast))
                     StatPill(systemImage: "arrow.up.circle",
-                             value: "—",
+                             value: updatesValue,
                              caption: "Updates",
                              tint: ModuleTint.applications.color(for: scheme, contrast: contrast))
                 }
@@ -68,31 +126,62 @@ struct SmartCareView: View {
         }
     }
 
-    private var cleanupSummary: ScanSummary? {
-        appState.lastScanSummaries[.cleanup]
-    }
-
-    /// "—" until a malware scan has run, then the threat count of the last run.
-    private var threatsValue: String {
-        if appState.malware.isScanning { return "…" }
-        guard let summary = appState.lastScanSummaries[.protection] else { return "—" }
-        return "\(summary.totalFindings)"
+    private var heroText: String {
+        switch smartCare.phase {
+        case .idle:
+            if let last = smartCare.lastScanDate {
+                return "Last scan \(last.formatted(.relative(presentation: .named, unitsStyle: .wide))). Scan again to check for junk, threats, slowdowns, outdated apps and clutter."
+            }
+            return "One scan checks for junk, threats, slowdowns, outdated apps and clutter, then shows a single result you can act on."
+        case .scanning:
+            return "Scanning every module at once…"
+        case .scanned:
+            return smartCare.resultSummary()
+        case .cleaning:
+            return "Moving the selected items to the Trash…"
+        case .cleaned(let bytes):
+            return bytes > 0
+                ? "Done. \(ByteFormatter.string(bytes)) reclaimed. Threats, leftovers and clutter are waiting for review in their modules."
+                : "Nothing was removed."
+        }
     }
 
     private var ringPhase: ScanRing.Phase {
-        if appState.cleanup.isScanning {
-            return .scanning(fraction: appState.cleanup.progress)
+        switch smartCare.phase {
+        case .scanning:
+            return .scanning(fraction: smartCare.progress)
+        case .cleaning:
+            return .scanning(fraction: nil)
+        case .scanned:
+            let parts = ByteText.components(smartCare.selectedBytes)
+            return .result(value: parts.value, unit: parts.unit, caption: "can be cleaned")
+        case .cleaned(let bytes):
+            let parts = ByteText.components(bytes)
+            return .result(value: parts.value, unit: parts.unit, caption: "cleaned")
+        case .idle:
+            return .idle
         }
-        if let summary = cleanupSummary {
-            let parts = ByteText.components(summary.totalBytes)
-            return .result(value: parts.value, unit: parts.unit, caption: "can be freed")
-        }
-        return .idle
     }
 
-    private var primaryTitle: String {
-        if appState.cleanup.isScanning { return "Scanning…" }
-        return cleanupSummary == nil ? "Run" : "Run Again"
+    private var junkValue: String {
+        switch smartCare.phase {
+        case .scanning: return "…"
+        case .scanned: return ByteFormatter.string(smartCare.selectedBytes)
+        default: return appState.lastScanSummaries[.cleanup].map { ByteFormatter.string($0.totalBytes) } ?? "—"
+        }
+    }
+
+    /// "—" until a malware scan has run, then the number of open threats.
+    private var threatsValue: String {
+        if appState.malware.isScanning { return "…" }
+        guard appState.lastScanSummaries[.protection] != nil else { return "—" }
+        return "\(appState.malware.threats.count)"
+    }
+
+    private var updatesValue: String {
+        if appState.appInventory.isCheckingUpdates { return "…" }
+        guard case .checked = appState.appInventory.updateState else { return "—" }
+        return "\(appState.appInventory.updates.count)"
     }
 
     // MARK: Module cards
@@ -124,21 +213,28 @@ struct SmartCareView: View {
         case .myClutter:    (model, moduleID) = (appState.clutterModel, .clutter)
         default:            (model, moduleID) = (nil, nil)
         }
-        guard let model, let moduleID else {
-            return .comingSoon(item.pendingMilestone ?? "later")
-        }
+        guard let model, let moduleID else { return .notScanned }
         if model.isScanning { return .scanning }
         if moduleID == .performance, appState.maintenance.isRunning { return .scanning }
         if let summary = appState.lastScanSummaries[moduleID] {
-            if moduleID == .performance {
+            switch moduleID {
+            case .performance:
                 // Performance findings are broken login items; bytes are meaningless there.
                 return summary.totalFindings == 0
                     ? .clean
                     : .result("\(summary.totalFindings) broken login items")
+            case .applications:
+                let updates = appState.appInventory.updates.count
+                let leftovers = summary.totalFindings == 0 ? nil : "\(ByteFormatter.string(summary.totalBytes)) to review"
+                let text = [leftovers, updates > 0 ? "\(updates) updates" : nil].compactMap { $0 }.joined(separator: " · ")
+                return text.isEmpty ? .clean : .result(text)
+            case .clutter:
+                return summary.totalFindings == 0 ? .clean : .result("\(ByteFormatter.string(summary.totalBytes)) to review")
+            default:
+                return summary.totalFindings == 0
+                    ? .clean
+                    : .result("\(ByteFormatter.string(summary.totalBytes)) to clean")
             }
-            return summary.totalFindings == 0
-                ? .clean
-                : .result("\(ByteFormatter.string(summary.totalBytes)) to clean")
         }
         if moduleID == .performance, appState.maintenance.hasResults {
             let bytes = appState.maintenance.totalBytesReclaimed
@@ -151,56 +247,20 @@ struct SmartCareView: View {
     private var protectionStatus: ModuleCard.Status {
         let malware = appState.malware
         if malware.isScanning || appState.privacyModel.isScanning { return .scanning }
-        if let summary = appState.lastScanSummaries[.protection] {
-            if summary.totalFindings == 0 { return .clean }
-            return .result(summary.totalFindings == 1 ? "1 threat found" : "\(summary.totalFindings) threats found")
+        if appState.lastScanSummaries[.protection] != nil {
+            let open = malware.threats.count
+            if open == 0 { return .clean }
+            return .result(open == 1 ? "1 threat found" : "\(open) threats found")
         }
         return .notScanned
     }
 
     // MARK: Assistant (rule-based, PLAN.md §3.1)
 
-    private var recommendations: [Recommendation] {
-        var list: [Recommendation] = []
-        if appState.permissions.fullDiskAccess == .denied {
-            list.append(Recommendation(
-                systemImage: "lock.shield",
-                title: "Grant Full Disk Access",
-                detail: "Cleanup can only see part of your Mac until Full Disk Access is on.",
-                action: .openSettings(.fullDiskAccess)))
-        }
-        if let summary = cleanupSummary, summary.totalBytes > 0, appState.lastCleanupManifest == nil {
-            list.append(Recommendation(
-                systemImage: "trash",
-                title: "Review \(ByteFormatter.string(summary.totalBytes)) of junk",
-                detail: "Cleanup found files you can safely remove.",
-                action: .navigate(.cleanup)))
-        }
-        if let threats = appState.lastScanSummaries[.protection], threats.totalFindings > 0 {
-            list.append(Recommendation(
-                systemImage: "shield",
-                title: threats.totalFindings == 1 ? "Review 1 threat" : "Review \(threats.totalFindings) threats",
-                detail: "The last malware scan found items you can quarantine.",
-                action: .navigate(.protection)))
-        }
-        if cleanupSummary == nil, !appState.cleanup.isScanning {
-            list.append(Recommendation(
-                systemImage: "sparkles",
-                title: "Run your first scan",
-                detail: "A Cleanup scan of a typical home folder takes under a minute.",
-                action: .navigate(.cleanup)))
-        }
-        list.append(Recommendation(
-            systemImage: "circle.hexagongrid",
-            title: "See what takes up space",
-            detail: "Space Lens maps your disk as bubbles sized by content.",
-            action: .navigate(.spaceLens)))
-        list.append(Recommendation(
-            systemImage: "clock.arrow.circlepath",
-            title: "Schedule regular scans",
-            detail: "Scheduled scans and more Assistant rules arrive in M5.",
-            action: .none))
-        return list
+    private var recommendations: [AssistantRecommendation] {
+        _ = dismissals
+        return Assistant().recommendations(for: appState.assistantSnapshot(),
+                                           dismissed: appState.dismissedRecommendations())
     }
 }
 
@@ -212,7 +272,6 @@ struct ModuleCard: View {
         case scanning
         case clean
         case result(String)
-        case comingSoon(String)
 
         var text: String {
             switch self {
@@ -220,7 +279,6 @@ struct ModuleCard: View {
             case .scanning: return "Scanning…"
             case .clean: return "Nothing to clean"
             case .result(let text): return text
-            case .comingSoon(let milestone): return "Coming in \(milestone)"
             }
         }
 
@@ -230,7 +288,6 @@ struct ModuleCard: View {
             case .scanning: return "arrow.triangle.2.circlepath"
             case .clean: return "checkmark.circle.fill"
             case .result: return "exclamationmark.circle.fill"
-            case .comingSoon: return "hammer"
             }
         }
     }
@@ -270,23 +327,11 @@ struct ModuleCard: View {
 
 // MARK: - Assistant
 
-struct Recommendation: Identifiable, Hashable {
-    enum Action: Hashable {
-        case none
-        case navigate(SidebarItem)
-        case openSettings(PermissionKind)
-    }
-
-    let id = UUID()
-    let systemImage: String
-    let title: String
-    let detail: String
-    let action: Action
-}
-
 struct AssistantPanel: View {
     @Environment(AppState.self) private var appState
-    let recommendations: [Recommendation]
+    @Environment(\.openSettings) private var openSettings
+    let recommendations: [AssistantRecommendation]
+    let onDismiss: (String) -> Void
 
     var body: some View {
         GlassCard {
@@ -294,12 +339,12 @@ struct AssistantPanel: View {
                 Label("Assistant", systemImage: "lightbulb")
                     .font(.headline)
                 if recommendations.isEmpty {
-                    Text("No recommendations right now.")
+                    Text("No recommendations right now. Your Mac is in good shape.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(recommendations) { recommendation in
                         HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: recommendation.systemImage)
+                            Image(systemName: recommendation.symbol)
                                 .frame(width: 22)
                                 .foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 2) {
@@ -308,6 +353,14 @@ struct AssistantPanel: View {
                             }
                             Spacer()
                             actionButton(for: recommendation.action)
+                            Button {
+                                onDismiss(recommendation.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Hide this for a week")
+                            .accessibilityLabel(Text("Dismiss \(recommendation.title)"))
                         }
                         if recommendation.id != recommendations.last?.id {
                             Divider()
@@ -319,18 +372,44 @@ struct AssistantPanel: View {
     }
 
     @ViewBuilder
-    private func actionButton(for action: Recommendation.Action) -> some View {
+    private func actionButton(for action: AssistantAction) -> some View {
         switch action {
-        case .none:
-            EmptyView()
-        case .navigate(let item):
-            Button("Open") { appState.select(item) }
+        case .open(let destination):
+            Button("Open") { open(destination) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-        case .openSettings(let kind):
-            Button("Open System Settings") { PermissionChecker.openSystemSettings(for: kind) }
+        case .grantFullDiskAccess:
+            Button("Open System Settings") { PermissionChecker.openSystemSettings(for: .fullDiskAccess) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+        case .installHelper:
+            Button("Install") { appState.requestHelperInstall() }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+        case .runSmartCare:
+            Button("Scan") { Task { await appState.smartCare.scan() } }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(appState.smartCare.isBusy)
+        case .updateSignatures:
+            Button("Update") { Task { await appState.malware.updateSignatures() } }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(appState.malware.isUpdatingSignatures)
+        }
+    }
+
+    private func open(_ destination: AssistantDestination) {
+        switch destination {
+        case .smartCare: appState.select(.smartCare)
+        case .cleanup: appState.select(.cleanup)
+        case .protection: appState.select(.protection)
+        case .performance: appState.select(.performance)
+        case .applications: appState.select(.applications)
+        case .clutter: appState.select(.myClutter)
+        case .spaceLens: appState.select(.spaceLens)
+        case .myActivity: appState.select(.myActivity)
+        case .scheduler: openSettings()
         }
     }
 }

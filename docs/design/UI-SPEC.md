@@ -10,13 +10,13 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Sidebar | `RootView.sidebar` | Default sidebar style, edge-to-edge, pins via context menu |
 | Toolbar | `RootView` | Search field (`.searchable`), `ToolbarBell` with popover |
 | Bottom bar | `BottomActionBar` | Per module; hosts one `PrimaryActionButton`, optional leading control |
-| Smart Care | `Modules/SmartCare/SmartCareView.swift` | Hero `ScanRing`, 5 module cards, Assistant panel |
+| Smart Care | `Modules/SmartCare/SmartCareView.swift`, `ActionSetsPanel.swift` | Hero `ScanRing`, 5 module cards, Assistant panel (dismissable), My Tools action sets; Scan → Run |
 | Cleanup | `Modules/Cleanup/CleanupView.swift` | Categories as disclosure groups, checkboxes, risk badges, Undo |
 | Applications | `Modules/Applications/ApplicationsView.swift` | Segmented Uninstaller · Updater · Leftovers · Installers (§3.1) |
 | My Clutter | `Modules/MyClutter/MyClutterView.swift` | Segmented Large & Old · Duplicates · Similar Images · Downloads (§3.2) |
 | Shared findings UI | `Modules/Shared/FindingsList.swift` | `FindingsList`, `FindingRow`, `CategoryHeader`, `RiskBadge`, `FindingsActionBar`, removal confirmation, `ModuleTabBar` |
 | Space Lens | `Modules/SpaceLens/SpaceLensView.swift` | `Canvas` bubbles, breadcrumbs, hover tooltip, context menu |
-| My Activity | `Modules/MyActivity/MyActivityView.swift` | Swift Charts, sample data until M5 |
+| My Activity | `Modules/MyActivity/MyActivityView.swift` | Swift Charts from the activity log, stat pills, recent events, Clear History |
 | Performance | `Modules/Performance/PerformanceView.swift` (+ `MaintenanceTab`, `BackgroundItemsTab`, `HeavyConsumersTab`) | Segmented Maintenance · Login Items · Heavy Consumers · Hung Apps (§3.3) |
 | Menu | `Modules/MenuApp/MenuAppView.swift` | Menu bar agent settings: enable, launch, pills, Screen Cleaning Mode (§3.4) |
 | Protection | `Modules/Protection/ProtectionView.swift` (+ `MalwareTab`, `PrivacyTab`, `PermissionsTab`, `MonitorTab`) | Segmented Malware · Privacy · Permissions · Monitor (§3.6); Quarantine sheet |
