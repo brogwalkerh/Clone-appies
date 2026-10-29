@@ -48,3 +48,6 @@ What becomes easier, what becomes harder, what we must now do or never do.
 | [0002](0002-privileged-helper-xpc-closed-operation-set.md) | Privileged helper exposes a closed operation set over XPC |
 | [0003](0003-trash-first-deletion-with-undo-manifest.md) | Trash-first deletion with an undo manifest |
 | [0004](0004-foundation-only-core-for-linux-ci.md) | Foundation-only core packages verified on Linux CI |
+| [0005](0005-deployment-target-macos-26.md) | Minimum deployment target is macOS 26, not 27 |
+| [0006](0006-malware-signatures-clamav-text-feed.md) | Malware signatures: ClamAV text formats via our own feed |
+| [0007](0007-json-file-stores-for-local-history.md) | Local history and settings records in JSON files, not SwiftData |
