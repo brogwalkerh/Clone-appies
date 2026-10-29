@@ -85,7 +85,7 @@ struct SignatureUpdaterTests {
         #expect(try Data(contentsOf: fixture.url("signatures/mac.ndb")) == ndb)
         #expect(FeedStub.requested(under: base) == ["/manifest.json", "/mac.hdb", "/mac.ndb"])
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted()
-                == ["VERSION", "mac.hdb", "mac.ndb"])
+                == ["INSTALLED", "VERSION", "mac.hdb", "mac.ndb"])
 
         var db = SignatureDatabase()
         try db.load(contentsOf: fixture.url("signatures"), fileSystem: LocalFileSystem())
@@ -145,7 +145,7 @@ struct SignatureUpdaterTests {
         #expect(result.filesUpdated == 1)
         #expect(try Data(contentsOf: fixture.url("signatures/mac.hdb")) == hdb)
         #expect(updater(base, fixture).currentVersion() == "v2")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted() == ["VERSION", "mac.hdb"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted() == ["INSTALLED", "VERSION", "mac.hdb"])
     }
 
     @Test func filesDroppedFromTheManifestAreRemoved() async throws {
@@ -155,15 +155,28 @@ struct SignatureUpdaterTests {
         _ = try await updater(first, fixture).update()
         try fixture.file("signatures/notes.txt", contents: Data("not a signature file".utf8))
         try fixture.directory("signatures/sub.ndb")
+        // The user's own allowlist was never installed by the updater, so it stays.
+        try fixture.file("signatures/local.ign2", contents: Data("Some-Signature\n".utf8))
 
         let second = feed(version: "v2", files: [("mac.hdb", hdb, nil)])
         let result = try await updater(second, fixture).update()
         #expect(result.filesUpdated == 0)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted()
-                == ["VERSION", "mac.hdb", "notes.txt", "sub.ndb"])
+                == ["INSTALLED", "VERSION", "local.ign2", "mac.hdb", "notes.txt", "sub.ndb"])
         var db = SignatureDatabase()
         try db.load(contentsOf: fixture.url("signatures"), fileSystem: LocalFileSystem())
         #expect(db.stats.patternSignatures == 0, "withdrawn patterns must not load")
+    }
+
+    @Test func withoutAnInstalledListNothingIsRemoved() async throws {
+        let fixture = try FixtureBuilder(name: "updater-legacy")
+        defer { try? fixture.remove() }
+        // A destination filled before INSTALLED existed, or by hand.
+        try fixture.file("signatures/old.ndb", contents: ndb)
+        _ = try await updater(feed(version: "v1", files: [("mac.hdb", hdb, nil)]), fixture).update()
+        #expect(FileManager.default.fileExists(atPath: fixture.url("signatures/old.ndb").path))
+        let installed = try String(contentsOf: fixture.url("signatures/INSTALLED"), encoding: .utf8)
+        #expect(installed == "mac.hdb")
     }
 
     @Test(arguments: ["../evil.hdb", "sub/x.hdb", "notes.txt", ".hidden.hdb", "VERSION", ""])

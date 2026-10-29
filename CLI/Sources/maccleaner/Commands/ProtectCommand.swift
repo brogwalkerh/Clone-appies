@@ -337,7 +337,7 @@ struct ProtectUpdateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Base URL of the feed, e.g. https://example.com/signatures/", transform: ProtectUpdateCommand.parseURL)
     var feed: URL
 
-    @Option(name: .long, help: "Directory the signature files are written to. Signature files the feed no longer lists are removed from it.")
+    @Option(name: .long, help: "Directory the signature files are written to. Files an earlier update installed that the feed no longer lists are removed from it.")
     var dest: String
 
     func run() async throws {
