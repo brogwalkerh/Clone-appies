@@ -67,11 +67,13 @@ public struct SignatureDatabase: Sendable {
         }
     }
 
-    /// One signature name per line. Legacy `.ign` lines (`db:line:name`)
-    /// are accepted by taking the last field.
+    /// One signature name per line, optionally `name:md5` (the name is the
+    /// first field). Legacy `.ign` lines (`db:line:name`, three or more
+    /// fields) are accepted by taking the last field.
     public mutating func load(ign2 text: String) {
         for line in Self.lines(of: text) {
-            let name = line.contains(":") ? String(line.split(separator: ":").last ?? "") : line
+            let fields = line.split(separator: ":", omittingEmptySubsequences: false)
+            let name = String(fields.count >= 3 ? fields[fields.count - 1] : fields[0])
             guard !name.isEmpty else {
                 skipped += 1
                 continue
