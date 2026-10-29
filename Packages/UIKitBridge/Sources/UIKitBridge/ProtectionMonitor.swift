@@ -30,6 +30,10 @@ public enum ProtectionEvent: Sendable {
 ///
 /// `kFSEventStreamEventFlagMustScanSubDirs` (and dropped-event flags) trigger
 /// a top-level re-enqueue of that directory, capped at `maxDirectoryEntries`.
+/// A directory that was renamed or moved in (say `Foo.app` dropped into
+/// /Applications, which FSEvents reports as one event for the directory) is
+/// walked recursively, without following symlinks, examining at most
+/// `maxDirectoryEntries` entries, and its regular files are enqueued.
 /// Every table is bounded; see the constants below. Call `stop()` before
 /// discarding the monitor: the watcher thread holds no reference to the actor,
 /// but it keeps running until told to stop.
@@ -53,7 +57,8 @@ public actor ProtectionMonitor {
     static let maxInFlight = 4
     /// Paths waiting for an inspection slot; the oldest is dropped past this.
     static let maxBacklog = 2048
-    /// Children re-enqueued for one MustScanSubDirs directory.
+    /// Children re-enqueued for one MustScanSubDirs directory, and entries
+    /// examined when walking a directory that was moved in.
     static let maxDirectoryEntries = 5000
     /// Output stream buffer; the agent drains it continuously.
     static let outputBuffer = 512
@@ -167,18 +172,22 @@ public actor ProtectionMonitor {
                     enqueue(event.path)
                 case .rescanDirectory:
                     rescanTopLevel(of: event.path, run: run)
+                case .scanDirectoryTree:
+                    scanTree(of: event.path, run: run)
                 }
             }
         }
     }
 
     enum EventDisposition: Sendable, Hashable {
-        case ignore, scanFile, rescanDirectory
+        case ignore, scanFile, rescanDirectory, scanDirectoryTree
     }
 
     /// Pure flag triage (tested). Directories and symlinks are never hashed;
     /// a bare removal has nothing to look at; coalescing or dropped events
-    /// mean "look at the whole directory again".
+    /// mean "look at the whole directory again". A renamed directory may have
+    /// been moved in with all its contents and no event per file, so it is
+    /// walked; directories created in place get an event for every file.
     static func disposition(for flags: FSEventStreamEventFlags) -> EventDisposition {
         let bits = Int(flags)
         if bits & (kFSEventStreamEventFlagMustScanSubDirs
@@ -186,8 +195,11 @@ public actor ProtectionMonitor {
                    | kFSEventStreamEventFlagKernelDropped) != 0 {
             return .rescanDirectory
         }
-        if bits & (kFSEventStreamEventFlagItemIsDir | kFSEventStreamEventFlagItemIsSymlink) != 0 {
+        if bits & kFSEventStreamEventFlagItemIsSymlink != 0 {
             return .ignore
+        }
+        if bits & kFSEventStreamEventFlagItemIsDir != 0 {
+            return bits & kFSEventStreamEventFlagItemRenamed != 0 ? .scanDirectoryTree : .ignore
         }
         let touching = kFSEventStreamEventFlagItemCreated
             | kFSEventStreamEventFlagItemModified
@@ -256,6 +268,49 @@ public actor ProtectionMonitor {
             }
             await self?.enqueueAll(files, run: run)
         }
+    }
+
+    /// Walks a directory that was moved in on a utility task and feeds its
+    /// regular files back through the debouncer.
+    private func scanTree(of directory: String, run: Int) {
+        let fileSystem = configuration.fileSystem
+        let protectedPaths = configuration.protectedPaths
+        let limit = ProtectionMonitor.maxDirectoryEntries
+        Task.detached(priority: .utility) { [weak self] in
+            let root = URL(fileURLWithPath: directory, isDirectory: true)
+            let files = ProtectionMonitor.regularFiles(under: root, fileSystem: fileSystem,
+                                                       protectedPaths: protectedPaths, limit: limit)
+            await self?.enqueueAll(files, run: run)
+        }
+    }
+
+    /// Regular files below `root`, depth first, never following symlinks or
+    /// entering protected paths, examining at most `limit` entries (pure over
+    /// `FileSystem`, tested). Empty when `root` is not a real directory.
+    static func regularFiles(under root: URL, fileSystem: any FileSystem,
+                             protectedPaths: ProtectedPaths, limit: Int) -> [String] {
+        guard let rootAttributes = try? fileSystem.attributes(of: root),
+              rootAttributes.isDirectory, !rootAttributes.isSymlink,
+              !protectedPaths.isProtected(root) else { return [] }
+        var files: [String] = []
+        var examined = 0
+        var stack = [root]
+        while let directory = stack.popLast() {
+            guard let children = try? fileSystem.children(of: directory) else { continue }
+            for child in children {
+                guard examined < limit else { return files }
+                examined += 1
+                guard !protectedPaths.isProtected(child),
+                      let attributes = try? fileSystem.attributes(of: child),
+                      !attributes.isSymlink else { continue }
+                if attributes.isDirectory {
+                    stack.append(child)
+                } else {
+                    files.append(child.path(percentEncoded: false))
+                }
+            }
+        }
+        return files
     }
 
     private func enqueueAll(_ files: [String], run: Int) {

@@ -1,3 +1,4 @@
+import CleanerCore
 import CoreServices
 import Foundation
 import ProtectionModule
@@ -97,6 +98,38 @@ final class ProtectionBridgeTests: XCTestCase {
         XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagMustScanSubDirs)), .rescanDirectory)
         XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagMustScanSubDirs, kFSEventStreamEventFlagItemIsDir)), .rescanDirectory)
         XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagKernelDropped)), .rescanDirectory)
+    }
+
+    func testRenamedDirectoryIsWalked() {
+        func flags(_ bits: Int...) -> FSEventStreamEventFlags {
+            FSEventStreamEventFlags(bits.reduce(0, |))
+        }
+        // Foo.app moved into /Applications: one event, for the directory.
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRenamed, kFSEventStreamEventFlagItemIsDir)), .scanDirectoryTree)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRenamed, kFSEventStreamEventFlagItemIsDir, kFSEventStreamEventFlagItemIsSymlink)), .ignore)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemRemoved, kFSEventStreamEventFlagItemIsDir)), .ignore)
+        XCTAssertEqual(ProtectionMonitor.disposition(for: flags(kFSEventStreamEventFlagItemInodeMetaMod, kFSEventStreamEventFlagItemIsDir)), .ignore)
+    }
+
+    func testDirectoryWalkIsBoundedAndSkipsSymlinks() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("monitor-walk-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let app = root.appendingPathComponent("Foo.app", isDirectory: true)
+        let macOS = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        try fm.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: macOS.appendingPathComponent("Foo"))
+        try Data("y".utf8).write(to: app.appendingPathComponent("Contents/Info.plist"))
+        let link = app.appendingPathComponent("Contents/Link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: macOS)
+
+        let files = ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 100)
+        XCTAssertEqual(Set(files.map { URL(fileURLWithPath: $0).lastPathComponent }), ["Foo", "Info.plist"])
+        // Only "Contents" is examined: no files.
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 1), [])
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: link, fileSystem: LocalFileSystem(), protectedPaths: .none, limit: 100), [])
+        XCTAssertEqual(ProtectionMonitor.regularFiles(under: app, fileSystem: LocalFileSystem(),
+                                                      protectedPaths: ProtectedPaths(prefixes: [app]), limit: 100), [])
     }
 
     // MARK: Executable detection
