@@ -46,6 +46,7 @@ import { TurnTimer } from './panels/TurnTimer.js';
 import { StoreContext, gameStore, useAct, useGame, useShownState, type GameStore } from './store/gameStore.js';
 import { PLAYER_COLOR, playerName } from './ui/format.js';
 import { useEscape } from './ui/keyboard.js';
+import { Tabletop } from './ui/Tabletop.js';
 
 export interface GameScreenProps {
   /** Extra sidebar content (the online chat). */
@@ -149,65 +150,74 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
   const restart = () => setup && newGame({ ...setup, seed: `${setup.seed}-${Date.now().toString(36)}` });
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <strong>Starfarers Online</strong>
-        <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
-        {headerExtra}
-        <span className="spacer" />
-        {mode === 'local' ? (
-          <label>
-            Seat{' '}
-            <select value={viewer ?? ''} onChange={(e) => takeSeat(e.target.value)} data-testid="seat-select" disabled={hidden}>
-              {state.players.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <span data-testid="viewer-name">You are {playerName(state, viewer)}</span>
-        )}
-        <span className="swatch" style={{ background: PLAYER_COLOR[state.players.find((p) => p.id === viewer)?.color ?? 'white'] }} />
-        {mode === 'local' ? (
-          <button type="button" className="link" onClick={restart}>
-            New game
-          </button>
-        ) : (
-          <button type="button" className="link" onClick={() => navigate('#/online')}>
-            Lobby
-          </button>
-        )}
-      </header>
-      {error && (
-        <div className="toast error" role="alert" data-testid="error-toast" onClick={clearError}>
-          <strong>{error.code}</strong>: {error.message}
-        </div>
-      )}
-      {replaying && <div className="toast info">Replay view — the board shows an earlier state. Use the slider in the log to return to live play.</div>}
-      <main className="layout">
-        <div className="board-col">
-          <div className="board-frame">
-            <VpTrack state={state} motion={motion} />
-            <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
+    <div className="app tabletop-app">
+      <Tabletop>
+        <header className="topbar">
+          <strong>Starfarers Online</strong>
+          <span className="muted">{subtitle ?? `seed ${state.seed}`}</span>
+          {headerExtra}
+          <span className="spacer" />
+          {mode === 'local' ? (
+            <label>
+              Seat{' '}
+              <select value={viewer ?? ''} onChange={(e) => takeSeat(e.target.value)} data-testid="seat-select" disabled={hidden}>
+                {state.players.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span data-testid="viewer-name">You are {playerName(state, viewer)}</span>
+          )}
+          <span className="swatch" style={{ background: PLAYER_COLOR[state.players.find((p) => p.id === viewer)?.color ?? 'white'] }} />
+          {mode === 'local' ? (
+            <button type="button" className="link" onClick={restart}>
+              New game
+            </button>
+          ) : (
+            <button type="button" className="link" onClick={() => navigate('#/online')}>
+              Lobby
+            </button>
+          )}
+        </header>
+        {/* The table (Tabletop.tsx): board and tray on the left, your mat in front, cards and the log to the right. */}
+        <main className="table-layout">
+          <div className="table-board">
+            <div className="board-frame">
+              <VpTrack state={state} motion={motion} />
+              <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
+            </div>
+            {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
           </div>
-          {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
-        </div>
-        <aside className="side">
-          <HandPanel state={state} viewer={viewer} hidden={hidden} />
-          {viewer && <MothershipPanel state={state} viewer={viewer} />}
-          {viewer && !replaying && <BuildMenu state={state} viewer={viewer} />}
-          {viewer && !replaying && <TradePanel state={state} viewer={viewer} />}
-          {viewer && !replaying && <FriendshipPanel state={state} viewer={viewer} />}
-          {extraPanels}
-          <LogPane state={state} />
-        </aside>
-      </main>
-      {!replaying && viewer && !hidden && <SevenDialog state={state} viewer={viewer} />}
-      {!replaying && viewer && !hidden && <EncounterModal state={state} viewer={viewer} />}
-      {!replaying && viewer && !hidden && pendingFound && <FoundStationDialog state={state} viewer={viewer} shipId={pendingFound} />}
-      {!replaying && viewer && !hidden && draftingFinish && <DraftPanel state={state} viewer={viewer} />}
+          <section className="table-mat" aria-label="Your player mat">
+            <HandPanel state={state} viewer={viewer} hidden={hidden} />
+            {viewer && <MothershipPanel state={state} viewer={viewer} />}
+            {viewer && !replaying && <FriendshipPanel state={state} viewer={viewer} />}
+          </section>
+          <aside className="table-cards">
+            {viewer && !replaying && <BuildMenu state={state} viewer={viewer} />}
+            {viewer && !replaying && <TradePanel state={state} viewer={viewer} />}
+          </aside>
+          <aside className="table-log">
+            <LogPane state={state} />
+            {extraPanels}
+          </aside>
+        </main>
+        {!replaying && viewer && !hidden && <SevenDialog state={state} viewer={viewer} />}
+        {!replaying && viewer && !hidden && <EncounterModal state={state} viewer={viewer} />}
+        {!replaying && viewer && !hidden && pendingFound && <FoundStationDialog state={state} viewer={viewer} shipId={pendingFound} />}
+        {!replaying && viewer && !hidden && draftingFinish && <DraftPanel state={state} viewer={viewer} />}
+      </Tabletop>
+      <div className="screen-toasts">
+        {error && (
+          <div className="toast error" role="alert" data-testid="error-toast" onClick={clearError}>
+            <strong>{error.code}</strong>: {error.message}
+          </div>
+        )}
+        {replaying && <div className="toast info">Replay view — the board shows an earlier state. Use the slider in the log to return to live play.</div>}
+      </div>
       {winner && (
         <div className="curtain" data-testid="game-over">
           <div className="curtain-card">
