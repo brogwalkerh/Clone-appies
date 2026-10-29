@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import CleanerCore
 import DesignSystem
+import SmartCareModule
 
 /// Settings window: General, Protection, Ignore List, Scheduler, Advanced (PLAN.md §3.12).
 /// Updates and Privacy tabs arrive with their modules.
@@ -210,30 +211,207 @@ struct IgnoreListSettingsView: View {
 
 // MARK: - Scheduler
 
+/// Scheduled Smart Care scans, module scans and action sets (PLAN.md §3.12).
+/// The menu bar agent watches the schedules and asks the app to run them.
 struct SchedulerSettingsView: View {
-    @State private var frequency = "weekly"
+    @Environment(AppState.self) private var appState
 
     var body: some View {
+        let automation = appState.automation
+        let lastRuns = automation.lastRuns()
         Form {
-            Section("Scheduled scans") {
-                Picker("Run Smart Care", selection: $frequency) {
-                    Text("Daily").tag("daily")
-                    Text("Weekly").tag("weekly")
-                    Text("Monthly").tag("monthly")
-                }
-                .disabled(true)
-                Toggle("Notify me when a scheduled scan finds something", isOn: .constant(true))
-                    .disabled(true)
-            }
             Section {
-                EmptyState.comingSoon(feature: "Scheduler",
-                                      milestone: "M5",
-                                      systemImage: "calendar.badge.clock",
-                                      message: "Scheduled scans, reminders and scan history arrive with the persistence layer in M5.")
-                    .frame(height: 160)
+                if automation.schedules.isEmpty {
+                    Text("Nothing is scheduled.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(automation.schedules) { schedule in
+                    ScheduleRow(schedule: schedule,
+                                actionSets: automation.actionSets,
+                                lastRun: lastRuns[schedule.id],
+                                onChange: { updated in replace(updated) },
+                                onDelete: { remove(schedule) })
+                }
+                Button("Add Schedule") { add() }
+            } header: {
+                Text("Scheduled scans")
+            } footer: {
+                Text("The menu bar agent starts scheduled work, so keep it enabled on the Menu screen. A scheduled scan only reports what it finds; an action set moves Safe items to the Trash. Runs missed while the Mac was asleep happen once when it wakes.")
             }
         }
         .formStyle(.grouped)
+        .onAppear { automation.reload() }
+    }
+
+    private func add() {
+        let schedule = ScanSchedule(cadence: .weekly(weekday: 2), hour: 9, minute: 0, target: .smartCareScan)
+        appState.automation.saveSchedules(appState.automation.schedules + [schedule])
+    }
+
+    private func replace(_ schedule: ScanSchedule) {
+        var all = appState.automation.schedules
+        guard let index = all.firstIndex(where: { $0.id == schedule.id }) else { return }
+        all[index] = schedule
+        appState.automation.saveSchedules(all)
+    }
+
+    private func remove(_ schedule: ScanSchedule) {
+        appState.automation.saveSchedules(appState.automation.schedules.filter { $0.id != schedule.id })
+    }
+}
+
+private struct ScheduleRow: View {
+    let schedule: ScanSchedule
+    let actionSets: [ActionSet]
+    let lastRun: Date?
+    let onChange: (ScanSchedule) -> Void
+    let onDelete: () -> Void
+
+    private enum Cadence: String, CaseIterable, Identifiable {
+        case daily, weekly, monthly
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle("Enabled", isOn: isEnabled)
+                    .labelsHidden()
+                Picker("Run", selection: target) {
+                    Text("Smart Care scan").tag(ScheduleTarget.smartCareScan)
+                    ForEach(ModuleID.allCases, id: \.self) { module in
+                        Text("\(module.displayName) scan").tag(ScheduleTarget.moduleScan(module))
+                    }
+                    ForEach(actionSets) { set in
+                        Text("Action set: \(set.name)").tag(ScheduleTarget.actionSet(set.id))
+                    }
+                }
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("Delete schedule"))
+            }
+            HStack {
+                Picker("Every", selection: cadenceKind) {
+                    ForEach(Cadence.allCases) { cadence in
+                        Text(cadence.title).tag(cadence)
+                    }
+                }
+                .fixedSize()
+                if case .weekly = schedule.cadence {
+                    Picker("on", selection: weekday) {
+                        ForEach(1...7, id: \.self) { day in
+                            Text(Calendar.current.weekdaySymbols[day - 1]).tag(day)
+                        }
+                    }
+                    .fixedSize()
+                }
+                if case .monthly = schedule.cadence {
+                    Picker("on day", selection: monthDay) {
+                        ForEach(1...28, id: \.self) { day in
+                            Text("\(day)").tag(day)
+                        }
+                    }
+                    .fixedSize()
+                }
+                DatePicker("at", selection: time, displayedComponents: .hourAndMinute)
+                    .fixedSize()
+            }
+            Text(statusLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusLine: String {
+        var parts: [String] = []
+        if !schedule.isEnabled {
+            parts.append("Off")
+        } else if let next = ScheduleEvaluator().nextFire([schedule], lastRuns: [:], now: .now) {
+            parts.append("Next: \(next.formatted(date: .abbreviated, time: .shortened))")
+        }
+        if let lastRun {
+            parts.append("Last run: \(lastRun.formatted(date: .abbreviated, time: .shortened))")
+        }
+        if case .actionSet(let id) = schedule.target, !actionSets.contains(where: { $0.id == id }) {
+            parts.append("The action set no longer exists")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: Bindings (each edits a copy and reports it through onChange)
+
+    private var isEnabled: Binding<Bool> {
+        Binding(get: { schedule.isEnabled },
+                set: { value in
+                    var copy = schedule
+                    copy.isEnabled = value
+                    onChange(copy)
+                })
+    }
+
+    private var target: Binding<ScheduleTarget> {
+        Binding(get: { schedule.target },
+                set: { value in
+                    var copy = schedule
+                    copy.target = value
+                    onChange(copy)
+                })
+    }
+
+    private var cadenceKind: Binding<Cadence> {
+        Binding(get: {
+            switch schedule.cadence {
+            case .daily: return Cadence.daily
+            case .weekly: return Cadence.weekly
+            case .monthly: return Cadence.monthly
+            }
+        }, set: { kind in
+            var copy = schedule
+            switch kind {
+            case .daily: copy.cadence = .daily
+            case .weekly: copy.cadence = .weekly(weekday: 2)
+            case .monthly: copy.cadence = .monthly(day: 1)
+            }
+            onChange(copy)
+        })
+    }
+
+    private var weekday: Binding<Int> {
+        Binding(get: {
+            if case .weekly(let day) = schedule.cadence { return day }
+            return 2
+        }, set: { day in
+            var copy = schedule
+            copy.cadence = .weekly(weekday: day)
+            onChange(copy)
+        })
+    }
+
+    private var monthDay: Binding<Int> {
+        Binding(get: {
+            if case .monthly(let day) = schedule.cadence { return day }
+            return 1
+        }, set: { day in
+            var copy = schedule
+            copy.cadence = .monthly(day: day)
+            onChange(copy)
+        })
+    }
+
+    private var time: Binding<Date> {
+        Binding(get: {
+            Calendar.current.date(from: DateComponents(hour: schedule.hour, minute: schedule.minute)) ?? .now
+        }, set: { date in
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+            var copy = schedule
+            copy.hour = parts.hour ?? copy.hour
+            copy.minute = parts.minute ?? copy.minute
+            onChange(copy)
+        })
     }
 }
 
