@@ -7,6 +7,7 @@ import ApplicationsModule
 import HelperProtocol
 import PerformanceModule
 import ProtectionModule
+import SmartCareModule
 import UIKitBridge
 
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
@@ -251,6 +252,7 @@ struct CleanJunkIntent: AppIntent {
 
         let remover = await AppServices.shared.remover()
         let manifest = try await remover.remove(safe, mode: .trash, progress: nil)
+        await ActivityCenter.shared.record(.removal(manifest, module: .cleanup))
         await AppServices.shared.recordCleanup(manifest)
 
         let failed = manifest.records.filter { !$0.succeeded }.count
