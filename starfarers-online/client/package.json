@@ -12,6 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/barlow": "5.2.8",
+    "@fontsource/barlow-condensed": "5.2.8",
     "@starfarers/shared": "workspace:*",
     "react": "19.1.10",
     "react-dom": "19.1.10",
