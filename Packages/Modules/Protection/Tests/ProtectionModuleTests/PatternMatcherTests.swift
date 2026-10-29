@@ -194,6 +194,21 @@ struct PatternMatcherTests {
         ])
         #expect(Set(matcher.matches(in: Data("xxCDxxABxx".utf8))) == ["ab", "cd"])
     }
+
+    /// Without memoizing failed (token, position) pairs, each `*` multiplies
+    /// the work by the number of `B`s: ~n^4/24 (about 2e11) steps here, which
+    /// hangs (the time limit cannot interrupt synchronous code). With it: well
+    /// under a second.
+    @Test(.timeLimit(.minutes(1))) func nestedSkipsDoNotBacktrackCombinatorially() throws {
+        let n = 1_500
+        let data = Data("A".utf8) + Data(repeating: UInt8(ascii: "B"), count: n)
+        let matcher = PatternMatcher(patterns: [try pattern("41*42*42*42*42*43", name: "never"),
+                                                try pattern("41*42{0-9}42*42*42", name: "hit")])
+        let start = ContinuousClock.now
+        #expect(matcher.matches(in: data) == ["hit"])
+        #expect(matcher.matches(in: data + Data("C".utf8)) == ["never", "hit"])
+        #expect(ContinuousClock.now - start < .seconds(10))
+    }
 }
 
 @Suite("File type detection")

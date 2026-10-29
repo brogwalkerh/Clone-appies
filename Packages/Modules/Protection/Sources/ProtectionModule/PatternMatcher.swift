@@ -11,8 +11,9 @@ import Foundation
 /// fixed parts straddle more than one chunk is missed. The same pattern may
 /// be reported from two overlapping chunks; callers de-duplicate by name.
 ///
-/// Matching is a linear scan with backtracking over tokens: simple and
-/// correct rather than fast.
+/// Matching is a linear scan with backtracking over tokens. Failed
+/// (token, position) pairs reached through a skip are memoized per call, so
+/// patterns with several `*` cannot backtrack combinatorially.
 public struct PatternMatcher: Sendable {
     /// Upper bound on `maxPatternLength`; longer bounded spans are treated as
     /// if they were this long for overlap purposes.
@@ -82,16 +83,19 @@ public struct PatternMatcher: Sendable {
                                 fileSize: Int64, chunkOffset: Int64) -> Bool {
         let count = bytes.count
         let tokens = entry.pattern.tokens
+        // Whether tokens[index...] match at a position depends on nothing
+        // else, so one memo serves every start position in this window.
+        var memo = Memo(stride: count + 1)
         switch entry.pattern.offset {
         case .absolute(let start):
             let local = Int64(start) - chunkOffset
             guard local >= 0, local < Int64(count) else { return false }
-            return matchTokens(tokens, 0, bytes, Int(local))
+            return matchTokens(tokens, 0, bytes, Int(local), &memo)
         case .fromEnd(let back):
             // A file that grew while being read can put chunkOffset past fileSize.
             let (local, overflow) = (fileSize - Int64(back)).subtractingReportingOverflow(chunkOffset)
             guard !overflow, local >= 0, local < Int64(count) else { return false }
-            return matchTokens(tokens, 0, bytes, Int(local))
+            return matchTokens(tokens, 0, bytes, Int(local), &memo)
         case .any:
             // No match can start later than count - minSpan.
             let lastStart = count - entry.minSpan
@@ -99,12 +103,12 @@ public struct PatternMatcher: Sendable {
             if let first = entry.firstByte {
                 var i = 0
                 while i <= lastStart {
-                    if bytes[i] == first, matchTokens(tokens, 1, bytes, i + 1) { return true }
+                    if bytes[i] == first, matchTokens(tokens, 1, bytes, i + 1, &memo) { return true }
                     i += 1
                 }
                 return false
             }
-            for start in 0...lastStart where matchTokens(tokens, 0, bytes, start) {
+            for start in 0...lastStart where matchTokens(tokens, 0, bytes, start, &memo) {
                 return true
             }
             return false
@@ -116,9 +120,27 @@ public struct PatternMatcher: Sendable {
         return overflow ? Int.max : sum
     }
 
+    /// Known-failing (token index, position) pairs; only entries reached
+    /// through a skip are recorded, so skip-free patterns never allocate.
+    private struct Memo {
+        let stride: Int
+        private var failed = Set<Int>()
+
+        init(stride: Int) { self.stride = stride }
+
+        func hasFailed(_ index: Int, _ position: Int) -> Bool {
+            !failed.isEmpty && failed.contains(index * stride + position)
+        }
+
+        mutating func recordFailure(_ index: Int, _ position: Int) {
+            failed.insert(index * stride + position)
+        }
+    }
+
     /// Backtracking match of `tokens[index...]` at `position`.
     private static func matchTokens(_ tokens: [PatternToken], _ index: Int,
-                                    _ bytes: UnsafeBufferPointer<UInt8>, _ position: Int) -> Bool {
+                                    _ bytes: UnsafeBufferPointer<UInt8>, _ position: Int,
+                                    _ memo: inout Memo) -> Bool {
         var index = index
         var position = position
         let count = bytes.count
@@ -137,10 +159,10 @@ public struct PatternMatcher: Sendable {
                 guard position < count, bytes[position] & 0x0F == low else { return false }
                 position += 1
             case .skipAny:
-                return matchSkip(tokens, index + 1, bytes, position, minimum: 0, maximum: count - position)
+                return matchSkip(tokens, index + 1, bytes, position, minimum: 0, maximum: count - position, &memo)
             case .skipRange(let minimum, let maximum):
                 return matchSkip(tokens, index + 1, bytes, position, minimum: minimum,
-                                 maximum: min(maximum, count - position))
+                                 maximum: min(maximum, count - position), &memo)
             }
             index += 1
         }
@@ -151,7 +173,7 @@ public struct PatternMatcher: Sendable {
     /// a skip. When that token is a fixed byte, only positions holding it are tried.
     private static func matchSkip(_ tokens: [PatternToken], _ index: Int,
                                   _ bytes: UnsafeBufferPointer<UInt8>, _ position: Int,
-                                  minimum: Int, maximum: Int) -> Bool {
+                                  minimum: Int, maximum: Int, _ memo: inout Memo) -> Bool {
         guard minimum <= maximum else { return false }
         if index >= tokens.count { return true }
         var next: UInt8?
@@ -161,12 +183,21 @@ public struct PatternMatcher: Sendable {
             let candidate = position + skip
             if let next {
                 guard candidate < bytes.count else { return false }
-                if bytes[candidate] == next, matchTokens(tokens, index, bytes, candidate) { return true }
-            } else if matchTokens(tokens, index, bytes, candidate) {
+                if bytes[candidate] == next, attempt(tokens, index, bytes, candidate, &memo) { return true }
+            } else if attempt(tokens, index, bytes, candidate, &memo) {
                 return true
             }
             skip += 1
         }
+        return false
+    }
+
+    /// `matchTokens` behind the failure memo.
+    private static func attempt(_ tokens: [PatternToken], _ index: Int, _ bytes: UnsafeBufferPointer<UInt8>,
+                                _ position: Int, _ memo: inout Memo) -> Bool {
+        if memo.hasFailed(index, position) { return false }
+        if matchTokens(tokens, index, bytes, position, &memo) { return true }
+        memo.recordFailure(index, position)
         return false
     }
 }
