@@ -52,15 +52,20 @@ struct RootView: View {
         }
         .task {
             await appState.refreshPermissions()
+            await appState.reloadSharedState()
             if !appState.hasCompletedOnboarding {
                 showOnboarding = true
             }
         }
         .onChange(of: appearsActive) { _, active in
             // Re-check permissions whenever the window becomes active again, since
-            // the user may have toggled something in System Settings.
+            // the user may have toggled something in System Settings; the agent
+            // or the CLI may also have added notifications, history or schedules.
             if active {
-                Task { await appState.refreshPermissions() }
+                Task {
+                    await appState.refreshPermissions()
+                    await appState.reloadSharedState()
+                }
             }
         }
     }
@@ -236,6 +241,13 @@ struct NotificationListView: View {
                         }
                     }
                     .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Scheduled-scan results link to the screen that shows them.
+                        if let link = note.link, let url = URL(string: link) {
+                            appState.open(url)
+                        }
+                    }
                 }
                 .listStyle(.plain)
                 .frame(height: 280)

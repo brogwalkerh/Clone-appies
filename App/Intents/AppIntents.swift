@@ -215,10 +215,16 @@ struct RunSmartCareIntent: AppIntent {
         "Checks your Mac for junk, threats, slowdowns, outdated apps and clutter in one run.")
     static let openAppWhenRun = true
 
+    /// Scans only: removing files stays a click on Smart Care's Run button,
+    /// where the user sees what goes to the Trash.
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         AppServices.shared.show(.smartCare)
-        return .result(dialog: "Smart Care's combined scan arrives in M5. I opened Smart Care; you can run Cleanup from there now.")
+        guard let appState = AppServices.shared.appState else {
+            return .result(dialog: "I opened Smart Care. Press Scan to check your Mac.")
+        }
+        await appState.smartCare.scan()
+        return .result(dialog: "Smart Care finished. \(appState.smartCare.resultSummary()) Press Run in Smart Care to clean it up.")
     }
 }
 

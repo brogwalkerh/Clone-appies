@@ -3,6 +3,7 @@ import Observation
 import CleanerCore
 import HelperProtocol
 import PerformanceModule
+import SmartCareModule
 
 /// Selection and results for Performance › Maintenance (PLAN.md §3.4).
 /// Lives on `AppState` so a run keeps streaming while the user navigates away.
@@ -114,6 +115,7 @@ final class MaintenanceState {
             for await result in await runner.run(runnable) {
                 guard let self, !Task.isCancelled else { return }
                 self.results[result.taskID] = result
+                ActivityCenter.shared.record(.maintenance(result))
             }
             guard let self else { return }
             self.isRunning = false

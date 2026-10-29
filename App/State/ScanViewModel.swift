@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CleanerCore
+import SmartCareModule
 
 /// Findings of one category plus derived totals, ready for a disclosure group.
 struct FindingGroup: Identifiable, Hashable, Sendable {
@@ -107,6 +108,13 @@ final class ScanViewModel {
 
     // MARK: Scanning
 
+    /// Starts a run (or joins the one in flight) and returns when it ends.
+    /// Smart Care uses this to scan every module at once.
+    func runToCompletion() async {
+        run()
+        await runTask?.value
+    }
+
     func run() {
         guard phase != .scanning else { return }
         runTask?.cancel()
@@ -195,6 +203,9 @@ final class ScanViewModel {
             summary = scanSummary
             phase = cancelRequested ? .cancelled : .finished
             runTask = nil
+            if !cancelRequested {
+                ActivityCenter.shared.record(.scan(scanSummary, module: module))
+            }
         }
     }
 
@@ -273,6 +284,7 @@ final class ScanViewModel {
         }
 
         lastManifest = manifest
+        ActivityCenter.shared.record(.removal(manifest, module: module))
         let removedIDs = Set(manifest.records.lazy.filter(\.succeeded).map(\.finding.id))
         findings.removeAll { removedIDs.contains($0.id) }
         selectedIDs.subtract(removedIDs)
@@ -290,6 +302,7 @@ final class ScanViewModel {
         do {
             let restored = try await remover.undo(manifest)
             lastManifest = nil
+            ActivityCenter.shared.record(.undo(restored, module: module))
             return restored
         } catch {
             lastError = error.localizedDescription
