@@ -217,7 +217,10 @@ Depends on CleanerCore, CleanupModule, SpaceLens, DesignSystem. `ScanViewModel`
   interrupted scanner, then `.completed`.
 - Extra public inits exist on `FileAttributes`, `ScanSummary`, `RemovalRecord`,
   `RemovalManifest`; `TrashRemover(fileSystem:trashDirectory:)` forces move-based
-  trash on every platform (for tests). `CleanerCoreTesting` ships `MockFileSystem`
+  trash on every platform (for tests). In `.trash` mode `TrashRemover` deletes a
+  finding that is already inside a Trash (`~/.Trash`, `/Volumes/*/.Trashes/<uid>`,
+  the configured trash directory) instead of re-trashing it; its record has
+  `trashedTo == nil` (CLAUDE.md rule 3: emptying the Trash). `CleanerCoreTesting` ships `MockFileSystem`
   (dictionary-literal trees) and `FixtureBuilder` (real temp trees).
 
 ## M2 — ClutterModule (Packages/Modules/Clutter)
