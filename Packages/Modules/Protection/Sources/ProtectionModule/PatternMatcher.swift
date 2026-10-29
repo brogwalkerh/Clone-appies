@@ -37,8 +37,9 @@ public struct PatternMatcher: Sendable {
         var compiled: [Compiled] = []
         var longest = 0
         for pattern in patterns where !pattern.tokens.isEmpty {
-            let span = pattern.tokens.reduce(0) { $0 + $1.boundedSpan }
-            let minSpan = pattern.tokens.reduce(0) { $0 + $1.minSpan }
+            // Saturating: the parser caps skip bounds, but `HexPattern` is public.
+            let span = pattern.tokens.reduce(0) { Self.saturatingAdd($0, $1.boundedSpan) }
+            let minSpan = pattern.tokens.reduce(0) { Self.saturatingAdd($0, $1.minSpan) }
             var first: UInt8?
             if case .byte(let b) = pattern.tokens[0] { first = b }
             compiled.append(Compiled(pattern: pattern, minSpan: minSpan, firstByte: first))
@@ -87,8 +88,9 @@ public struct PatternMatcher: Sendable {
             guard local >= 0, local < Int64(count) else { return false }
             return matchTokens(tokens, 0, bytes, Int(local))
         case .fromEnd(let back):
-            let local = fileSize - Int64(back) - chunkOffset
-            guard local >= 0, local < Int64(count) else { return false }
+            // A file that grew while being read can put chunkOffset past fileSize.
+            let (local, overflow) = (fileSize - Int64(back)).subtractingReportingOverflow(chunkOffset)
+            guard !overflow, local >= 0, local < Int64(count) else { return false }
             return matchTokens(tokens, 0, bytes, Int(local))
         case .any:
             // No match can start later than count - minSpan.
@@ -107,6 +109,11 @@ public struct PatternMatcher: Sendable {
             }
             return false
         }
+    }
+
+    private static func saturatingAdd(_ a: Int, _ b: Int) -> Int {
+        let (sum, overflow) = a.addingReportingOverflow(b)
+        return overflow ? Int.max : sum
     }
 
     /// Backtracking match of `tokens[index...]` at `position`.
