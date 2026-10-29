@@ -54,7 +54,8 @@ public struct RuleTableInsightProvider: InsightProvider {
         return finding.detail
     }
 
-    static func advice(for finding: Finding) -> String {
+    /// Advice from the finding's module and risk; the on-device provider reuses it.
+    public static func advice(for finding: Finding) -> String {
         switch finding.category.module {
         case .clutter:
             return "These are your own files. Remove them only if you no longer need them; they go to the Trash first."

@@ -211,6 +211,7 @@ struct SelectionCheckbox: View {
 struct FindingRow: View {
     let finding: Finding
     @Binding var isSelected: Bool
+    @State private var showInsight = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -235,6 +236,18 @@ struct FindingRow: View {
 
             Spacer()
 
+            Button {
+                showInsight = true
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("What is this?")
+            .accessibilityLabel(Text("What is \(finding.path.lastPathComponent)?"))
+            .popover(isPresented: $showInsight, arrowEdge: .trailing) {
+                InsightView(finding: finding)
+            }
+
             RiskBadge(risk: finding.risk)
 
             Text(ByteFormatter.string(finding.sizeBytes))
@@ -244,6 +257,9 @@ struct FindingRow: View {
         }
         .padding(.vertical, 2)
         .contextMenu {
+            Button("What Is This?") {
+                showInsight = true
+            }
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([finding.path])
             }
@@ -373,7 +389,7 @@ struct RemovalConfirmation: ViewModifier {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(mode == .trash
-                 ? "Items go to the Trash. You can undo this until the Trash is emptied."
+                 ? "Items go to the Trash; anything already in the Trash is deleted. You can undo the rest until the Trash is emptied."
                  : "Items are deleted immediately and cannot be recovered.")
         }
     }
