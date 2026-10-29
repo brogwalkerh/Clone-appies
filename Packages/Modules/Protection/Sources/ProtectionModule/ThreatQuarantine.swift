@@ -117,11 +117,13 @@ public actor ThreatQuarantine {
     }
 
     /// Moves the manifest's items back to their original paths and resets
-    /// their permissions. Records that were never stored are returned as-is.
+    /// their permissions. Records with no stored item (never quarantined, or
+    /// already restored) are returned as-is; a record whose earlier restore
+    /// failed still has `storedAt` and is retried.
     public func restore(_ manifest: QuarantineManifest) async -> [QuarantineRecord] {
         var results: [QuarantineRecord] = []
         for record in manifest.records {
-            guard record.succeeded, let stored = record.storedAt else {
+            guard let stored = record.storedAt else {
                 results.append(record)
                 continue
             }

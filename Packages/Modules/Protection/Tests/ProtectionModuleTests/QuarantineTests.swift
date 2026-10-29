@@ -86,6 +86,25 @@ struct QuarantineTests {
         #expect(try await quarantine.list().isEmpty)
     }
 
+    @Test func failedRestoreCanBeRetried() async throws {
+        let fixture = try FixtureBuilder(name: "quarantine-retry")
+        defer { try? fixture.remove() }
+        let file = try fixture.file("home/a.bin", contents: Data(eicar.utf8))
+        let quarantine = ThreatQuarantine(directory: fixture.url("q"))
+        _ = await quarantine.quarantine([threat(file)])
+        try fixture.file("home/a.bin", contents: Data("in the way".utf8))
+        let first = await quarantine.restore(try #require(try await quarantine.list().first))
+        #expect(first.map(\.succeeded) == [false])
+
+        try FileManager.default.removeItem(at: file)
+        let onDisk = try #require(try await quarantine.list().first)
+        let second = await quarantine.restore(onDisk)
+        #expect(second.map(\.succeeded) == [true])
+        #expect(second.allSatisfy { $0.storedAt == nil })
+        #expect(try String(contentsOf: file, encoding: .utf8) == eicar)
+        #expect(try await quarantine.list().isEmpty)
+    }
+
     @Test func purgeHonoursAge() async throws {
         let fixture = try FixtureBuilder(name: "quarantine-purge")
         defer { try? fixture.remove() }
