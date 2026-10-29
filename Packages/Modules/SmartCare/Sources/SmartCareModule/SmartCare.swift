@@ -58,8 +58,10 @@ public struct SmartCarePolicy: Sendable, Hashable {
         autoSelect[finding.category.module]?.contains(finding.risk) ?? false
     }
 
+    /// Selected findings, minus any that sit inside another selected folder
+    /// (removing the folder removes them; counting both would double the bytes).
     public func defaultSelection(_ report: SmartCareReport) -> [Finding] {
-        report.findings.filter(isSelectedByDefault)
+        FindingSelection.droppingNested(report.findings.filter(isSelectedByDefault))
     }
 
     public func reclaimableBytes(_ report: SmartCareReport) -> Int64 {
@@ -241,5 +243,20 @@ private actor SmartCareMerger {
             }
         }
         return known ? min(total / Double(state.scannerIDs.count), 1) : nil
+    }
+}
+
+public enum FindingSelection {
+    /// Drops findings whose path is inside another finding's path, keeping order.
+    public static func droppingNested(_ findings: [Finding]) -> [Finding] {
+        let paths = Set(findings.map { $0.path.standardizedFileURL.path })
+        return findings.filter { finding in
+            var ancestor = finding.path.standardizedFileURL
+            while ancestor.pathComponents.count > 1 {
+                ancestor = ancestor.deletingLastPathComponent()
+                if paths.contains(ancestor.path) { return false }
+            }
+            return true
+        }
     }
 }

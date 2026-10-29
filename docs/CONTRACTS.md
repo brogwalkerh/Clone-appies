@@ -809,7 +809,9 @@ Implementation notes (SmartCareModule as built):
 - Extra public API: `SmartCarePolicy.isReviewOnly(_:)`, `ClosureRule` (closure-backed
   `AssistantRule`; the default rules are written with it), `ActionSetReport.succeeded`,
   `ActivityStats.Week.totalBytes`, `ActivityStats.lastMaintenance`,
-  `RuleTableInsightProvider.ruleText(for:home:)`, `ModuleID.displayName`.
+  `RuleTableInsightProvider.ruleText(for:home:)`, `ModuleID.displayName`,
+  `FindingSelection.droppingNested(_:)`. `SmartCarePolicy.defaultSelection` and the
+  action-set clean step drop findings nested inside another selected folder.
 - `SmartCareCoordinator` builds module summaries from the findings it keeps, so a path
   two modules report counts once, under whichever module reported it first.
 - `JSONLinesActivityStore.append` starts a new line when the file does not end in one,

@@ -212,7 +212,7 @@ public struct ActionSetRunner: Sendable {
             }
         }
         let allowed: Set<RiskLevel> = includeCaution ? [.safe, .caution] : [.safe]
-        let targets = findings.filter { allowed.contains($0.risk) }
+        let targets = FindingSelection.droppingNested(findings.filter { allowed.contains($0.risk) })
         let bytes = targets.reduce(Int64(0)) { $0 + $1.sizeBytes }
         let failureNote = failures.isEmpty ? "" : " Scan errors: \(failures.joined(separator: "; "))."
 

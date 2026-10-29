@@ -148,4 +148,15 @@ struct SmartCarePolicyTests {
         #expect(!policy.isSelectedByDefault(finding("/tmp/p/lang", 500, risk: .risky)))
         #expect(policy.isSelectedByDefault(finding("/tmp/p/orphan", 70, appsCategory)))
     }
+
+    @Test func nestedSelectionsCountOnce() {
+        let nested = SmartCareReport(startedAt: .now, duration: 0, summaries: [:], findings: [
+            finding("/tmp/p/Caches/app", 100),
+            finding("/tmp/p/Caches/app/blob", 60),
+            finding("/tmp/p/Caches/application", 5),   // a sibling with a shared prefix stays
+        ], failures: [:])
+        let selection = SmartCarePolicy.default.defaultSelection(nested)
+        #expect(selection.map(\.path.lastPathComponent) == ["app", "application"])
+        #expect(SmartCarePolicy.default.reclaimableBytes(nested) == 105)
+    }
 }
