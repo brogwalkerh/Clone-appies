@@ -148,6 +148,24 @@ struct SignatureUpdaterTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted() == ["VERSION", "mac.hdb"])
     }
 
+    @Test func filesDroppedFromTheManifestAreRemoved() async throws {
+        let fixture = try FixtureBuilder(name: "updater-withdrawn")
+        defer { try? fixture.remove() }
+        let first = feed(version: "v1", files: [("mac.hdb", hdb, nil), ("mac.ndb", ndb, nil)])
+        _ = try await updater(first, fixture).update()
+        try fixture.file("signatures/notes.txt", contents: Data("not a signature file".utf8))
+        try fixture.directory("signatures/sub.ndb")
+
+        let second = feed(version: "v2", files: [("mac.hdb", hdb, nil)])
+        let result = try await updater(second, fixture).update()
+        #expect(result.filesUpdated == 0)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.url("signatures").path).sorted()
+                == ["VERSION", "mac.hdb", "notes.txt", "sub.ndb"])
+        var db = SignatureDatabase()
+        try db.load(contentsOf: fixture.url("signatures"), fileSystem: LocalFileSystem())
+        #expect(db.stats.patternSignatures == 0, "withdrawn patterns must not load")
+    }
+
     @Test(arguments: ["../evil.hdb", "sub/x.hdb", "notes.txt", ".hidden.hdb", "VERSION", ""])
     func unsafeFileNamesAreRejected(name: String) async throws {
         let fixture = try FixtureBuilder(name: "updater-names")

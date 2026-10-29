@@ -596,7 +596,7 @@ public struct QuarantineManifest: Codable, Sendable, Hashable, Identifiable { pu
 public struct SignatureUpdater: Sendable {
     public init(baseURL: URL, session: URLSession = .shared, destination: URL)
     public func currentVersion() -> String?
-    public func update() async throws -> SignatureUpdateResult   // downloads manifest, fetches changed files, verifies sha256, atomically swaps, writes version
+    public func update() async throws -> SignatureUpdateResult   // downloads manifest, fetches changed files, verifies sha256, atomically swaps, deletes signature files the manifest no longer lists, writes version
 }
 public struct SignatureUpdateResult: Sendable, Hashable { public let version: String; public let filesUpdated: Int; public let bytes: Int64 }
 
