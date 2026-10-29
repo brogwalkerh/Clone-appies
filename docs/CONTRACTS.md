@@ -821,3 +821,25 @@ Implementation notes (SmartCareModule as built):
 - `JSONLinesActivityStore.append` starts a new line when the file does not end in one,
   so a torn write loses only the torn event.
 - Rules never fire on unknown (`nil`) facts; a fresh install sees only "firstScan".
+
+## M5 — App and MenuAgent side (macOS only)
+- `ActivityCenter.shared` (`@MainActor @Observable`, App/State) owns the activity log and
+  `ActivityStats`. Models record into it where the disk changes, so every path counts once:
+  `ScanViewModel` (finished scan, `remove`, `undoLastRemoval`), `MalwareScanModel` (finished
+  scan, quarantine), `MaintenanceState` (each result), `AppInventoryStore.uninstall`,
+  `AutomationState.run`.
+- `SmartCareModel` runs the module view models concurrently (`ScanViewModel.runToCompletion()`,
+  `MalwareScanModel.runToCompletion()` with the quick scope, `AppInventoryStore.checkForUpdates()`),
+  so each Smart Care card opens a module that already holds its results. Run removes the current
+  selection of the modules `SmartCarePolicy` does not mark review-only, via `FindingsActions.clean`.
+- `AutomationState` holds action sets (presets plus `SmartCareStorage.actionSets`) and schedules;
+  `AppState.runSchedule(id:)` performs a schedule's target and posts the result to the inbox and as
+  a system notification. The Notification Center reads and writes `SmartCareStorage.inbox`.
+- New deep links: `maccleaner://schedule?id=<uuid>` (run a due schedule, no navigation) and
+  `maccleaner://action-set?id=<uuid>`.
+- MenuAgent checks `schedules.json` every 60 s with `ScheduleEvaluator`, writes the run time to
+  `schedule-runs.json` first, then opens `maccleaner://schedule?id=` without activating the app.
+  The agent still never scans or talks to the helper itself (ADR 0002).
+- Smart Insights: `InsightService.provider` is `FallbackInsightProvider(primary:
+  OnDeviceInsightProvider (Foundation Models, `#if canImport(FoundationModels)`), fallback:
+  RuleTableInsightProvider)`; every findings row has a "What is this?" popover.

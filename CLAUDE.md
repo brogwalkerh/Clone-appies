@@ -2,7 +2,7 @@
 
 A native, directly-distributed macOS 27 cleaner app (CleanMyMac-style): Cleanup,
 Protection, Performance, Applications, My Clutter, Space Lens, menu bar agent, CLI.
-Swift 6.2, SwiftUI, Apple Silicon only. Status: pre-alpha, M4 in progress (see PLAN.md §7).
+Swift 6.2, SwiftUI, Apple Silicon only. Status: pre-alpha, M5 in progress (see PLAN.md §7).
 
 ## Where things are decided
 - `PLAN.md` — scope, platform facts, architecture (§5), permissions (§6), roadmap.

@@ -9,8 +9,11 @@ Swift 6.2 and SwiftUI for Apple Silicon Macs, with a menu bar agent, a
 it. Feature parity with CleanMyMac 5.7.1 is the target; the name, artwork and
 copy are our own.
 
-**Status:** pre-alpha, milestone **M0 (Foundations)**. Nothing here is usable
-yet; see the roadmap in [PLAN.md](PLAN.md) §7.
+**Status:** pre-alpha. Milestones **M0–M4** are on `main` (Cleanup, Space Lens,
+Applications, My Clutter, Performance, menu bar agent, CLI, Protection); **M5**
+(Smart Care, Assistant, My Activity, My Tools action sets, scheduler, Smart
+Insights) is in review. Not yet signed or distributed; see the roadmap in
+[PLAN.md](PLAN.md) §7.
 
 ## Documents
 - [PLAN.md](PLAN.md) — scope, platform facts, feature inventory, architecture, roadmap.
@@ -25,13 +28,19 @@ These build and test with any Swift 6.2 toolchain, including on Ubuntu 24.04
 (`docker run --rm -v "$PWD":/src -w /src swift:6.2-noble ...`):
 
 ```sh
-cd Packages/Core             && swift build && swift test
-cd Packages/Modules/Cleanup  && swift build && swift test
-cd Packages/SpaceLens        && swift build && swift test
-cd CLI                       && swift build && swift test
+cd Packages/Core                  && swift build && swift test
+cd Packages/HelperProtocol        && swift build && swift test
+cd Packages/SpaceLens             && swift build && swift test
+cd Packages/Modules/Cleanup       && swift build && swift test
+cd Packages/Modules/Clutter       && swift build && swift test
+cd Packages/Modules/Applications  && swift build && swift test
+cd Packages/Modules/Performance   && swift build && swift test
+cd Packages/Modules/Protection    && swift build && swift test
+cd Packages/Modules/SmartCare     && swift build && swift test
+cd CLI                            && swift build && swift test
 ```
 
-### macOS app (macOS 27, Xcode 27, Apple Silicon)
+### macOS app (Xcode 26.6+, Apple Silicon; runs on macOS 26 and later, see ADR 0005)
 The Xcode project is generated from `project.yml` and is not committed.
 
 ```sh
