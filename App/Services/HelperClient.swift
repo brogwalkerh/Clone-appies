@@ -133,7 +133,11 @@ public final class HelperClient {
         let connection = activeConnection()
         do {
             return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+                // NSXPC calls the error handler on its own serial queue. Without
+                // @Sendable this closure inherits @MainActor from the class, and
+                // Swift 6's runtime isolation check traps when it runs there
+                // (`_dispatch_assert_queue_fail` whenever the helper is missing).
+                let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
                     continuation.resume(throwing: error)
                 }
                 guard let helper = proxy as? any HelperXPCProtocol else {
