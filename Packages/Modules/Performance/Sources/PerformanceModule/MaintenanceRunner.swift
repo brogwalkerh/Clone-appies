@@ -115,7 +115,8 @@ public actor MaintenanceRunner {
             do {
                 response = try await helper.perform(operation)
             } catch {
-                return Outcome(succeeded: false, message: "Helper request failed: \(error)", bytesReclaimed: bytes)
+                return Outcome(succeeded: false, message: "Helper request failed: \(error.localizedDescription)",
+                               bytesReclaimed: bytes)
             }
             if let reclaimed = response.bytesReclaimed {
                 bytes = (bytes ?? 0) + reclaimed
