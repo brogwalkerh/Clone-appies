@@ -216,7 +216,9 @@ struct SmartCareView: View {
         guard let model, let moduleID else { return .notScanned }
         if model.isScanning { return .scanning }
         if moduleID == .performance, appState.maintenance.isRunning { return .scanning }
-        if let summary = appState.lastScanSummaries[moduleID] {
+        // The model's own summary first: Smart Care records summaries only after
+        // every module finishes, and a finished card should not read "Not scanned yet".
+        if let summary = model.summary ?? appState.lastScanSummaries[moduleID] {
             switch moduleID {
             case .performance:
                 // Performance findings are broken login items; bytes are meaningless there.

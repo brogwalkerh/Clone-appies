@@ -4,9 +4,11 @@ import Observation
 import ServiceManagement
 
 /// Errors raised by `HelperClient` itself. Validation failures surface as
-/// `HelperValidationError`; transport failures as the `NSXPCConnection` error.
+/// `HelperValidationError`; a missing or dead helper as `.notReachable`; other
+/// transport failures as the `NSXPCConnection` error.
 public enum HelperClientError: Error, LocalizedError, Sendable {
     case proxyUnavailable
+    case notReachable
     case timedOut
     case emptyReply
     case versionMismatch(helper: String, expected: String)
@@ -14,6 +16,8 @@ public enum HelperClientError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .proxyUnavailable: return "The helper connection could not be established."
+        case .notReachable:
+            return "The privileged helper is not installed or not running. Install it in Settings › Advanced."
         case .timedOut: return "The helper did not respond in time."
         case .emptyReply: return "The helper returned an empty reply."
         case .versionMismatch(let helper, let expected):
@@ -133,9 +137,8 @@ public final class HelperClient {
         let connection = activeConnection()
         do {
             return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let proxy = connection.remoteObjectProxyWithErrorHandler { error in
-                    continuation.resume(throwing: error)
-                }
+                let proxy = connection.remoteObjectProxyWithErrorHandler(
+                    Self.resumingErrorHandler(continuation))
                 guard let helper = proxy as? any HelperXPCProtocol else {
                     continuation.resume(throwing: HelperClientError.proxyUnavailable)
                     return
@@ -143,11 +146,34 @@ public final class HelperClient {
                 invoke(helper, continuation)
             }
         } catch {
+            let reported = Self.describingTransport(error)
             isAvailable = false
-            lastError = error.localizedDescription
+            lastError = reported.localizedDescription
             dropConnection()
-            throw error
+            throw reported
         }
+    }
+
+    /// NSXPC reports a missing or dead helper as a bare Cocoa error ("connection
+    /// to service named …"); swap that for one a person can act on.
+    private static func describingTransport(_ error: any Error) -> any Error {
+        let nsError = error as NSError
+        let lostConnection = [CocoaError.Code.xpcConnectionInterrupted, .xpcConnectionInvalid].map(\.rawValue)
+        guard nsError.domain == NSCocoaErrorDomain, lostConnection.contains(nsError.code) else {
+            return error
+        }
+        return HelperClientError.notReachable
+    }
+
+    /// NSXPC calls the error handler on its own serial queue. A closure written
+    /// inline in this @MainActor class inherits main-actor isolation, and Swift 6's
+    /// runtime check traps when it runs there (`_dispatch_assert_queue_fail`
+    /// whenever the helper is missing). Building it in a nonisolated function
+    /// keeps it nonisolated; resuming a continuation is safe from any thread.
+    private nonisolated static func resumingErrorHandler<T: Sendable>(
+        _ continuation: CheckedContinuation<T, any Error>
+    ) -> @Sendable (any Error) -> Void {
+        { error in continuation.resume(throwing: error) }
     }
 
     private func fetchVersion() async throws -> String {

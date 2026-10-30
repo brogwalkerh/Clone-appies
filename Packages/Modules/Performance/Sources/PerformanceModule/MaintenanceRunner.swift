@@ -115,7 +115,8 @@ public actor MaintenanceRunner {
             do {
                 response = try await helper.perform(operation)
             } catch {
-                return Outcome(succeeded: false, message: "Helper request failed: \(error)", bytesReclaimed: bytes)
+                return Outcome(succeeded: false, message: "Helper request failed: \(describe(error))",
+                               bytesReclaimed: bytes)
             }
             if let reclaimed = response.bytesReclaimed {
                 bytes = (bytes ?? 0) + reclaimed
@@ -130,6 +131,12 @@ public actor MaintenanceRunner {
         }
         let message = messages.isEmpty ? "Completed" : messages.joined(separator: "; ")
         return Outcome(succeeded: true, message: message, bytesReclaimed: bytes)
+    }
+
+    /// A `LocalizedError`'s user-facing text (the app's helper client maps a
+    /// missing helper to one); otherwise the error's own description.
+    private static func describe(_ error: any Error) -> String {
+        (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
     private static func executeUser(_ task: MaintenanceTask, commands: any CommandRunner, home: URL) async -> Outcome {
