@@ -133,13 +133,8 @@ public final class HelperClient {
         let connection = activeConnection()
         do {
             return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                // NSXPC calls the error handler on its own serial queue. Without
-                // @Sendable this closure inherits @MainActor from the class, and
-                // Swift 6's runtime isolation check traps when it runs there
-                // (`_dispatch_assert_queue_fail` whenever the helper is missing).
-                let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
-                    continuation.resume(throwing: error)
-                }
+                let proxy = connection.remoteObjectProxyWithErrorHandler(
+                    Self.resumingErrorHandler(continuation))
                 guard let helper = proxy as? any HelperXPCProtocol else {
                     continuation.resume(throwing: HelperClientError.proxyUnavailable)
                     return
@@ -152,6 +147,17 @@ public final class HelperClient {
             dropConnection()
             throw error
         }
+    }
+
+    /// NSXPC calls the error handler on its own serial queue. A closure written
+    /// inline in this @MainActor class inherits main-actor isolation, and Swift 6's
+    /// runtime check traps when it runs there (`_dispatch_assert_queue_fail`
+    /// whenever the helper is missing). Building it in a nonisolated function
+    /// keeps it nonisolated; resuming a continuation is safe from any thread.
+    private nonisolated static func resumingErrorHandler<T: Sendable>(
+        _ continuation: CheckedContinuation<T, any Error>
+    ) -> @Sendable (any Error) -> Void {
+        { error in continuation.resume(throwing: error) }
     }
 
     private func fetchVersion() async throws -> String {
