@@ -61,11 +61,18 @@ final class ScanViewModel {
         return determinate ? min(total / Double(scannerCount), 1) : nil
     }
 
-    /// Groups sorted by reclaimable bytes, largest first.
+    /// Groups sorted by reclaimable bytes, largest first. Cached until `findings`
+    /// changes (every mutation clears `groupsCache`): one render reads this
+    /// several times, and regrouping tens of thousands of clutter findings on
+    /// each read starved the main thread.
     var groups: [FindingGroup] {
-        Dictionary(grouping: findings, by: \.category)
+        let current = findings  // read through Observation so views still track changes
+        if let groupsCache { return groupsCache }
+        let grouped = Dictionary(grouping: current, by: \.category)
             .map { FindingGroup(category: $0.key, findings: $0.value.sorted { $0.sizeBytes > $1.sizeBytes }) }
             .sorted { $0.totalBytes > $1.totalBytes }
+        groupsCache = grouped
+        return grouped
     }
 
     var totalBytes: Int64 {
@@ -89,6 +96,19 @@ final class ScanViewModel {
     private var finishedScanners: Set<String> = []
     private var cancelRequested = false
     private var runTask: Task<Void, Never>?
+
+    /// Bumped by every run, cancel and reset, so a superseded run loop or flush
+    /// can tell it no longer owns the model's state.
+    @ObservationIgnored private var runID = 0
+    @ObservationIgnored private var runStart: ContinuousClock.Instant?
+    /// Findings received but not yet published to `findings`. Scanners can emit
+    /// thousands per second; publishing each one re-rendered the whole list and
+    /// kept the main thread too busy to act on Stop.
+    @ObservationIgnored private var pendingFindings: [Finding] = []
+    @ObservationIgnored private var flushTask: Task<Void, Never>?
+    @ObservationIgnored private var groupsCache: [FindingGroup]?
+
+    private static let flushInterval: Duration = .milliseconds(250)
 
     init(module: ModuleID, coordinator: ScanCoordinator, context: ScanContext, scannerIDs: [String] = []) {
         self.module = module
@@ -118,7 +138,12 @@ final class ScanViewModel {
     func run() {
         guard phase != .scanning else { return }
         runTask?.cancel()
+        discardPendingFindings()
+        runID &+= 1
+        let runID = self.runID
+        runStart = ContinuousClock.now
         findings = []
+        groupsCache = nil
         selectedIDs = []
         summary = nil
         scannerErrors = [:]
@@ -132,9 +157,10 @@ final class ScanViewModel {
         runTask = Task { [weak self] in
             guard let self else { return }
             for await event in await coordinator.run(context) {
+                guard self.runID == runID else { return }
                 handle(event)
             }
-            if phase == .scanning {
+            if self.runID == runID, phase == .scanning {
                 // Stream ended without `.completed` (should not happen; the
                 // coordinator always finishes with it, even after cancel).
                 phase = .cancelled
@@ -142,22 +168,31 @@ final class ScanViewModel {
         }
     }
 
-    /// Asks the coordinator to stop. The coordinator then emits `.finished` with
-    /// partial counts for interrupted scanners followed by `.completed`, so the
-    /// run loop ends normally and partial findings stay available.
+    /// Stops the run immediately: the UI moves to `.cancelled` now instead of
+    /// waiting for the coordinator to wind down and for queued events to drain.
+    /// Findings already received stay available; the summary covers them.
     func cancel() {
         guard phase == .scanning else { return }
         cancelRequested = true
+        flushPendingFindings()
+        runID &+= 1
+        runTask?.cancel()
+        runTask = nil
         let coordinator = self.coordinator
         Task { await coordinator.cancel() }
+        summary = partialSummary()
+        phase = .cancelled
     }
 
     func reset() {
+        runID &+= 1
+        discardPendingFindings()
         runTask?.cancel()
         runTask = nil
         let coordinator = self.coordinator
         Task { await coordinator.cancel() }
         findings = []
+        groupsCache = nil
         selectedIDs = []
         summary = nil
         scannerErrors = [:]
@@ -184,10 +219,8 @@ final class ScanViewModel {
             scannerFractions[scannerID] = .some(nil)
 
         case .finding(let finding):
-            findings.append(finding)
-            if finding.risk != .risky {
-                selectedIDs.insert(finding.id)
-            }
+            pendingFindings.append(finding)
+            scheduleFlush()
 
         case .progress(let scannerID, let fraction):
             scannerFractions[scannerID] = .some(fraction)
@@ -200,6 +233,7 @@ final class ScanViewModel {
             finishedScanners.insert(scannerID)
 
         case .completed(let scanSummary):
+            flushPendingFindings()
             summary = scanSummary
             phase = cancelRequested ? .cancelled : .finished
             runTask = nil
@@ -207,6 +241,52 @@ final class ScanViewModel {
                 ActivityCenter.shared.record(.scan(scanSummary, module: module))
             }
         }
+    }
+
+    /// Publishes pending findings at most every `flushInterval`, so SwiftUI
+    /// renders a few times a second however fast scanners report.
+    private func scheduleFlush() {
+        guard flushTask == nil else { return }
+        let runID = self.runID
+        flushTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.flushInterval)
+            } catch {
+                return
+            }
+            guard let self, self.runID == runID else { return }
+            flushPendingFindings()
+        }
+    }
+
+    private func flushPendingFindings() {
+        flushTask?.cancel()
+        flushTask = nil
+        guard !pendingFindings.isEmpty else { return }
+        let batch = pendingFindings
+        pendingFindings.removeAll(keepingCapacity: true)
+        findings.append(contentsOf: batch)
+        groupsCache = nil
+        selectedIDs.formUnion(batch.lazy.filter { $0.risk != .risky }.map(\.id))
+    }
+
+    private func discardPendingFindings() {
+        flushTask?.cancel()
+        flushTask = nil
+        pendingFindings.removeAll()
+    }
+
+    /// Totals for the findings on screen, used when the user stops a run.
+    private func partialSummary() -> ScanSummary {
+        var byCategory: [String: Int64] = [:]
+        for finding in findings {
+            byCategory[finding.category.id, default: 0] += finding.sizeBytes
+        }
+        let elapsed = runStart.map { ContinuousClock.now - $0 } ?? .zero
+        let seconds = Double(elapsed.components.seconds)
+            + Double(elapsed.components.attoseconds) / 1e18
+        return ScanSummary(totalFindings: findings.count, totalBytes: totalBytes,
+                           byCategory: byCategory, duration: seconds)
     }
 
     // MARK: Selection
@@ -287,6 +367,7 @@ final class ScanViewModel {
         ActivityCenter.shared.record(.removal(manifest, module: module))
         let removedIDs = Set(manifest.records.lazy.filter(\.succeeded).map(\.finding.id))
         findings.removeAll { removedIDs.contains($0.id) }
+        groupsCache = nil
         selectedIDs.subtract(removedIDs)
         return manifest
     }
