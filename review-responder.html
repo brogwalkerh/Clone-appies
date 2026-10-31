@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SANAL Review Responder</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --text: #1d2330;
+    --muted: #5d6676;
+    --border: #d9dde4;
+    --accent: #1f5fbf;
+    --accent-text: #ffffff;
+    --danger: #b3261e;
+    --ok: #1e7d3a;
+    --input-bg: #ffffff;
+    --readonly-bg: #fafbfc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181d;
+      --panel: #1d2128;
+      --text: #e6e9ee;
+      --muted: #9aa3b2;
+      --border: #333a45;
+      --accent: #5b9bff;
+      --accent-text: #0d1117;
+      --danger: #ff8a80;
+      --ok: #7fd18f;
+      --input-bg: #161a20;
+      --readonly-bg: #191d23;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; margin: 0; flex: 1; white-space: nowrap; }
+  header label { font-size: 13px; color: var(--muted); }
+  main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1300px;
+    margin: 0 auto;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px; }
+  .field label { font-size: 13px; font-weight: 600; }
+  input[type=text], input[type=password], select, textarea {
+    font: inherit;
+    color: var(--text);
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 9px;
+    width: 100%;
+  }
+  textarea { resize: vertical; }
+  #review { min-height: 200px; }
+  #notes { min-height: 70px; }
+  #output { min-height: 440px; background: var(--readonly-bg); font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .check small { color: var(--muted); }
+  button {
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.link { border: none; background: none; color: var(--muted); padding: 8px 4px; }
+  .gear { font-size: 18px; padding: 4px 10px; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .status { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: none;
+  }
+  .busy .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #settings {
+    display: none;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+  }
+  #settings.open { display: block; }
+  #settings .inner { max-width: 640px; display: flex; flex-direction: column; gap: 8px; }
+  #starsField { display: none; }
+  #starsField.show { display: flex; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SANAL Review Responder</h1>
+  <label for="model">Model</label>
+  <select id="model">
+    <option value="claude-haiku-5-5">Haiku 5.5 - fastest, cheapest</option>
+    <option value="claude-sonnet-5-5" selected>Sonnet 5.5 - default</option>
+    <option value="claude-opus-5-5">Opus 5.5</option>
+    <option value="claude-fable-5-1">Fable 5.1</option>
+  </select>
+  <button class="gear" id="gearBtn" title="Settings" aria-label="Settings" aria-expanded="false">&#9881;</button>
+</header>
+
+<div id="settings">
+  <div class="inner">
+    <label for="apiKey"><strong>Anthropic API key</strong></label>
+    <div class="row">
+      <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off" style="flex:1; min-width:220px;">
+      <button id="saveKeyBtn">Save key</button>
+      <button id="clearKeyBtn">Clear key</button>
+    </div>
+    <div class="hint" id="keyState">No key saved.</div>
+    <div class="hint">Your key stays in this browser only (localStorage) and is sent only to api.anthropic.com.</div>
+  </div>
+</div>
+
+<main>
+  <section>
+    <h2>Review</h2>
+    <div class="row">
+      <div class="field" style="flex:0 0 110px; min-width:90px;">
+        <label for="honorific">Honorific</label>
+        <select id="honorific">
+          <option>Mr.</option>
+          <option>Ms.</option>
+          <option>Mx.</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="lastName">Guest last name *</label>
+        <input type="text" id="lastName" autocomplete="off" required>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="score">Score</label>
+        <select id="score">
+          <option>10</option><option>9</option><option>8</option><option>7</option>
+          <option>6</option><option>5</option><option>4</option><option>3</option>
+          <option>2</option><option>1</option><option>N/A</option>
+        </select>
+      </div>
+      <div class="field" id="starsField">
+        <label for="stars">Stars</label>
+        <select id="stars">
+          <option value="">No stars</option>
+          <option value="5">5</option><option value="4.5">4.5</option>
+          <option value="4">4</option><option value="3.5">3.5</option>
+          <option value="3">3</option><option value="2.5">2.5</option>
+          <option value="2">2</option><option value="1.5">1.5</option>
+          <option value="1">1</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="source">Source</label>
+        <select id="source">
+          <option>Medallia GSS</option><option>Marriott.com</option><option>Booking.com</option>
+          <option>Expedia</option><option>Travelocity</option><option>Orbitz</option>
+          <option>TripAdvisor</option><option>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="review">Review text</label>
+      <textarea id="review" placeholder="Paste the guest review here"></textarea>
+      <div class="hint" id="reviewCount">0 characters</div>
+    </div>
+    <div class="field">
+      <label for="notes">Notes for the response (context only, never quoted)</label>
+      <textarea id="notes" placeholder="e.g. guest was Platinum, we already refunded parking"></textarea>
+    </div>
+    <label class="check">
+      <input type="checkbox" id="generic">
+      Generic review - use canned response
+    </label>
+    <div class="hint" id="genericReason"></div>
+    <div class="buttons">
+      <button class="primary" id="generateBtn"><span class="spinner"></span><span class="label">Generate response</span></button>
+      <button id="nextCannedBtn">Next canned</button>
+      <button class="link" id="clearFormBtn">Clear form</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Response</h2>
+    <textarea id="output" readonly placeholder="The finished letter will appear here."></textarea>
+    <div class="buttons">
+      <button class="primary" id="copyBtn">Copy</button>
+      <button id="regenBtn"><span class="spinner"></span><span class="label">Regenerate</span></button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+/* ---------- Constants ---------- */
+
+const KEY_STORAGE = "sanal_api_key";
+const FORM_STORAGE = "sanal_form";
+const CANNED_INDEX_STORAGE = "sanal_canned_index";
+
+const MODEL_LABELS = {
+  "claude-haiku-5-5": "Haiku 5.5",
+  "claude-sonnet-5-5": "Sonnet 5.5",
+  "claude-opus-5-5": "Opus 5.5",
+  "claude-fable-5-1": "Fable 5.1"
+};
+
+// Models that accept the server-side refusal fallback (Haiku 5.5 does not).
+const FALLBACK_MODELS = new Set(["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"]);
+
+const TRIPADVISOR_URL = "https://www.tripadvisor.com/Hotel_Review-g60750-d1027494-Reviews-Courtyard_by_Marriott_San_Diego_Airport_Liberty_Station-San_Diego_California.html";
+
+const SIGNATURE = "Sincerely,\nBrogden Heidenreich\nbrogden.heidenreich@hhg-hotels.com";
+
+const TRIPADVISOR_PARAGRAPH =
+  "If you have a moment, we would be grateful if you would also share your experience and complete a short survey for us on TripAdvisor:\n" +
+  TRIPADVISOR_URL;
+
+/* ---------- System prompt ---------- */
+
+const SYSTEM_PROMPT = `ROLE
+You draft guest review responses for Brogden Heidenreich, Front Office Manager, Courtyard by Marriott San Diego Airport/Liberty Station (marriott.com/sanal). Output ONLY the finished letter. No preamble, no explanation, no notes, no markdown, no headings, no bullet points, no emoji. Plain text, letter format.
+
+RESPONSE RULES
+- Warm, friendly, professional, and hospitable tone.
+- Address the guest by honorific and last name in the greeting, for example "Dear Mr. Alvarez,".
+- Keep it natural and brief. Three to four short paragraphs is typical. Do not pad.
+- Thank the guest for the review and for choosing the hotel. Reference the specific things they mentioned, good or bad. Do not repeat their review back to them.
+- For complaints: apologize sincerely once, do not be defensive, say what the team is doing or has done, and invite them to contact Brogden directly at his email. Do not promise refunds, compensation, or points. Do not promise callbacks about lost items; staff only call if the item is found.
+- Never invent facts about the hotel. Use only the property facts below. If the guest mentions something not covered, keep the reply general.
+- Never use the words "genuinely" or "honestly".
+- For scores of 9 or 10 (or 4.5 to 5 stars), end the letter with the TripAdvisor paragraph before the signature. For 8 or below, do not include the TripAdvisor link.
+- Always end with the exact signature block.
+- Close with an invitation to return.
+- The user message may include internal notes. Use them as context only. Never quote them or reveal internal details from them to the guest.
+
+PROPERTY FACTS (verified, use only these)
+
+Food and beverage:
+- The Lounge restaurant: breakfast 6:30 AM to 10:00 AM Mon-Fri, 6:30 AM to 11:00 AM Sat-Sun. Dinner 4:00 PM to 9:00 PM daily. Bar 4:00 PM to 10:00 PM; happy hour 4:00 PM to 6:00 PM daily.
+- The Bistro: select Starbucks menu with grab-and-go items. 5:30 AM to 10:00 AM Mon-Fri, 6:00 AM to 11:00 AM Sat-Sun. It is not a licensed Starbucks store.
+- The Market: food, snacks, drinks, sundries. Open 24 hours, first floor.
+- No complimentary breakfast as a standard offering. No complimentary bottled water; filtered water in the lobby; bottled water for purchase.
+- Guestrooms have Keurig brewers.
+
+Rooms and guest services:
+- Front desk is staffed 24/7.
+- Check-in 4:00 PM. Early check-in cannot be guaranteed. Checkout 11:00 AM.
+- Housekeeping service every other day. Mon-Fri 9:30 AM to 4:30 PM; Sat-Sun 10:00 AM to 5:00 PM.
+- Housekeepers cannot let guests into rooms; locked-out guests go to the front desk.
+- No bell service (Courtyard is select-service). No in-room safes; safety deposit boxes are at the front desk. Complimentary body lotion at the front desk.
+- Rooms do not currently have microwaves; The Market and the front desk are alternatives.
+- Windows can be opened on request.
+- Wi-Fi network: Marriott Bonvoy_Guest. In-room desk ethernet is available for a secure, stable connection.
+- The front desk can intervene when a guest reports noise during a stay. Quiet hours 10:00 PM to 6:00 AM.
+- 100% non-smoking hotel.
+- Property built in 2008; three elevators and four staircases.
+
+Remodel:
+- A guestroom remodel begins in November 2026. It covers bathrooms, finishes, furnishings, lighting, mattresses, and mechanical systems (including HVAC), and adds microwaves to rooms. Reference it when a guest raises a physical room or bathroom concern. Do not give completion dates.
+
+Parking and transportation:
+- Overnight parking $21; additional fees for larger vehicles. The lot is city-owned and public during the day; the hotel does not control daytime availability.
+- Tesla EV chargers available for a fee.
+- Complimentary airport shuttle 4:30 AM to 9:00 PM; sign up at the front desk.
+
+Amenities:
+- Heated pool and hot tub 6:00 AM to 10:00 PM.
+- Fitness center and laundry room, 24 hours, first floor.
+- Stand-up paddle board rentals, seasonal.
+- Outdoor patios, fire pit, and water views.
+
+Neighborhood:
+- Liberty Station: 60+ restaurants and venues within walking distance, including Liberty Public Market, Stone Brewing, Breakfast Republic, Tender Greens, Oggi's, and Slater's 50/50. Walkable waterfront, Par 3 golf (The Loma Club), and sportfishing docks nearby. Vons and Trader Joe's within Liberty Station.
+- Address: 2592 Laning Rd, San Diego, CA 92106. Phone 619-221-1900.
+
+Marriott Bonvoy:
+- Gold Elite welcome benefit at Courtyard is 250 bonus points (no physical amenity).
+- Platinum Elite welcome benefit is a choice of a $10 food and beverage credit (member plus one guest) or bonus points. Unused credit does not carry over.
+- Missing points or stay credit must be submitted to Marriott Bonvoy directly as a missing stay request.
+
+REQUIRED SIGNATURE AND LINK
+TripAdvisor paragraph (9/10 and above, or 4.5 to 5 stars, only), with wording close to the following, and the URL on its own line as plain text (never a hyperlink, never markdown):
+If you have a moment, we would be grateful if you would also share your experience and complete a short survey for us on TripAdvisor:
+https://www.tripadvisor.com/Hotel_Review-g60750-d1027494-Reviews-Courtyard_by_Marriott_San_Diego_Airport_Liberty_Station-San_Diego_California.html
+
+Signature, exactly:
+Sincerely,
+Brogden Heidenreich
+brogden.heidenreich@hhg-hotels.com
+
+EXAMPLE OF A CORRECT 10/10 REPLY
+Dear Ms. Patel,
+
+Thank you for the wonderful review and for choosing to stay with us at Courtyard San Diego Airport/Liberty Station. It made our day to read that the water views from the patio were a highlight of your trip.
+
+We are glad the airport shuttle made your arrival easy. The team works hard to make every stay feel effortless, and I will be sure to share your kind words with them.
+
+If you have a moment, we would be grateful if you would also share your experience and complete a short survey for us on TripAdvisor:
+https://www.tripadvisor.com/Hotel_Review-g60750-d1027494-Reviews-Courtyard_by_Marriott_San_Diego_Airport_Liberty_Station-San_Diego_California.html
+
+We look forward to welcoming you back to Liberty Station soon.
+
+Sincerely,
+Brogden Heidenreich
+brogden.heidenreich@hhg-hotels.com
+
+EXAMPLE OF A CORRECT 4/10 REPLY
+Dear Mr. Nguyen,
+
+Thank you for taking the time to share your feedback about your recent stay. I am sorry the air conditioning in your room did not keep up, and that it affected your rest. That is not the experience we want for any guest.
+
+I have shared your comments with our engineering team so the unit can be inspected. Our guestroom remodel begins in November and includes updates to the mechanical systems, which will help with exactly this kind of concern.
+
+If you would like to discuss your stay further, please reach out to me directly at the email below. We would welcome the chance to make it right on a future visit.
+
+Sincerely,
+Brogden Heidenreich
+brogden.heidenreich@hhg-hotels.com`;
+
+/* ---------- Canned letters (9/10 and 10/10 generic reviews) ---------- */
+// Each entry: [opening paragraph, middle paragraph, closing line].
+// Assembled as: greeting, opening, middle, TripAdvisor paragraph, closing, signature.
+
+const CANNED = [
+  [
+    "Thank you for the lovely review and for choosing Courtyard San Diego Airport/Liberty Station for your stay. It means a great deal to our team when a guest takes the time to share a few kind words.",
+    "We hope you found a few minutes to relax on our outdoor patios by the fire pit, with the water views just beyond. It is one of our favorite spots on property, and I will be sure to pass your feedback along to everyone here.",
+    "We look forward to welcoming you back to Liberty Station soon."
+  ],
+  [
+    "What a pleasure it was to read your review. Thank you for staying with us and for taking the time to tell us about it.",
+    "With more than 60 restaurants and venues within walking distance here at Liberty Station, there is always something new to try right outside our door, and we hope you were able to explore a few of them. Our team will be delighted to hear your stay went so well.",
+    "Whenever your travels bring you back to San Diego, we would love to host you again."
+  ],
+  [
+    "Thank you so much for the kind words, and for choosing to spend your time in San Diego with us.",
+    "If you have not had the chance yet, Liberty Public Market is just a short walk from the hotel and well worth a visit on your next trip. I have shared your review with our team, and I know they will be thrilled to see it.",
+    "We hope to see you again soon, and the team will be ready to welcome you back."
+  ],
+  [
+    "Your review was a bright spot in our day. Thank you for staying with us at Courtyard San Diego Airport/Liberty Station.",
+    "Our heated pool and hot tub are open from 6:00 AM to 10:00 PM, and they make a nice way to unwind after a day out in the city. I will make sure the team sees your comments, as they take great pride in caring for every guest.",
+    "Thank you again, and we look forward to having you back with us."
+  ],
+  [
+    "Thank you for sharing such a positive review, and for making us part of your trip to San Diego.",
+    "The next time you are with us, we hope you will stop by The Bistro in the morning for a coffee from our select Starbucks menu and a grab-and-go bite before you head out. The whole team appreciates you taking a moment to recognize their work.",
+    "We would be delighted to welcome you back on your next visit."
+  ],
+  [
+    "We are so glad you enjoyed your stay, and we appreciate you taking the time to tell us about it. Thank you for choosing to stay with us.",
+    "Many of our guests find that our complimentary airport shuttle makes travel days much easier. It runs from 4:30 AM to 9:00 PM, and the front desk is happy to sign you up anytime. I will share your review with the team so they can see your kind words.",
+    "Safe travels, and we hope to see you back at Liberty Station before long."
+  ],
+  [
+    "Thank you for choosing Courtyard San Diego Airport/Liberty Station, and for the wonderful feedback.",
+    "Our location close to the airport, right in the heart of Liberty Station, makes it easy to settle in quickly after a flight, and we hope it made your travels a little smoother. Our team will be very happy to hear from you.",
+    "We hope to have the pleasure of hosting you again soon."
+  ],
+  [
+    "It was wonderful to read your review, and on behalf of the entire team, thank you for staying with us.",
+    "Liberty Station's walkable waterfront is just outside our doors, and on a sunny San Diego morning there are few better ways to start the day. Thank you for taking the time to share your experience; I will be sure everyone here sees it.",
+    "Until next time, we look forward to welcoming you back to the hotel."
+  ]
+];
+
+/* ---------- Generic-review detection ---------- */
+
+const TRIGGER_WORDS = [
+  "but", "however", "unfortunately", "disappointed", "issue", "problem", "broken",
+  "dirty", "noise", "noisy", "smell", "rude", "slow", "wait", "charge", "charged",
+  "fee", "parking", "shuttle", "breakfast", "bar", "pool", "elevator",
+  "air conditioning", "heat", "bed", "mattress", "shower", "bathroom", "wifi",
+  "wi-fi", "internet", "refund", "manager"
+];
+
+// Capitalized words that are normal in a review and are not people's names.
+const NAME_ALLOWLIST = new Set([
+  "i", "i'm", "i've", "i'd", "i'll", "we", "the", "a", "an", "and", "our", "my", "it", "this",
+  "courtyard", "marriott", "bonvoy", "san", "diego", "liberty", "station", "airport", "hotel",
+  "point", "loma", "market", "public", "lounge", "bistro", "starbucks", "stone", "brewing",
+  "breakfast", "republic", "tender", "greens", "oggi's", "slater's", "vons", "trader", "joe's",
+  "california", "ca", "usa", "us", "tripadvisor", "expedia", "booking", "orbitz", "travelocity",
+  "gold", "platinum", "titanium", "ambassador", "elite", "silver", "member",
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "march", "april", "may", "june", "july", "august",
+  "september", "october", "november", "december",
+  "great", "excellent", "wonderful", "amazing", "perfect", "love", "loved", "very",
+  "staff", "everyone", "everything", "thanks", "thank", "you", "will", "would",
+  "highly", "recommend", "definitely", "best", "nice", "good", "clean", "friendly",
+  "front", "desk", "team", "room", "stay", "location", "fantastic", "awesome", "overall",
+  "convenient", "close", "beautiful", "lovely", "comfortable", "easy", "super"
+]);
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findTriggerWord(text) {
+  for (const w of TRIGGER_WORDS) {
+    const re = new RegExp("(^|[^a-z0-9])" + escapeRegex(w) + "s?(?![a-z0-9])", "i");
+    if (re.test(text)) return w;
+  }
+  // "AC" is checked case-sensitively so ordinary words are not caught.
+  if (/(^|[^A-Za-z0-9])A\/?C(?![A-Za-z0-9])/.test(text)) return "AC";
+  return null;
+}
+
+function findRoomNumber(text) {
+  const m = text.match(/\b(room|rm|suite|unit)\.?\s*(#|no\.?|number)?\s*\d{2,4}\b/i) ||
+            text.match(/#\s*\d{3,4}\b/);
+  return m ? m[0] : null;
+}
+
+// Heuristic: a capitalized word that is not at the start of a sentence and is not
+// a known place, brand, or common word is treated as a possible person's name.
+function findOtherName(text, guestLast) {
+  const guest = (guestLast || "").trim().toLowerCase();
+  const re = /[A-Za-z][A-Za-z'’-]*/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const word = m[0].replace(/’/g, "'");
+    if (!/^[A-Z][a-z]/.test(word)) continue;
+    const lower = word.toLowerCase();
+    if (NAME_ALLOWLIST.has(lower) || lower === guest) continue;
+    const before = text.slice(0, m.index).replace(/\s+$/, "");
+    const sentenceStart = before === "" || /[.!?\n:;"(]$/.test(before);
+    if (sentenceStart) continue;
+    return word;
+  }
+  return null;
+}
+
+/* ---------- DOM ---------- */
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  model: $("model"), gearBtn: $("gearBtn"), settings: $("settings"),
+  apiKey: $("apiKey"), saveKeyBtn: $("saveKeyBtn"), clearKeyBtn: $("clearKeyBtn"), keyState: $("keyState"),
+  lastName: $("lastName"), honorific: $("honorific"), score: $("score"), stars: $("stars"),
+  starsField: $("starsField"), source: $("source"), review: $("review"), reviewCount: $("reviewCount"),
+  notes: $("notes"), generic: $("generic"), genericReason: $("genericReason"),
+  generateBtn: $("generateBtn"), nextCannedBtn: $("nextCannedBtn"), clearFormBtn: $("clearFormBtn"),
+  output: $("output"), copyBtn: $("copyBtn"), regenBtn: $("regenBtn"), status: $("status")
+};
+
+const FORM_FIELDS = ["model", "lastName", "honorific", "score", "stars", "source", "review", "notes", "generic"];
+
+let lastPath = null; // "canned" | "api" | null
+let busy = false;
+
+/* ---------- Storage helpers (never throw) ---------- */
+
+function store(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ }
+}
+function load(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function unstore(key) {
+  try { localStorage.removeItem(key); } catch (e) { /* storage unavailable */ }
+}
+
+function saveForm() {
+  const data = {};
+  for (const f of FORM_FIELDS) {
+    data[f] = el[f].type === "checkbox" ? el[f].checked : el[f].value;
+  }
+  data.output = el.output.value;
+  store(FORM_STORAGE, JSON.stringify(data));
+}
+
+function restoreForm() {
+  let data = null;
+  try { data = JSON.parse(load(FORM_STORAGE) || "null"); } catch (e) { data = null; }
+  if (!data) return;
+  for (const f of FORM_FIELDS) {
+    if (!(f in data)) continue;
+    if (el[f].type === "checkbox") el[f].checked = !!data[f];
+    else el[f].value = data[f];
+  }
+  if (!el.model.value) el.model.value = "claude-sonnet-5-5";
+  if (data.output) el.output.value = data.output;
+}
+
+/* ---------- Score helpers ---------- */
+
+// Returns a 1-10 number, or null when there is no usable score.
+function effectiveScore() {
+  if (el.score.value !== "N/A") return Number(el.score.value);
+  const stars = parseFloat(el.stars.value);
+  if (!stars) return null;
+  if (stars >= 5) return 10;
+  if (stars >= 4.5) return 9;
+  return Math.round(stars * 2);
+}
+
+function scoreLine() {
+  if (el.score.value !== "N/A") return el.score.value + "/10";
+  const s = effectiveScore();
+  if (s === null) return "N/A (star-based review, no star rating given)";
+  return s + "/10 (" + el.stars.value + " stars)";
+}
+
+/* ---------- Generic check ---------- */
+
+function genericVerdict() {
+  const text = el.review.value.trim();
+  const s = effectiveScore();
+  if (!text) return { generic: false, reason: "" };
+  if (s === null || s < 9) return { generic: false, reason: "Score below 9 - routed to the model." };
+  if (text.length >= 300) return { generic: false, reason: "Review is 300+ characters - routed to the model." };
+  const word = findTriggerWord(text);
+  if (word) return { generic: false, reason: "Mentions \"" + word + "\" - routed to the model." };
+  const room = findRoomNumber(text);
+  if (room) return { generic: false, reason: "Mentions a room number (" + room + ") - routed to the model." };
+  const name = findOtherName(text, el.lastName.value);
+  if (name) return { generic: false, reason: "Possible name (\"" + name + "\") - routed to the model." };
+  return { generic: true, reason: "Short, specific-free 9-10 review - canned response suggested." };
+}
+
+function autoCheckGeneric() {
+  const v = genericVerdict();
+  el.generic.checked = v.generic;
+  el.genericReason.textContent = v.reason;
+}
+
+/* ---------- UI state ---------- */
+
+function updateUI() {
+  el.starsField.classList.toggle("show", el.score.value === "N/A");
+  el.reviewCount.textContent = el.review.value.length + " characters";
+  el.nextCannedBtn.disabled = busy || !el.generic.checked;
+  el.generateBtn.disabled = busy;
+  el.regenBtn.disabled = busy || lastPath !== "api";
+}
+
+function setStatus(msg, kind) {
+  el.status.textContent = msg;
+  el.status.className = "status" + (kind ? " " + kind : "");
+}
+
+function setBusy(on, button) {
+  busy = on;
+  el.generateBtn.classList.toggle("busy", on && button === el.generateBtn);
+  el.regenBtn.classList.toggle("busy", on && button === el.regenBtn);
+  updateUI();
+}
+
+function refreshKeyState() {
+  const key = load(KEY_STORAGE);
+  if (key) {
+    const tail = key.slice(-4);
+    el.keyState.textContent = "Saved key: " + key.slice(0, 7) + "•".repeat(8) + tail;
+  } else {
+    el.keyState.textContent = "No key saved.";
+  }
+}
+
+/* ---------- Canned path ---------- */
+
+function greeting() {
+  return "Dear " + el.honorific.value + " " + el.lastName.value.trim() + ",";
+}
+
+function buildCanned(i) {
+  const [opening, middle, closing] = CANNED[i];
+  return [greeting(), opening, middle, TRIPADVISOR_PARAGRAPH, closing, SIGNATURE].join("\n\n");
+}
+
+function showNextCanned() {
+  let idx = parseInt(load(CANNED_INDEX_STORAGE) || "0", 10);
+  if (!(idx >= 0 && idx < CANNED.length)) idx = 0;
+  el.output.value = buildCanned(idx);
+  store(CANNED_INDEX_STORAGE, String((idx + 1) % CANNED.length));
+  lastPath = "canned";
+  setStatus("Canned #" + (idx + 1) + " of " + CANNED.length + " (no API call)", "ok");
+  saveForm();
+  updateUI();
+}
+
+/* ---------- API path ---------- */
+
+function buildUserMessage() {
+  const notes = el.notes.value.trim();
+  return "Score: " + scoreLine() + "\n" +
+    "Source: " + el.source.value + "\n" +
+    "Guest: " + el.honorific.value + " " + el.lastName.value.trim() + "\n" +
+    "Internal notes (context only, never quote to the guest): " + (notes || "none") + "\n\n" +
+    "Review:\n" + el.review.value.trim();
+}
+
+function errorMessage(status, body) {
+  const apiMsg = body && body.error && body.error.message ? " (" + body.error.message + ")" : "";
+  if (status === 401) return "The API key was rejected (401). Check the key in Settings.";
+  if (status === 403) return "This API key is not allowed to use that model (403)." + apiMsg;
+  if (status === 429) return "Rate limited (429). Wait a moment and try again.";
+  if (status === 529 || (body && body.error && body.error.type === "overloaded_error"))
+    return "Anthropic's servers are overloaded right now (529). Try again shortly, or pick another model.";
+  if (status >= 500) return "Anthropic's API had a server error (" + status + "). Try again shortly.";
+  if (status === 400) return "The request was rejected (400)." + apiMsg;
+  return "Request failed (" + status + ")." + apiMsg;
+}
+
+async function callApi(button) {
+  const key = load(KEY_STORAGE);
+  if (!key) {
+    setStatus("No API key set. Click the gear icon to add one.", "error");
+    openSettings(true);
+    return;
+  }
+
+  const model = el.model.value;
+  const body = {
+    model: model,
+    max_tokens: 1024,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: buildUserMessage() }],
+    // A short letter needs little reasoning; low effort keeps thinking inside the 1024-token cap.
+    output_config: { effort: "low" }
+  };
+  const headers = {
+    "x-api-key": key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+    "anthropic-dangerous-direct-browser-access": "true"
+  };
+  if (FALLBACK_MODELS.has(model)) {
+    // If a safety classifier declines the request, retry server-side on a suitable model.
+    headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
+    body.fallbacks = "default";
+  }
+
+  setBusy(true, button);
+  setStatus("Generating with " + MODEL_LABELS[model] + "…");
+
+  let res, data = null;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(body)
+    });
+    try { data = await res.json(); } catch (e) { data = null; }
+  } catch (e) {
+    setBusy(false);
+    setStatus("Network error: could not reach api.anthropic.com. Check your connection and try again.", "error");
+    return;
+  }
+  setBusy(false);
+
+  if (!res.ok) {
+    setStatus(errorMessage(res.status, data), "error");
+    return;
+  }
+
+  if (data && data.stop_reason === "refusal") {
+    setStatus("The model declined to write this response. Try rewording the notes or picking another model.", "error");
+    return;
+  }
+
+  // Thinking blocks can come before the text, so take the first text block.
+  const textBlock = (data && Array.isArray(data.content))
+    ? data.content.find((b) => b.type === "text" && b.text && b.text.trim())
+    : null;
+  if (!textBlock) {
+    const why = data && data.stop_reason === "max_tokens" ? " (ran out of tokens)" : "";
+    setStatus("The model returned no letter" + why + ". Try Regenerate.", "error");
+    return;
+  }
+
+  el.output.value = textBlock.text.trim();
+  lastPath = "api";
+  saveForm();
+
+  const usage = data.usage || {};
+  let msg = "Generated with " + MODEL_LABELS[model] +
+    " · " + (usage.input_tokens ?? "?") + " input / " + (usage.output_tokens ?? "?") + " output tokens";
+  if (data.model && data.model !== model) msg += " · served by " + data.model + " (fallback)";
+  if (data.stop_reason === "max_tokens") msg += " · letter may be cut off";
+  setStatus(msg, data.stop_reason === "max_tokens" ? "error" : "ok");
+  updateUI();
+}
+
+/* ---------- Actions ---------- */
+
+function validate() {
+  if (!el.lastName.value.trim()) {
+    setStatus("Enter the guest's last name.", "error");
+    el.lastName.focus();
+    return false;
+  }
+  if (!el.generic.checked && !el.review.value.trim()) {
+    setStatus("Paste the review text first.", "error");
+    el.review.focus();
+    return false;
+  }
+  return true;
+}
+
+function generate() {
+  if (busy || !validate()) return;
+  if (el.generic.checked) showNextCanned();
+  else callApi(el.generateBtn);
+}
+
+function regenerate() {
+  if (busy || !validate()) return;
+  callApi(el.regenBtn);
+}
+
+async function copyOutput() {
+  const text = el.output.value;
+  if (!text) { setStatus("Nothing to copy yet.", "error"); return; }
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (e) { ok = false; }
+  if (!ok) {
+    // Fallback for browsers that block the async clipboard API on file://
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+  }
+  if (ok) {
+    el.copyBtn.textContent = "Copied";
+    setTimeout(() => { el.copyBtn.textContent = "Copy"; }, 2000);
+  } else {
+    setStatus("Copy failed. Select the letter and press Cmd/Ctrl+C.", "error");
+  }
+}
+
+function clearForm() {
+  el.lastName.value = "";
+  el.honorific.value = "Mr.";
+  el.score.value = "10";
+  el.stars.value = "";
+  el.source.value = "Medallia GSS";
+  el.review.value = "";
+  el.notes.value = "";
+  el.generic.checked = false;
+  el.genericReason.textContent = "";
+  el.output.value = "";
+  lastPath = null;
+  setStatus("");
+  saveForm();
+  updateUI();
+}
+
+function openSettings(force) {
+  const open = force === true ? true : !el.settings.classList.contains("open");
+  el.settings.classList.toggle("open", open);
+  el.gearBtn.setAttribute("aria-expanded", String(open));
+  if (open) el.apiKey.focus();
+}
+
+/* ---------- Wiring ---------- */
+
+el.gearBtn.addEventListener("click", () => openSettings());
+el.saveKeyBtn.addEventListener("click", () => {
+  const v = el.apiKey.value.trim();
+  if (!v) return;
+  store(KEY_STORAGE, v);
+  el.apiKey.value = "";
+  refreshKeyState();
+  setStatus("API key saved in this browser.", "ok");
+});
+el.apiKey.addEventListener("keydown", (e) => { if (e.key === "Enter") el.saveKeyBtn.click(); });
+el.clearKeyBtn.addEventListener("click", () => {
+  unstore(KEY_STORAGE);
+  el.apiKey.value = "";
+  refreshKeyState();
+  setStatus("API key cleared.");
+});
+
+// Inputs that affect the generic verdict re-run the auto-check; the user can still override the box.
+for (const f of ["score", "stars", "review", "lastName"]) {
+  el[f].addEventListener("input", () => { autoCheckGeneric(); saveForm(); updateUI(); });
+}
+for (const f of ["model", "honorific", "source", "notes"]) {
+  el[f].addEventListener("input", () => { saveForm(); updateUI(); });
+  el[f].addEventListener("change", () => { saveForm(); updateUI(); });
+}
+el.generic.addEventListener("change", () => {
+  el.genericReason.textContent = el.generic.checked
+    ? "Canned response selected manually."
+    : "Model response selected manually.";
+  saveForm();
+  updateUI();
+});
+
+el.generateBtn.addEventListener("click", generate);
+el.nextCannedBtn.addEventListener("click", () => { if (validate()) showNextCanned(); });
+el.regenBtn.addEventListener("click", regenerate);
+el.copyBtn.addEventListener("click", copyOutput);
+el.clearFormBtn.addEventListener("click", clearForm);
+
+restoreForm();
+refreshKeyState();
+updateUI();
+</script>
+</body>
+</html>
