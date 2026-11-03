@@ -30,6 +30,8 @@ Packages/UIKitBridge/ AppKit shims (macOS only)
 Scripts/              make-dmg.sh, notarize.sh, generate-fixtures.sh
 .github/workflows/    ci.yml, release.yml
 project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
+.open-design/design-systems/mac-cleaner/  DESIGN.md + tokens.css for Open Design agents;
+                      mirrors Packages/DesignSystem, update both together
 ```
 
 ## Hard rules

@@ -1,0 +1,75 @@
+/* Mac Cleaner: Open Design token bindings (light theme).
+ * Values come from Packages/DesignSystem/Sources/DesignSystem/Theme.swift and the
+ * SwiftUI components; neutrals and status colors are the macOS system values the
+ * app uses. Dark and increased-contrast values are listed in DESIGN.md.
+ * Mapping notes:
+ *   --bg is the window background, --surface the list/content background.
+ *   The type scale maps macOS text styles: caption 10, callout 12, body 13,
+ *   title 3 15, title 2 17, title 22, large title 26, result numeral 56.
+ *   Section and container tokens come from the app's insets (32 empty-state,
+ *   24 bottom bar, 20 lists, 16 cards) and the 1200px minimum window.
+ *   No motion tokens: the app uses springs (0.6s) the contract can't express. */
+:root {
+  --bg: #ececec;
+  --surface: #ffffff;
+
+  --fg: rgba(0, 0, 0, 0.85);
+  --muted: rgba(0, 0, 0, 0.5);
+  --meta: rgba(0, 0, 0, 0.26);
+
+  --border: rgba(0, 0, 0, 0.1);
+
+  --accent: #5463f7;
+  --accent-on: #ffffff;
+
+  --tint-cleanup: #2ea85c;
+  --tint-protection: #0078fa;
+  --tint-performance: #fa8a1a;
+  --tint-applications: #8a4ce6;
+  --tint-clutter: #0099a6;
+
+  --success: #34c759;
+  --warn: #ff9500;
+  --danger: #ff3b30;
+
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  --text-xs: 10px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-lg: 15px;
+  --text-xl: 17px;
+  --text-2xl: 22px;
+  --text-3xl: 26px;
+  --text-4xl: 56px;
+
+  --leading-body: 1.23;
+  --leading-tight: 1.1;
+  --tracking-display: 0;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --section-y-desktop: 32px;
+  --section-y-tablet: 24px;
+  --section-y-phone: 20px;
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-pill: 9999px;
+
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--border);
+
+  --container-max: 1200px;
+  --container-gutter-desktop: 24px;
+  --container-gutter-tablet: 20px;
+  --container-gutter-phone: 16px;
+}
