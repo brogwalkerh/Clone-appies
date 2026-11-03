@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import CleanerCore
 import CleanerCoreTesting
-@testable import maccleaner
+@testable import featherduster
 
 @Suite("End to end: scan, remove --dry-run, remove, undo", .serialized)
 struct EndToEndTests {

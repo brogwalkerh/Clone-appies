@@ -224,7 +224,7 @@ public final class ScreenCleaningController {
         alert.informativeText = """
             Screen Cleaning Mode locks the keyboard and trackpad while you wipe the display. \
             macOS only allows that for apps with Accessibility access. \
-            Turn on Mac Cleaner Menu under System Settings › Privacy & Security › Accessibility, then try again.
+            Turn on Featherduster Menu under System Settings › Privacy & Security › Accessibility, then try again.
             """
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")

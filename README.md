@@ -1,11 +1,11 @@
-# Mac Cleaner (working title)
+# Featherduster
 
 A native, directly-distributed macOS 27 utility that finds and removes junk
 (caches, logs, Xcode and AI-tool leftovers, broken downloads, Trash), uninstalls
 apps with their leftovers, surfaces large/old/duplicate files, runs maintenance
 tasks, and shows disk usage as an interactive Space Lens bubble map. Built with
 Swift 6.2 and SwiftUI for Apple Silicon Macs, with a menu bar agent, a
-`maccleaner` command-line tool, and App Intents so Siri and Shortcuts can drive
+`featherduster` command-line tool, and App Intents so Siri and Shortcuts can drive
 it. Feature parity with CleanMyMac 5.7.1 is the target; the name, artwork and
 copy are our own.
 

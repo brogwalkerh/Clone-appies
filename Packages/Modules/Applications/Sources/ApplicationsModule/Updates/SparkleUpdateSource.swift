@@ -82,7 +82,7 @@ public struct SparkleUpdateSource: UpdateSource {
     private static func fetch(_ url: URL, session: URLSession) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
-        request.setValue("MacCleaner (Sparkle update check)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Featherduster (Sparkle update check)", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw URLError(.badServerResponse)

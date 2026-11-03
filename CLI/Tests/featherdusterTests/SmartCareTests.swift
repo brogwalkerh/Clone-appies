@@ -4,7 +4,7 @@ import CleanerCore
 import CleanerCoreTesting
 import ProtectionModule
 import SmartCareModule
-@testable import maccleaner
+@testable import featherduster
 
 private let eicar = #"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"#
 
@@ -112,7 +112,7 @@ struct SmartCareCommandTests {
         let lines = SmartCareRun.table(report, policy: .default).split(separator: "\n").map(String.init)
         #expect(lines[0] == "Smart Care (2.0 s)")
         #expect(lines[1] == "  Cleanup     3 items  3 KB")
-        #expect(lines[2] == "  Protection  1 threat   (quarantine with `maccleaner protect scan`)")
+        #expect(lines[2] == "  Protection  1 threat   (quarantine with `featherduster protect scan`)")
         #expect(lines[3] == "  My Clutter  0 items  0 B")
         #expect(lines[4] == "1 scanner failed; see stderr.")
     }
@@ -203,7 +203,7 @@ struct ActivityCommandTests {
         let empty = BufferSink()
         try ActivityReport.write(events: [], now: now, calendar: calendar, weeks: 2, limit: 5, json: false,
                                  io: CommandIO(out: empty, err: BufferSink()))
-        #expect(empty.lines == ["No activity yet. Run `maccleaner smart-care` to start."])
+        #expect(empty.lines == ["No activity yet. Run `featherduster smart-care` to start."])
     }
 
     @Test func durations() {

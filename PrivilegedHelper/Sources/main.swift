@@ -1,7 +1,7 @@
-// Entry point of the privileged helper daemon (com.example.maccleaner.helper).
+// Entry point of the privileged helper daemon (com.example.featherduster.helper).
 //
 // launchd starts this process as root on demand when the app connects to the
-// Mach service named in Resources/com.example.maccleaner.helper.plist. It is a
+// Mach service named in Resources/com.example.featherduster.helper.plist. It is a
 // pure XPC server: no UI, no CLI arguments, and a closed set of operations
 // (ADR 0002, CLAUDE.md rule 5). Anything the process does is decided by
 // `HelperCommandPlan` in the HelperProtocol package, never by a caller string.

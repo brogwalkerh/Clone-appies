@@ -24,11 +24,11 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: MacCleaner
+  APP_NAME: Featherduster
   SCHEME: App
   KEYCHAIN_NAME: build.keychain-db
   KEYCHAIN_PASSWORD: ci-temporary-keychain
-  NOTARY_PROFILE: maccleaner-notary
+  NOTARY_PROFILE: featherduster-notary
 
 jobs:
   release:

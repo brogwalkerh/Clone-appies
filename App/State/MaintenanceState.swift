@@ -26,7 +26,7 @@ final class MaintenanceState {
 
     private(set) var isRunning = false
 
-    /// Set by `DeepLinkRouter` for `maccleaner://performance?task=…`; the
+    /// Set by `DeepLinkRouter` for `featherduster://performance?task=…`; the
     /// Performance screen consumes it (switch to Maintenance, run or prompt for the helper).
     var pendingFocusTaskID: String?
 

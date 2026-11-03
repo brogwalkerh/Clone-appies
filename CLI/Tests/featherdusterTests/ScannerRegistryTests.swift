@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import CleanerCore
 import CleanupModule
-@testable import maccleaner
+@testable import featherduster
 
 @Suite("Scanner registry")
 struct ScannerRegistryTests {

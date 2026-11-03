@@ -28,7 +28,7 @@ struct MaintenanceRunCommand: AsyncParsableCommand {
         commandName: "run",
         abstract: "Run one or more maintenance tasks by id. Tasks that need the privileged helper are refused.")
 
-    @Argument(help: "Task ids from `maccleaner maintenance list`.")
+    @Argument(help: "Task ids from `featherduster maintenance list`.")
     var ids: [String]
 
     @Flag(name: .shortAndLong, help: "Do not prompt for confirmation.")

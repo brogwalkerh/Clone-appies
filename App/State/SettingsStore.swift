@@ -67,11 +67,11 @@ enum SettingsStore {
         return stored > 0 ? stored : defaultQuarantineRetentionDays
     }
 
-    /// `~/Library/Application Support/com.example.maccleaner`, created on demand.
+    /// `~/Library/Application Support/com.example.featherduster`, created on demand.
     static func applicationSupportDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
-        let directory = base.appendingPathComponent("com.example.maccleaner", isDirectory: true)
+        let directory = base.appendingPathComponent("com.example.featherduster", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }

@@ -21,7 +21,7 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Menu | `Modules/MenuApp/MenuAppView.swift` | Menu bar agent settings: enable, launch, pills, Screen Cleaning Mode (§3.4) |
 | Protection | `Modules/Protection/ProtectionView.swift` (+ `MalwareTab`, `PrivacyTab`, `PermissionsTab`, `MonitorTab`) | Segmented Malware · Privacy · Permissions · Monitor (§3.6); Quarantine sheet |
 | Cloud, Email | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
-| Helper install sheet | `RootView` + `OnboardingView(initialStep: .helper)` | Shown while `AppState.helperInstallRequested`; opened by Performance and `maccleaner://performance?task=` |
+| Helper install sheet | `RootView` + `OnboardingView(initialStep: .helper)` | Shown while `AppState.helperInstallRequested`; opened by Performance and `featherduster://performance?task=` |
 | Onboarding | `Onboarding/OnboardingView.swift` | Sheet, 680×560, three steps |
 | Settings | `Settings/SettingsView.swift` | `TabView`: General, Protection, Ignore List, Scheduler, Advanced (§3.7) |
 | Notification popover | `RootView.NotificationListView` | 340 pt wide, mark read / clear |
@@ -102,7 +102,7 @@ Primary button: "Scan" → "Scanning…" → "Remove X" (model-wide selection) �
 | Maintenance | Idle | no run yet | `List` of `MaintenanceTaskRow`: checkbox, symbol, name, "Helper" / "Needs helper" badge, `RiskBadge` for caution/risky, one-line summary, "~5 s" estimate, chevron that expands the Smart Insights paragraph. Needs-helper rows are dimmed, unchecked-able, and carry an "Install helper" link that opens the helper sheet | "Run N tasks" (N = selected tasks that can run; disabled at 0) |
 | Maintenance | Running | `maintenance.isRunning` | "This run" section above the catalog: `MaintenanceResultRow` per task in run order — pending (dashed circle), running (spinner), success (green check, message, bytes, seconds), failed (red x, message), skipped (orange minus, "needs helper"). Subtitle "Running 2 of 5…" | "Running…" (loading) + leading "Stop" |
 | Maintenance | Done | results and not running | "This run" stays; leading text "3 succeeded • 1 failed • reclaimed 1.2 GB"; toolbar "Clear Results" | "Run N tasks" |
-| Maintenance | Deep link | `maccleaner://performance?task=<id>` | Tab switches to Maintenance, only that task is checked; it runs immediately if it can, otherwise the helper sheet opens | as above |
+| Maintenance | Deep link | `featherduster://performance?task=<id>` | Tab switches to Maintenance, only that task is checked; it runs immediately if it can, otherwise the helper sheet opens | as above |
 | Login Items | Loading | first visit | `EmptyState.scanning("Reading launch agents…")` | "Remove 0 Broken Items" disabled |
 | Login Items | Failed / Empty | discovery threw / no items | `EmptyState` with "Try Again" / `nothingFound` | disabled |
 | Login Items | List | items | Sections Your Launch Agents · Login Item Apps · System Launch Agents · System Launch Daemons, each with a footer explaining where it comes from. `BackgroundItemRow`: domain symbol (red when broken), owner app + label, badges Broken · Apple · Run at load · Keep alive, program path, `.switch` toggle. Toggle rules: user agents via `LaunchctlService` (`bootout`/`bootstrap gui/<uid>`); system agents/daemons via `HelperClient.perform(.setLaunchDaemonEnabled)` (disabled with a banner + "Install helper" link when the helper is missing); Apple items, broken items and login-item apps read-only (help text says why). Context menu: Reveal in Finder | "Remove N Broken Items" (broken, non-Apple, user-domain plists) → `RemovalConfirmation` → `GuardedRemover(TrashRemover)`; leading "Manage in System Settings" (`x-apple.systempreferences:com.apple.LoginItems-Settings.extension`) |
@@ -122,17 +122,17 @@ enable/disable action.
 
 | Section | State | Presentation |
 |---|---|---|
-| Status card | `SMAppService.loginItem("com.example.maccleaner.MenuAgent").status` | Symbol + "Enabled; starts at login" / "Not enabled" / "Waiting for approval in System Settings › Login Items" / "Agent not found in the app bundle"; green "Enabled" label when registered |
-| Pills card | `@AppStorage` in suite `com.example.maccleaner.shared` (`MenuAgentSettings.Key`: `menu.pills.cpu`, `.memory`, `.disk`, `.battery`, `.network`, `.trash`, `.protectionMonitor`, all default on) | 2-column grid of `.switch` toggles in glass capsules: CPU · RAM with Free Up · Disk and purgeable · Battery health · Network · Trash size · Protection Monitor. The agent reads the same suite |
+| Status card | `SMAppService.loginItem("com.example.featherduster.MenuAgent").status` | Symbol + "Enabled; starts at login" / "Not enabled" / "Waiting for approval in System Settings › Login Items" / "Agent not found in the app bundle"; green "Enabled" label when registered |
+| Pills card | `@AppStorage` in suite `com.example.featherduster.shared` (`MenuAgentSettings.Key`: `menu.pills.cpu`, `.memory`, `.disk`, `.battery`, `.network`, `.trash`, `.protectionMonitor`, all default on) | 2-column grid of `.switch` toggles in glass capsules: CPU · RAM with Free Up · Disk and purgeable · Battery health · Network · Trash size · Protection Monitor. The agent reads the same suite |
 | Screen Cleaning card | `ScreenCleaningController.shared.isActive` | Explanation + "Try Screen Cleaning Mode" (`.glassProminent`, disabled while active). If Accessibility is off an alert explains the limitation first; the controller still starts and shows its own explanation |
-| Bottom bar | — | Primary "Enable Menu Bar Agent" / "Disable Menu Bar Agent" (register / unregister, loading while working; also mirrors `settings.showMenuBarAgent`); leading "Launch Now" (`NSWorkspace.openApplication` on `Contents/Library/LoginItems/MacCleanerMenu.app`) and, when approval is pending, "Open Login Items" |
+| Bottom bar | — | Primary "Enable Menu Bar Agent" / "Disable Menu Bar Agent" (register / unregister, loading while working; also mirrors `settings.showMenuBarAgent`); leading "Launch Now" (`NSWorkspace.openApplication` on `Contents/Library/LoginItems/FeatherdusterMenu.app`) and, when approval is pending, "Open Login Items" |
 | Errors | `MenuAgentController.lastError` | `messageAlert("Menu Bar Agent")` |
 
 ### 3.5 URL scheme
 
-`CFBundleURLTypes` registers `maccleaner`. `DeepLink(url:)` (pure, tested in `Tests/AppTests/DeepLinkRouterTests.swift`)
-parses `maccleaner://smart-care`, `maccleaner://cleanup[?scanner=<id>]`, `maccleaner://performance[?task=<id>]` and
-`maccleaner://protection[?scope=quick|normal|deep]`; `DeepLinkRouter` selects the sidebar item, starts a Cleanup scan
+`CFBundleURLTypes` registers `featherduster`. `DeepLink(url:)` (pure, tested in `Tests/AppTests/DeepLinkRouterTests.swift`)
+parses `featherduster://smart-care`, `featherduster://cleanup[?scanner=<id>]`, `featherduster://performance[?task=<id>]` and
+`featherduster://protection[?scope=quick|normal|deep]`; `DeepLinkRouter` selects the sidebar item, starts a Cleanup scan
 restricted to the named scanner (unknown ids scan everything; the next plain Scan restores the full set), hands the task
 to the Performance screen as above, or switches the malware scope (unknown or missing scope keeps the current one) and
 starts the scan so Protection opens on live progress.
@@ -143,7 +143,7 @@ starts the scan so Protection opens on live progress.
 `MalwareScanner.scanThreats` for the chosen `ScanScope`) and Privacy drives `AppState.privacyModel` (a `ScanViewModel`
 over `PrivacyScanners.all()`), so both keep running while the user navigates away. Permissions reads TCC on demand
 (`PermissionsStore`); Monitor polls the shared suite every 2 s only while visible (`.task(id:)`). Opening the module
-loads the signature database once (bundled starter + `~/Library/Application Support/com.example.maccleaner/signatures`),
+loads the signature database once (bundled starter + `~/Library/Application Support/com.example.featherduster/signatures`),
 purges quarantine past the retention period, and, if Settings › Protection allows, checks the feed at most once a day.
 
 | Tab | State | Trigger | Presentation | Primary button |
@@ -176,7 +176,7 @@ same count. `RunMalwareScanIntent` (Siri / Shortcuts, `ScanScopeAppEnum`) runs a
 |---|---|---|
 | Signatures | "Feed URL" text field (prompt and "Reset to Default" = `https://github.com/brogwalkerh/Clone-appies/releases/latest/download/`; orange caption while not an http(s) URL — the default is used meanwhile), "Update signatures automatically" toggle (default on; once a day when Protection opens) | `protection.signatureFeedURL`, `protection.autoUpdateSignatures` |
 | Quarantine | Stepper "Keep quarantined items for n days" (1–365, default 30); older manifests are purged when Protection opens | `protection.quarantineRetentionDays` |
-| Protection Monitor | "Watch Downloads, Applications and launch agents in real time" toggle, mirrored by Protection › Monitor | `monitor.enabled` in suite `com.example.maccleaner.shared` |
+| Protection Monitor | "Watch Downloads, Applications and launch agents in real time" toggle, mirrored by Protection › Monitor | `monitor.enabled` in suite `com.example.featherduster.shared` |
 
 Space Lens: empty → measuring → bubbles; hover tooltip; right-click Reveal / Zoom In / Move to Trash (confirmation).
 Removal always goes through `GuardedRemover(wrapping: TrashRemover())`; permanent delete only when
@@ -192,21 +192,21 @@ since M4, the FSEvents `ProtectionMonitor` that `AgentState` owns for the life o
 |---|---|---|
 | Status item | normal pressure | `sparkles` symbol only |
 | Status item | warn / critical | symbol + 6 pt amber / red dot |
-| Status item | threats found (M4) | symbol + 6 pt red dot; wins over the pressure dot; accessibility "Mac Cleaner, threats found" |
-| Header | measuring | "Mac Cleaner" + "Measuring…" (`.updatesFrequently`) until the first sample |
+| Status item | threats found (M4) | symbol + 6 pt red dot; wins over the pressure dot; accessibility "Featherduster, threats found" |
+| Header | measuring | "Featherduster" + "Measuring…" (`.updatesFrequently`) until the first sample |
 | CPU, Memory, Disk, Network | no sample yet | pills show "–" |
-| Memory | any | "used / total", `PressureBadge` (Normal / Warn / Critical), small glass "Free Up" → `maccleaner://performance?task=maintenance.freeRAM` |
+| Memory | any | "used / total", `PressureBadge` (Normal / Warn / Critical), small glass "Free Up" → `featherduster://performance?task=maintenance.freeRAM` |
 | Disk | any | "used / total", caption "N purgeable" |
 | Battery | laptop | "N %", caption "Charging • 312 cycles • 91 % health"; row hidden on desktops |
 | Network | any | "↓ 1.2 MB/s  ↑ 120 KB/s" |
-| Trash | any | size, small glass "Empty" (disabled at 0 B) → `maccleaner://cleanup?scanner=cleanup.trash` |
+| Trash | any | size, small glass "Empty" (disabled at 0 B) → `featherduster://cleanup?scanner=cleanup.trash` |
 | Protection Monitor | off (M4) | grey dot, caption "Off" (or "Off — <reason>" when FSEvents failed), secondary text; `.switch` toggle off |
 | Protection Monitor | running | green dot, caption "Watching N files" (N = files hashed since start); toggle on |
 | Protection Monitor | threats | red dot, red caption "N threats found — <latest name>"; toggle on; a "Threat detected" user notification (body "<name> — <file>") is posted per new threat, authorization requested once on first start |
-| Protection Monitor | any | dot + text are a plain button → `maccleaner://protection`; the toggle writes `monitor.enabled` (default true) in suite `com.example.maccleaner.shared` and starts / stops the monitor in place. Watched: `~/Downloads`, `/Applications`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` |
-| Run Smart Care | always | `.glassProminent`, full width, ⏎ → `maccleaner://smart-care` |
+| Protection Monitor | any | dot + text are a plain button → `featherduster://protection`; the toggle writes `monitor.enabled` (default true) in suite `com.example.featherduster.shared` and starts / stops the monitor in place. Watched: `~/Downloads`, `/Applications`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons` |
+| Run Smart Care | always | `.glassProminent`, full width, ⏎ → `featherduster://smart-care` |
 | Screen Cleaning Mode | idle / active | `.glass`; disabled while a session is running |
-| Open Mac Cleaner · Quit | always | `.glass`; ⌘Q quits the agent |
+| Open Featherduster · Quit | always | `.glass`; ⌘Q quits the agent |
 
 Reduce Transparency: glass pills and buttons fall back on their own; the header badge
 switches from the accent→performance gradient to a flat accent fill. No custom blur anywhere.

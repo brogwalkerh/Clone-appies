@@ -202,7 +202,7 @@ enum PermissionChecker {
 @Observable
 final class HelperInstaller {
     /// Must match the plist infra ships. TODO(infra): confirm final label.
-    static let daemonPlistName = "com.example.maccleaner.helper.plist"
+    static let daemonPlistName = "com.example.featherduster.helper.plist"
 
     private(set) var status: SMAppService.Status
     private(set) var lastError: String?

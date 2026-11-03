@@ -3,7 +3,7 @@ import Testing
 import CleanerCore
 import CleanerCoreTesting
 import PerformanceModule
-@testable import maccleaner
+@testable import featherduster
 
 @Suite("login-items list")
 struct LoginItemsTests {

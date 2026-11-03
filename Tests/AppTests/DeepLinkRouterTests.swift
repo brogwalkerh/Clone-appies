@@ -1,6 +1,6 @@
 import XCTest
 import ProtectionModule
-@testable import MacCleaner
+@testable import Featherduster
 
 /// Pure parsing tests for `DeepLink` (App/Navigation/DeepLinkRouter.swift).
 final class DeepLinkRouterTests: XCTestCase {
@@ -13,51 +13,51 @@ final class DeepLinkRouterTests: XCTestCase {
     }
 
     func testSmartCare() {
-        XCTAssertEqual(link("maccleaner://smart-care"), .smartCare)
-        XCTAssertEqual(link("MACCLEANER://Smart-Care"), .smartCare, "scheme and route are case-insensitive")
-        XCTAssertEqual(link("maccleaner:///smart-care"), .smartCare, "route may arrive as the first path component")
+        XCTAssertEqual(link("featherduster://smart-care"), .smartCare)
+        XCTAssertEqual(link("FEATHERDUSTER://Smart-Care"), .smartCare, "scheme and route are case-insensitive")
+        XCTAssertEqual(link("featherduster:///smart-care"), .smartCare, "route may arrive as the first path component")
     }
 
     func testCleanupWithAndWithoutScanner() {
-        XCTAssertEqual(link("maccleaner://cleanup"), .cleanup(scannerID: nil))
-        XCTAssertEqual(link("maccleaner://cleanup?scanner=cleanup.userCaches"),
+        XCTAssertEqual(link("featherduster://cleanup"), .cleanup(scannerID: nil))
+        XCTAssertEqual(link("featherduster://cleanup?scanner=cleanup.userCaches"),
                        .cleanup(scannerID: "cleanup.userCaches"))
-        XCTAssertEqual(link("maccleaner://cleanup?scanner="), .cleanup(scannerID: nil),
+        XCTAssertEqual(link("featherduster://cleanup?scanner="), .cleanup(scannerID: nil),
                        "an empty scanner value means an unrestricted scan")
     }
 
     func testPerformanceWithAndWithoutTask() {
-        XCTAssertEqual(link("maccleaner://performance"), .performance(taskID: nil))
-        XCTAssertEqual(link("maccleaner://performance?task=maintenance.freeRAM"),
+        XCTAssertEqual(link("featherduster://performance"), .performance(taskID: nil))
+        XCTAssertEqual(link("featherduster://performance?task=maintenance.freeRAM"),
                        .performance(taskID: "maintenance.freeRAM"))
-        XCTAssertEqual(link("maccleaner://performance?other=1&task=maintenance.flushDNS"),
+        XCTAssertEqual(link("featherduster://performance?other=1&task=maintenance.flushDNS"),
                        .performance(taskID: "maintenance.flushDNS"))
     }
 
     func testProtectionWithAndWithoutScope() {
-        XCTAssertEqual(link("maccleaner://protection"), .protection(scope: nil))
-        XCTAssertEqual(link("maccleaner://protection?scope=quick"), .protection(scope: .quick))
-        XCTAssertEqual(link("maccleaner://protection?scope=Deep"), .protection(scope: .deep), "scope is case-insensitive")
-        XCTAssertEqual(link("maccleaner://protection?scope=everything"), .protection(scope: nil),
+        XCTAssertEqual(link("featherduster://protection"), .protection(scope: nil))
+        XCTAssertEqual(link("featherduster://protection?scope=quick"), .protection(scope: .quick))
+        XCTAssertEqual(link("featherduster://protection?scope=Deep"), .protection(scope: .deep), "scope is case-insensitive")
+        XCTAssertEqual(link("featherduster://protection?scope=everything"), .protection(scope: nil),
                        "an unknown scope keeps the current one rather than failing the link")
-        XCTAssertEqual(link("maccleaner://protection?scope="), .protection(scope: nil))
-        XCTAssertEqual(link("maccleaner:///protection?scope=normal"), .protection(scope: .normal))
+        XCTAssertEqual(link("featherduster://protection?scope="), .protection(scope: nil))
+        XCTAssertEqual(link("featherduster:///protection?scope=normal"), .protection(scope: .normal))
     }
 
     func testScheduleAndActionSet() {
         let id = UUID(uuidString: "6F1D2C3B-0001-4A5B-9C8D-000000000001")!
-        XCTAssertEqual(link("maccleaner://schedule?id=\(id.uuidString)"), .schedule(id: id))
-        XCTAssertEqual(link("maccleaner://schedule?id=\(id.uuidString.lowercased())"), .schedule(id: id),
+        XCTAssertEqual(link("featherduster://schedule?id=\(id.uuidString)"), .schedule(id: id))
+        XCTAssertEqual(link("featherduster://schedule?id=\(id.uuidString.lowercased())"), .schedule(id: id),
                        "UUIDs parse in either case")
-        XCTAssertEqual(link("maccleaner://action-set?id=\(id.uuidString)"), .actionSet(id: id))
-        XCTAssertNil(link("maccleaner://schedule"), "a schedule link needs an id")
-        XCTAssertNil(link("maccleaner://action-set?id=not-a-uuid"))
+        XCTAssertEqual(link("featherduster://action-set?id=\(id.uuidString)"), .actionSet(id: id))
+        XCTAssertNil(link("featherduster://schedule"), "a schedule link needs an id")
+        XCTAssertNil(link("featherduster://action-set?id=not-a-uuid"))
     }
 
     func testBadURLs() {
         XCTAssertNil(link("https://example.com/smart-care"), "wrong scheme")
-        XCTAssertNil(link("maccleaner://nope"), "unknown route")
-        XCTAssertNil(link("maccleaner://"), "no route")
+        XCTAssertNil(link("featherduster://nope"), "unknown route")
+        XCTAssertNil(link("featherduster://"), "no route")
         XCTAssertNil(link("mailto:someone@example.com"))
     }
 

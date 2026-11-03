@@ -1,6 +1,6 @@
 # Privileged helper — threat model
 
-Scope: `com.example.maccleaner.helper`, the root daemon installed via
+Scope: `com.example.featherduster.helper`, the root daemon installed via
 `SMAppService.daemon` (ADR 0002, CLAUDE.md rule 5). Code: `Packages/HelperProtocol`
 (contract + validation, Linux-tested), `PrivilegedHelper/Sources` (daemon),
 `App/Services/HelperClient.swift` (client).

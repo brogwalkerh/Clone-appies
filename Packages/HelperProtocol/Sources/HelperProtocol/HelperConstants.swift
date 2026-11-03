@@ -2,9 +2,9 @@ import Foundation
 
 public enum HelperConstants {
     /// launchd label, Mach service name and the helper's bundle identifier.
-    public static let machServiceName = "com.example.maccleaner.helper"
+    public static let machServiceName = "com.example.featherduster.helper"
     /// Bundle identifier of the only process allowed to talk to the helper.
-    public static let appBundleIdentifier = "com.example.maccleaner"
+    public static let appBundleIdentifier = "com.example.featherduster"
     /// Wire protocol version. The app compares it with `version(reply:)` and
     /// reinstalls the helper on mismatch; it never falls back to a looser contract.
     public static let version = "1"

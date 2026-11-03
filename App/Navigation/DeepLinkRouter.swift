@@ -2,19 +2,19 @@ import Foundation
 import PerformanceModule
 import ProtectionModule
 
-/// A parsed `maccleaner://` URL (docs/CONTRACTS.md, "M3 — MenuAgent").
+/// A parsed `featherduster://` URL (docs/CONTRACTS.md, "M3 — MenuAgent").
 ///
 /// Routes:
-/// - `maccleaner://smart-care`
-/// - `maccleaner://cleanup[?scanner=<scanner id>]`
-/// - `maccleaner://performance[?task=<maintenance task id>]`
-/// - `maccleaner://protection[?scope=quick|normal|deep]`
-/// - `maccleaner://schedule?id=<schedule uuid>` (the menu bar agent, when a schedule comes due)
-/// - `maccleaner://action-set?id=<action set uuid>`
+/// - `featherduster://smart-care`
+/// - `featherduster://cleanup[?scanner=<scanner id>]`
+/// - `featherduster://performance[?task=<maintenance task id>]`
+/// - `featherduster://protection[?scope=quick|normal|deep]`
+/// - `featherduster://schedule?id=<schedule uuid>` (the menu bar agent, when a schedule comes due)
+/// - `featherduster://action-set?id=<action set uuid>`
 ///
 /// Parsing is pure so `DeepLinkRouterTests` can cover it without a window.
-/// The route may be given as the host (`maccleaner://cleanup`) or, for callers
-/// that produce a triple slash, as the first path component (`maccleaner:///cleanup`).
+/// The route may be given as the host (`featherduster://cleanup`) or, for callers
+/// that produce a triple slash, as the first path component (`featherduster:///cleanup`).
 enum DeepLink: Hashable, Sendable {
     case smartCare
     case cleanup(scannerID: String?)
@@ -26,7 +26,7 @@ enum DeepLink: Hashable, Sendable {
     /// Opens Smart Care and runs a My Tools action set.
     case actionSet(id: UUID)
 
-    static let scheme = "maccleaner"
+    static let scheme = "featherduster"
 
     enum Route: String, CaseIterable, Sendable {
         case smartCare = "smart-care"
@@ -107,7 +107,7 @@ enum DeepLink: Hashable, Sendable {
 }
 
 /// Turns a `DeepLink` into navigation and actions on `AppState`.
-/// `MacCleanerApp` calls `open(_:)` from `.onOpenURL`.
+/// `FeatherdusterApp` calls `open(_:)` from `.onOpenURL`.
 @MainActor
 struct DeepLinkRouter {
     let appState: AppState

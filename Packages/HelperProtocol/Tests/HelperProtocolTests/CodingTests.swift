@@ -59,8 +59,8 @@ struct CodingTests {
 @Suite("HelperConstants")
 struct ConstantsTests {
     @Test func requirementsNameTheRightIdentifiers() {
-        #expect(HelperConstants.clientRequirement.contains("identifier \"com.example.maccleaner\""))
-        #expect(HelperConstants.helperRequirement.contains("identifier \"com.example.maccleaner.helper\""))
+        #expect(HelperConstants.clientRequirement.contains("identifier \"com.example.featherduster\""))
+        #expect(HelperConstants.helperRequirement.contains("identifier \"com.example.featherduster.helper\""))
         #expect(HelperConstants.clientRequirement.hasPrefix("anchor apple generic"))
         #expect(HelperConstants.helperRequirement.hasPrefix("anchor apple generic"))
         #expect(HelperConstants.clientRequirement.contains("certificate leaf[subject.OU] = \"TEAMID_PLACEHOLDER\""))
@@ -68,7 +68,7 @@ struct ConstantsTests {
     }
 
     @Test func machServiceMatchesLaunchdPlistLabel() {
-        #expect(HelperConstants.machServiceName == "com.example.maccleaner.helper")
+        #expect(HelperConstants.machServiceName == "com.example.featherduster.helper")
         #expect(!HelperConstants.version.isEmpty)
     }
 }

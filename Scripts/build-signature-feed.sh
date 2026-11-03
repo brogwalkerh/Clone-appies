@@ -172,7 +172,7 @@ printf '    %-12s %7d lines from %d file(s)\n' allow.ign2 "$(wc -l < "$OUT_DIR/a
 
 # --- 3. README --------------------------------------------------------------------
 cat > "$OUT_DIR/README.md" <<README
-# Mac Cleaner signature feed — $VERSION
+# Featherduster signature feed — $VERSION
 
 This directory is a filtered, plain-text subset of the ClamAV virus databases
 (\`main\` and \`daily\`), produced by \`Scripts/build-signature-feed.sh\`.
@@ -198,7 +198,7 @@ distributed under the GNU General Public License, version 2 (GPL-2.0); this
 redistributed subset remains under that license. The full license text is
 available at https://www.gnu.org/licenses/old-licenses/gpl-2.0.html.
 
-The Mac Cleaner application code that reads these files is separate from and
+The Featherduster application code that reads these files is separate from and
 not derived from ClamAV; it is licensed under the terms in the repository's
 LICENSE file. The EICAR test signature (\`Eicar-Test-Signature\`) is the
 industry-standard harmless test file published by EICAR (https://www.eicar.org/).

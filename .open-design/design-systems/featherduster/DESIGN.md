@@ -1,4 +1,4 @@
-# Mac Cleaner
+# Featherduster
 
 > Native macOS cleaner on Liquid Glass. One glass button, one ring, one big rounded number per screen.
 

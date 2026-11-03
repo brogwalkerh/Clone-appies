@@ -1,7 +1,7 @@
 import Foundation
 import CleanerCore
 
-/// The JSON document `maccleaner scan --json` prints and `maccleaner remove
+/// The JSON document `featherduster scan --json` prints and `featherduster remove
 /// --from-json` reads: `{ "summary": ScanSummary, "findings": [Finding] }`.
 struct ScanDocument: Codable, Hashable, Sendable {
     let summary: ScanSummary

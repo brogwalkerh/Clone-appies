@@ -205,7 +205,7 @@ struct ProtectQuarantineCommand: AsyncParsableCommand {
         commandName: "quarantine",
         abstract: "Move the threats listed in a scan JSON document into a quarantine directory (chmod 000, manifest for restore).")
 
-    @Option(name: .customLong("from-json"), help: "Document produced by `maccleaner protect scan --json`.")
+    @Option(name: .customLong("from-json"), help: "Document produced by `featherduster protect scan --json`.")
     var fromJSON: String
 
     @Option(name: .long, help: "Quarantine directory (created if missing).")
@@ -278,7 +278,7 @@ enum ProtectQuarantineRunner {
             io.out.write("\(manifest.records.count - succeeded) item\(manifest.records.count - succeeded == 1 ? "" : "s") could not be quarantined; see stderr.")
         }
         io.out.write("Manifest written to \(url.path)")
-        io.out.write("Restore with: maccleaner protect restore --manifest \(url.path) --dir \(directory.standardizedFileURL.path)")
+        io.out.write("Restore with: featherduster protect restore --manifest \(url.path) --dir \(directory.standardizedFileURL.path)")
         return ProtectQuarantineOutcome(selected: selected, manifest: manifest, manifestURL: url, aborted: false)
     }
 }
@@ -290,7 +290,7 @@ struct ProtectRestoreCommand: AsyncParsableCommand {
         commandName: "restore",
         abstract: "Move quarantined items back to their original paths.")
 
-    @Option(name: .long, help: "manifest.json written by `maccleaner protect quarantine`.")
+    @Option(name: .long, help: "manifest.json written by `featherduster protect quarantine`.")
     var manifest: String
 
     @Option(name: .long, help: "The quarantine directory the manifest lives in.")

@@ -24,7 +24,7 @@ struct ScannerRegistry: Sendable {
         all.append(contentsOf: ApplicationsScanners.all())
         all.append(contentsOf: PerformanceScanners.all())
         // Protection: privacy scanners only. The malware scanner needs a scope
-        // and a signature database, so it runs through `maccleaner protect scan`.
+        // and a signature database, so it runs through `featherduster protect scan`.
         all.append(contentsOf: PrivacyScanners.all())
         // Similar-images needs a platform feature provider (Vision, in UIKitBridge);
         // the CLI runs without it.

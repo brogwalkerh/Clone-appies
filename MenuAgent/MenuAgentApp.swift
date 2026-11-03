@@ -51,11 +51,11 @@ struct MenuBarLabel: View {
     }
 
     private var accessibilityText: String {
-        if hasThreats { return "Mac Cleaner, threats found" }
+        if hasThreats { return "Featherduster, threats found" }
         switch pressure {
-        case .warn: return "Mac Cleaner, memory pressure elevated"
-        case .critical: return "Mac Cleaner, memory pressure critical"
-        default: return "Mac Cleaner"
+        case .warn: return "Featherduster, memory pressure elevated"
+        case .critical: return "Featherduster, memory pressure critical"
+        default: return "Featherduster"
         }
     }
 

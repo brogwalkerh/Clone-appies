@@ -4,7 +4,7 @@ import CleanerCore
 import CleanerCoreTesting
 import CleanerHashing
 import ProtectionModule
-@testable import maccleaner
+@testable import featherduster
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -171,7 +171,7 @@ struct ProtectTests {
         let stored = try #require(manifest.records.first?.storedAt)
         #expect(exists(stored))
         #expect(out.text.contains("Quarantined 1 of 1 item."))
-        #expect(out.text.contains("Restore with: maccleaner protect restore --manifest \(manifestURL.path) --dir \(directory.path)"))
+        #expect(out.text.contains("Restore with: featherduster protect restore --manifest \(manifestURL.path) --dir \(directory.path)"))
 
         // restore --manifest: back in place with the original bytes.
         let loaded = try ScanJSON.decode(QuarantineManifest.self, from: manifestURL)
@@ -192,7 +192,7 @@ struct ProtectTests {
         let dest = try FixtureBuilder(name: "cli-sigs")
         defer { try? dest.remove() }
         let hdb = Data("0123456789abcdef0123456789abcdef:1234:Osx.Trojan.Example-1\nfedcba9876543210fedcba9876543210:*:Osx.Adware.Example-2\n".utf8)
-        let ndb = Data("Osx.Dldr.Example-3:0:*:4d4143434c45414e45522d55504441544554455354\n".utf8)
+        let ndb = Data("Osx.Dldr.Example-3:0:*:464541544845524455535445522d55504441544554455354\n".utf8)
         let ign2 = Data("Eicar-Test-Signature-Pattern\n".utf8)
         func sha256(_ data: Data) -> String { SHA256.hexString(SHA256.hash(data)) }
         let manifest = """

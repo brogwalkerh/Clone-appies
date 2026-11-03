@@ -10,28 +10,28 @@ import UserNotifications
 /// Everything the popover observes. Owns the `SystemStatsSampler` task, the
 /// periodic Trash measurement and the FSEvents `ProtectionMonitor`; every
 /// action that needs the privileged helper or a scan is delegated to the main
-/// app through the `maccleaner://` scheme, because the agent deliberately has
+/// app through the `featherduster://` scheme, because the agent deliberately has
 /// no helper access (ADR 0002). The monitor lives here, not in the main app,
 /// so it keeps watching after the main window closes (CONTRACTS.md M4).
 @MainActor
 @Observable
 final class AgentState {
     enum Route {
-        static let root = "maccleaner://"
-        static let smartCare = "maccleaner://smart-care"
-        static let freeRAM = "maccleaner://performance?task=maintenance.freeRAM"
-        static let emptyTrash = "maccleaner://cleanup?scanner=cleanup.trash"
-        static let protection = "maccleaner://protection"
+        static let root = "featherduster://"
+        static let smartCare = "featherduster://smart-care"
+        static let freeRAM = "featherduster://performance?task=maintenance.freeRAM"
+        static let emptyTrash = "featherduster://cleanup?scanner=cleanup.trash"
+        static let protection = "featherduster://protection"
 
         static func schedule(_ id: UUID) -> String {
-            "maccleaner://schedule?id=\(id.uuidString)"
+            "featherduster://schedule?id=\(id.uuidString)"
         }
     }
 
-    /// Keys shared with the main app through the `com.example.maccleaner.shared`
+    /// Keys shared with the main app through the `com.example.featherduster.shared`
     /// suite (mirrors `MenuAgentSettings` in App/Modules/MenuApp).
     enum SharedSettings {
-        static let suiteName = "com.example.maccleaner.shared"
+        static let suiteName = "com.example.featherduster.shared"
         /// Whether the Protection Monitor runs. Absent means on.
         static let monitorEnabledKey = "monitor.enabled"
         /// Written by the agent, read by the app's Protection › Monitor tab.
@@ -58,12 +58,12 @@ final class AgentState {
 
     /// Bundle id of the main app, used to launch it when the URL scheme is not
     /// registered yet (first run before Launch Services has seen the app).
-    static let mainAppBundleIdentifier = "com.example.maccleaner"
+    static let mainAppBundleIdentifier = "com.example.featherduster"
 
     /// Where the main app's `SignatureUpdater` writes feed files; merged over
     /// the bundled starter set when present.
     nonisolated static let signatureDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appending(path: "Library/Application Support/com.example.maccleaner/signatures", directoryHint: .isDirectory)
+        .appending(path: "Library/Application Support/com.example.featherduster/signatures", directoryHint: .isDirectory)
 
     /// Threats kept for the row and the deep link; older ones fall off.
     static let maxRememberedThreats = 50
@@ -366,7 +366,7 @@ final class AgentState {
         NSApplication.shared.terminate(nil)
     }
 
-    /// Opens a `maccleaner://` route. If Launch Services does not know the
+    /// Opens a `featherduster://` route. If Launch Services does not know the
     /// scheme yet, launches the main app by bundle id (or by walking up from
     /// `Contents/Library/LoginItems/` to the enclosing bundle) so the button
     /// never silently does nothing.
@@ -386,13 +386,13 @@ final class AgentState {
         }
     }
 
-    /// `…/Mac Cleaner.app/Contents/Library/LoginItems/MacCleanerMenu.app` → `…/Mac Cleaner.app`.
+    /// `…/Featherduster.app/Contents/Library/LoginItems/FeatherdusterMenu.app` → `…/Featherduster.app`.
     static func enclosingAppURL(agentBundleURL: URL = Bundle.main.bundleURL) -> URL? {
         let candidate = agentBundleURL
             .deletingLastPathComponent()   // LoginItems
             .deletingLastPathComponent()   // Library
             .deletingLastPathComponent()   // Contents
-            .deletingLastPathComponent()   // Mac Cleaner.app
+            .deletingLastPathComponent()   // Featherduster.app
         return candidate.pathExtension == "app" ? candidate : nil
     }
 }

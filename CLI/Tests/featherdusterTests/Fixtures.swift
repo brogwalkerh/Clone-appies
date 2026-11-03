@@ -1,6 +1,6 @@
 import Foundation
 import CleanerCore
-@testable import maccleaner
+@testable import featherduster
 
 /// Deterministic findings shared by the JSON and table tests.
 enum Fixtures {
