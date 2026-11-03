@@ -235,8 +235,10 @@ Bubble map zoom with `matchedGeometryEffect`. Respect Reduce Motion.
 **Typography.** System font, Dynamic Type sizes, large rounded numerals for
 "12.4 GB" results (`.font(.system(.largeTitle, design: .rounded))`).
 
-**Icon.** Icon Composer, layered: background disc, glass broom/sparkle glyph,
-highlight layer. Export light, dark, tinted, clear.
+**Icon.** Icon Composer bundle `App/Resources/AppIcon.icon`: an automatic gradient
+fill from the brand accent (`#5463f7`) under two Liquid Glass groups, a white
+feather (vane and quill) and a sparkle. macOS derives light, dark, tinted and
+clear from it. `Scripts/make-app-icon-layers.py` regenerates the SVG layers.
 
 **Menus.** Text-only menu items per macOS 27 convention. Keyboard shortcuts for
 every module (⌘1–⌘9).

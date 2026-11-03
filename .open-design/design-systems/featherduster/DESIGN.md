@@ -113,7 +113,7 @@ Calm, specific, reassuring. Second person ("your Mac"), never "we", no exclamati
 - Name the real thing: "Full Disk Access Required". "Grant Full Disk Access in System Settings so the app can see these files."
 - Spell out safety: "Items marked Risky are never removed by an action set." "Unsaved changes in this app will be lost."
 - Progress uses the ellipsis character: "Scanning…", "Looking for support files…".
-- No logo yet (an Icon Composer icon is planned: disc, glass broom-and-sparkle, highlight). Set the name in plain type.
+- App icon: a white glass feather tilted up to the right, with a small four-point sparkle at its upper left, on an automatic gradient of `--accent` (`App/Resources/AppIcon.icon`). There is no separate wordmark; set the name in plain type, and never redraw the feather in another color or add strokes to it.
 
 ## 9. Anti-patterns
 
