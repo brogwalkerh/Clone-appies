@@ -13,6 +13,9 @@ options:
   generateEmptyDirectories: false
   groupSortPosition: top
   xcodeVersion: "26.0"
+  # 2.45.1 is the first release that bundles Icon Composer `.icon` folders
+  # (App/Resources/AppIcon.icon) as a resource.
+  minimumXcodeGenVersion: 2.45.1
   # Sources that other engineers are still landing are marked `optional: true`
   # below so `xcodegen generate` succeeds while the tree fills in.
 
