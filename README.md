@@ -61,5 +61,10 @@ Release builds are signed, notarized and packaged by
 `Scripts/make-dmg.sh` and `Scripts/notarize.sh`. `Scripts/generate-fixtures.sh`
 creates a fake home directory full of realistic junk for scanner tests.
 
+## Support
+
+Featherduster is free, with every feature included. If it has been useful, you can
+support its development on [GitHub Sponsors](https://github.com/sponsors/brogwalkerh).
+
 ## License
 GNU General Public License v3.0 — see [LICENSE](LICENSE).

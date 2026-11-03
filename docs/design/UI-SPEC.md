@@ -10,7 +10,7 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Sidebar | `RootView.sidebar` | Default sidebar style, edge-to-edge, pins via context menu |
 | Toolbar | `RootView` | Search field (`.searchable`), `ToolbarBell` with popover |
 | Bottom bar | `BottomActionBar` | Per module; hosts one `PrimaryActionButton`, optional leading control |
-| Smart Care | `Modules/SmartCare/SmartCareView.swift`, `ActionSetsPanel.swift` | Hero `ScanRing`, 5 module cards, Assistant panel (dismissable), My Tools action sets; Scan → Run |
+| Smart Care | `Modules/SmartCare/SmartCareView.swift`, `ActionSetsPanel.swift` | Hero `ScanRing`, 5 module cards, Assistant panel (dismissable), one-time Support card (after 1 GB reclaimed; Sponsor on GitHub / No Thanks, never shown again once answered), My Tools action sets; Scan → Run |
 | Cleanup | `Modules/Cleanup/CleanupView.swift` | Categories as disclosure groups, checkboxes, risk badges, Undo |
 | Applications | `Modules/Applications/ApplicationsView.swift` | Segmented Uninstaller · Updater · Leftovers · Installers (§3.1) |
 | My Clutter | `Modules/MyClutter/MyClutterView.swift` | Segmented Large & Old · Duplicates · Similar Images · Downloads (§3.2) |
@@ -23,7 +23,7 @@ Companion to PLAN.md §4. Code lives in `App/` and `Packages/DesignSystem`.
 | Cloud, Email | `Modules/Placeholders/PlaceholderViews.swift` | `EmptyState.comingSoon` with milestone |
 | Helper install sheet | `RootView` + `OnboardingView(initialStep: .helper)` | Shown while `AppState.helperInstallRequested`; opened by Performance and `featherduster://performance?task=` |
 | Onboarding | `Onboarding/OnboardingView.swift` | Sheet, 680×560, three steps |
-| Settings | `Settings/SettingsView.swift` | `TabView`: General, Protection, Ignore List, Scheduler, Advanced (§3.7) |
+| Settings | `Settings/SettingsView.swift` | `TabView`: General (incl. "Support Featherduster" → GitHub Sponsors), Protection, Ignore List, Scheduler, Advanced (§3.7). Help menu: "Support Featherduster…" |
 | Notification popover | `RootView.NotificationListView` | 340 pt wide, mark read / clear |
 | Permission banner | `RootView.permissionBanner` | Top inset when Full Disk Access is denied |
 

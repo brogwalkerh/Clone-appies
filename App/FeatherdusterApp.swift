@@ -1,4 +1,5 @@
 import AppIntents
+import AppKit
 import SwiftUI
 import DesignSystem
 
@@ -70,6 +71,13 @@ struct ModuleCommands: Commands {
                 appState.runCleanup()
             }
             .keyboardShortcut("r", modifiers: .command)
+        }
+
+        CommandGroup(after: .help) {
+            Divider()
+            Button("Support Featherduster…") {
+                NSWorkspace.shared.open(SupportLinks.sponsors)
+            }
         }
     }
 }

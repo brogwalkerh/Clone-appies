@@ -73,6 +73,16 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Support Featherduster") {
+                Text("Featherduster is free, with every feature included. If it has been useful, you can support its development on GitHub Sponsors.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Link(destination: SupportLinks.sponsors) {
+                    Label("Sponsor on GitHub", systemImage: "heart")
+                }
+                .help(SupportLinks.sponsorsURLString)
+            }
         }
         .formStyle(.grouped)
     }

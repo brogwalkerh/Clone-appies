@@ -321,6 +321,7 @@ phrases. Entities for apps and action sets so Siri AI can parameterize.
 | Notifications | `UNUserNotificationCenter` | Standard prompt |
 | Cloud/Gmail | OAuth 2.0 PKCE via `ASWebAuthenticationSession` | Browser sign-in |
 | Distribution | Developer ID, Hardened Runtime, notarization, Sparkle for updates | None |
+| Donations | Free download with every feature; GitHub Sponsors link in Settings › General and the Help menu, plus one Smart Care card after 1 GB reclaimed that never returns once answered. No Mac App Store build: it requires the App Sandbox | None |
 
 No App Sandbox on the main app (it would block ~70% of features). The Safari
 extension target is sandboxed as required.

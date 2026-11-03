@@ -24,6 +24,8 @@ enum SettingsStore {
         static let lastSmartCareScan = "smartCare.lastScan"
         /// When malware signatures last updated successfully, for the Assistant.
         static let signaturesUpdatedAt = "protection.signaturesUpdatedAt"
+        /// The Smart Care support card was answered (Sponsor or No Thanks); it never shows again.
+        static let supportPromptAnswered = "support.promptAnswered"
     }
 
     // MARK: Smart Care
