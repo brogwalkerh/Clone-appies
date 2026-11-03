@@ -282,7 +282,7 @@ struct PerformanceView: View {
             .map(\.id))
     }
 
-    /// `maccleaner://performance?task=<id>`: focus Maintenance, run the task if it
+    /// `featherduster://performance?task=<id>`: focus Maintenance, run the task if it
     /// can run, otherwise show the helper install step.
     private func consumePendingFocus(_ taskID: String?) {
         guard let taskID, let task = MaintenanceState.task(withID: taskID) else { return }

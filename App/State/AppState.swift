@@ -17,7 +17,7 @@ struct AppNotification: Identifiable, Hashable, Sendable {
     let message: String
     let date: Date
     var isRead: Bool
-    /// A `maccleaner://` URL the notification opens.
+    /// A `featherduster://` URL the notification opens.
     let link: String?
 
     init(id: UUID = UUID(), title: String, message: String, date: Date = .now, isRead: Bool = false,
@@ -63,7 +63,7 @@ final class AppState {
     private(set) var hasCompletedOnboarding: Bool
 
     /// Set when a module needs the privileged helper (Performance's "Install helper"
-    /// link, `maccleaner://performance?task=`). `RootView` shows the onboarding
+    /// link, `featherduster://performance?task=`). `RootView` shows the onboarding
     /// helper step as a sheet while this is true.
     var helperInstallRequested = false
 
@@ -114,7 +114,7 @@ final class AppState {
     @ObservationIgnored private let inbox: InboxStore
 
     /// True while `cleanup` runs a subset of `CleanupScanners.all()` (deep link
-    /// `maccleaner://cleanup?scanner=`); the next plain scan restores the full set.
+    /// `featherduster://cleanup?scanner=`); the next plain scan restores the full set.
     private var cleanupScannersRestricted = false
 
     // MARK: Init
@@ -177,7 +177,7 @@ final class AppState {
         selection = item
     }
 
-    /// Routes a `maccleaner://` URL (see `DeepLinkRouter`). Returns `false` for foreign URLs.
+    /// Routes a `featherduster://` URL (see `DeepLinkRouter`). Returns `false` for foreign URLs.
     @discardableResult
     func open(_ url: URL) -> Bool {
         DeepLinkRouter(appState: self).open(url)
@@ -210,7 +210,7 @@ final class AppState {
     }
 
     /// Starts a malware scan, optionally switching scope first (deep link
-    /// `maccleaner://protection?scope=`). `ProtectionView` consumes `pendingFocus`
+    /// `featherduster://protection?scope=`). `ProtectionView` consumes `pendingFocus`
     /// to show the Malware tab. A scan already running keeps its scope.
     func runMalwareScan(scope: ScanScope? = nil) {
         if let scope, !malware.isScanning {
@@ -285,7 +285,7 @@ final class AppState {
     // MARK: Scheduled runs
 
     /// Runs one schedule's target. The menu bar agent opens
-    /// `maccleaner://schedule?id=` when a schedule comes due and has already
+    /// `featherduster://schedule?id=` when a schedule comes due and has already
     /// recorded the run, so a slow scan never fires twice.
     func runSchedule(id: UUID) async {
         automation.reload()
@@ -294,12 +294,12 @@ final class AppState {
         case .smartCareScan:
             await smartCare.scan()
             notifyScheduled(title: "Scheduled Smart Care scan", body: smartCare.resultSummary(),
-                            link: "maccleaner://smart-care")
+                            link: "featherduster://smart-care")
         case .moduleScan(let module):
             let summary = await scan(module)
             let found = summary.map { "\($0.totalFindings) items, \(ByteFormatter.string($0.totalBytes))" } ?? "no results"
             notifyScheduled(title: "Scheduled \(module.displayName) scan", body: "Found \(found).",
-                            link: "maccleaner://smart-care")
+                            link: "featherduster://smart-care")
         case .actionSet(let setID):
             guard let set = automation.actionSet(withID: setID) else {
                 notifyScheduled(title: "Scheduled action set missing",
@@ -312,7 +312,7 @@ final class AppState {
                 let tail = failed == 0 ? "" : " \(failed) step(s) failed."
                 notifyScheduled(title: "Ran \(set.name)",
                                 body: "Reclaimed \(ByteFormatter.string(report.bytesReclaimed)).\(tail)",
-                                link: "maccleaner://smart-care")
+                                link: "featherduster://smart-care")
             }
         }
     }

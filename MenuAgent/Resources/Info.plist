@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mac Cleaner Menu</string>
+	<string>Featherduster Menu</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -28,7 +28,7 @@
 	<key>LSBackgroundOnly</key>
 	<false/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Mac Cleaner contributors. Licensed under GPL-3.0.</string>
+	<string>Copyright © 2026 Featherduster contributors. Licensed under GPL-3.0.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>
@@ -36,6 +36,6 @@
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Mac Cleaner Menu uses Apple Events to quit unresponsive apps.</string>
+	<string>Featherduster Menu uses Apple Events to quit unresponsive apps.</string>
 </dict>
 </plist>

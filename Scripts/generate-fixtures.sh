@@ -150,13 +150,13 @@ mkfile "Library/Logs/install.log" 1M 5
 
 # --- Xcode ---------------------------------------------------------------------
 dd_root="Library/Developer/Xcode/DerivedData"
-mkfile "$dd_root/MacCleaner-abcdefghijklmnopqrstuvwxyz01/Build/Products/Debug/MacCleaner.app/Contents/MacOS/MacCleaner" 15M 1
-mkfile "$dd_root/MacCleaner-abcdefghijklmnopqrstuvwxyz01/Index.noindex/DataStore/units/unit1" 40M 1
-mkfile "$dd_root/MacCleaner-abcdefghijklmnopqrstuvwxyz01/Build/Intermediates.noindex/MacCleaner.build/Debug/App.build/Objects-normal/arm64/main.o" 2M 1
-mktext "$dd_root/MacCleaner-abcdefghijklmnopqrstuvwxyz01/info.plist" '<?xml version="1.0"?><plist version="1.0"><dict><key>WorkspacePath</key><string>/Users/me/Clone-appies/App.xcodeproj</string></dict></plist>'
+mkfile "$dd_root/Featherduster-abcdefghijklmnopqrstuvwxyz01/Build/Products/Debug/Featherduster.app/Contents/MacOS/Featherduster" 15M 1
+mkfile "$dd_root/Featherduster-abcdefghijklmnopqrstuvwxyz01/Index.noindex/DataStore/units/unit1" 40M 1
+mkfile "$dd_root/Featherduster-abcdefghijklmnopqrstuvwxyz01/Build/Intermediates.noindex/Featherduster.build/Debug/App.build/Objects-normal/arm64/main.o" 2M 1
+mktext "$dd_root/Featherduster-abcdefghijklmnopqrstuvwxyz01/info.plist" '<?xml version="1.0"?><plist version="1.0"><dict><key>WorkspacePath</key><string>/Users/me/Clone-appies/App.xcodeproj</string></dict></plist>'
 mkfile "$dd_root/OldProject-zyxwvutsrqponmlkjihgfedcba99/Build/Products/Debug/Old" 60M 180
 mkfile "$dd_root/ModuleCache.noindex/ABCDEF/Foundation.pcm" 25M 30
-mkfile "Library/Developer/Xcode/Archives/2026-08-01/MacCleaner 1-8-26, 10.00.xcarchive/Products/Applications/MacCleaner.app/Contents/MacOS/MacCleaner" 18M 70
+mkfile "Library/Developer/Xcode/Archives/2026-08-01/Featherduster 1-8-26, 10.00.xcarchive/Products/Applications/Featherduster.app/Contents/MacOS/Featherduster" 18M 70
 mkfile "Library/Developer/Xcode/iOS DeviceSupport/17.5 (21F79) arm64e/Symbols/usr/lib/dyld" 50M 300
 mkfile "Library/Developer/CoreSimulator/Caches/dyld/23A344/com.apple.dyld/dyld_sim_shared_cache_arm64" 80M 100
 mkfile "Library/Developer/Xcode/UserData/IDEEditorInteractivityHistoryEnabled" 1K

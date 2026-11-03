@@ -9,7 +9,7 @@ import UIKitBridge
 /// The agent is a separate `LSUIElement` app embedded at
 /// `Contents/Library/LoginItems` and registered with `SMAppService.loginItem`.
 /// Which pills it shows is stored in the shared suite
-/// `com.example.maccleaner.shared`, which the agent reads through
+/// `com.example.featherduster.shared`, which the agent reads through
 /// `UserDefaults(suiteName:)`; keys are in `MenuAgentSettings.Key`.
 struct MenuAppView: View {
     @State private var agent = MenuAgentController()
@@ -76,7 +76,7 @@ struct MenuAppView: View {
                     Text(agent.statusLabel)
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Text("Shows live stats in the menu bar and keeps running after this window closes. It opens Smart Care and Performance here through maccleaner:// links.")
+                    Text("Shows live stats in the menu bar and keeps running after this window closes. It opens Smart Care and Performance here through featherduster:// links.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -152,9 +152,9 @@ struct MenuAppView: View {
 
 // MARK: - Shared settings suite
 
-/// Keys the agent and the main app share through `com.example.maccleaner.shared`.
+/// Keys the agent and the main app share through `com.example.featherduster.shared`.
 enum MenuAgentSettings {
-    static let suiteName = "com.example.maccleaner.shared"
+    static let suiteName = "com.example.featherduster.shared"
 
     /// Falls back to `.standard` only if the suite cannot be created (never in practice).
     // UserDefaults is thread-safe; the constant itself never mutates.
@@ -189,7 +189,7 @@ enum MenuAgentSettings {
 @MainActor
 @Observable
 final class MenuAgentController {
-    static let loginItemIdentifier = "com.example.maccleaner.MenuAgent"
+    static let loginItemIdentifier = "com.example.featherduster.MenuAgent"
 
     private(set) var status: SMAppService.Status
     private(set) var isWorking = false
@@ -253,12 +253,12 @@ final class MenuAgentController {
         }
     }
 
-    /// `Contents/Library/LoginItems/MacCleanerMenu.app` (PRODUCT_NAME in project.yml),
+    /// `Contents/Library/LoginItems/FeatherdusterMenu.app` (PRODUCT_NAME in project.yml),
     /// falling back to the first `.app` in that folder.
     /// TODO(macOS27): confirm SMAppService.loginItem still expects the agent under Contents/Library/LoginItems.
     static func agentBundleURL() -> URL? {
         let loginItems = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LoginItems", isDirectory: true)
-        let preferred = loginItems.appendingPathComponent("MacCleanerMenu.app", isDirectory: true)
+        let preferred = loginItems.appendingPathComponent("FeatherdusterMenu.app", isDirectory: true)
         if FileManager.default.fileExists(atPath: preferred.path(percentEncoded: false)) {
             return preferred
         }

@@ -12,7 +12,7 @@ there is a local privilege escalation for any process that can talk to it.
 
 ## Decision
 Install one root daemon via `SMAppService.daemon`, embedded in the app bundle
-(`Contents/Library/LaunchDaemons/com.example.maccleaner.helper.plist`). It is
+(`Contents/Library/LaunchDaemons/com.example.featherduster.helper.plist`). It is
 an XPC server whose protocol is a **closed, enumerated set of operations**,
 each a `Codable` request type with typed parameters and server-side path
 validation against `ProtectedPaths` and an allow-list of roots.

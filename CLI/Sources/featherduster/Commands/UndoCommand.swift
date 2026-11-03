@@ -7,7 +7,7 @@ struct UndoCommand: AsyncParsableCommand {
         commandName: "undo",
         abstract: "Restore the items listed in a removal manifest from the Trash.")
 
-    @Option(name: .long, help: "Manifest written by `maccleaner remove`.")
+    @Option(name: .long, help: "Manifest written by `featherduster remove`.")
     var manifest: String
 
     func run() async throws {

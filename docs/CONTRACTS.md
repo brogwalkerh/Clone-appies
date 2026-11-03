@@ -208,7 +208,7 @@ public struct SizeTreeBuilder: Sendable {
 On Linux `CGPoint` comes from Foundation; keep it or define `Point` typealias in SpaceLens.
 
 ## CLI (CLI/)
-Executable `maccleaner`: `scan [--module cleanup|...] [--json] [--home PATH]`,
+Executable `featherduster`: `scan [--module cleanup|...] [--json] [--home PATH]`,
 `list-scanners`, `remove --manifest-out PATH --dry-run`. Depends on swift-argument-parser.
 M5 adds `smart-care [--home] [--json] [--run --yes] [--no-malware]`, `actions list|run <name|id>
 [--dry-run]` and `activity [--weeks N] [--json]`; all three take `--data-dir PATH` and
@@ -396,7 +396,7 @@ public struct CommandStep: Sendable, Hashable, Codable { public let executable: 
     func perform(_ requestData: Data, reply: @escaping (Data) -> Void)   // JSON HelperRequest -> JSON HelperResponse
     func version(reply: @escaping (String) -> Void)
 }
-public enum HelperConstants { public static let machServiceName = "com.example.maccleaner.helper"; public static let version = "1" }
+public enum HelperConstants { public static let machServiceName = "com.example.featherduster.helper"; public static let version = "1" }
 ```
 
 ## M3 — App side of the helper (App/Services/HelperClient.swift, macOS only)
@@ -500,10 +500,10 @@ public actor SystemStatsSampler { public init(interval: Duration = .seconds(2));
 ## M3 — MenuAgent (MenuAgent/, macOS only, LSUIElement)
 `MenuBarExtra` with `.window` style; popover shows SystemStats pills (CPU, RAM
 with "Free Up", disk with purgeable, battery, network), Trash size, "Run Smart
-Care" (opens the main app via `maccleaner://smart-care`), Protection Monitor
-row (placeholder until M4), "Screen Cleaning Mode", "Open Mac Cleaner", Quit.
-Registered as `SMAppService.loginItem(identifier: "com.example.maccleaner.MenuAgent")`.
-Main app declares the `maccleaner` URL scheme (CFBundleURLTypes) and handles
+Care" (opens the main app via `featherduster://smart-care`), Protection Monitor
+row (placeholder until M4), "Screen Cleaning Mode", "Open Featherduster", Quit.
+Registered as `SMAppService.loginItem(identifier: "com.example.featherduster.MenuAgent")`.
+Main app declares the `featherduster` URL scheme (CFBundleURLTypes) and handles
 `smart-care`, `cleanup`, `performance` routes.
 
 ## M4 — CleanerHashing (new target in Packages/Core, product `CleanerHashing`)
@@ -628,7 +628,7 @@ public actor ProtectionMonitor {
 public enum ProtectionEvent: Sendable { case started, threat(Threat), scanned(URL), stopped(reason: String) }
 ```
 MenuAgent's Protection Monitor row becomes live (green = running, red = threat
-found, with count; click opens `maccleaner://protection`). The monitor runs
+found, with count; click opens `featherduster://protection`). The monitor runs
 inside the MenuAgent process so it survives the main window closing.
 
 ## M5 — SmartCareModule (Packages/Modules/SmartCare, Foundation-only)
@@ -707,7 +707,7 @@ public enum TimeSavedModel { public static func estimate(_ event: ActivityEvent)
 public enum InboxKind: String, Codable, Sendable { case info, scanResult, reminder, threat, update }
 public struct InboxMessage: Codable, Sendable, Hashable, Identifiable {
     public let id: UUID; public let date: Date; public let kind: InboxKind
-    public let title: String; public let body: String; public var isRead: Bool; public let link: String?   // maccleaner:// URL
+    public let title: String; public let body: String; public var isRead: Bool; public let link: String?   // featherduster:// URL
 }
 /// Whole-file JSON (ADR 0007): every call re-reads, newest first, capped at `capacity`.
 public actor InboxStore {
@@ -814,7 +814,7 @@ public struct SmartCareStorage: Sendable {
     public let inbox: InboxStore
     public let schedules: JSONFileRecord<[ScanSchedule]>; public let scheduleRuns: JSONFileRecord<[UUID: Date]>
     public let actionSets: JSONFileRecord<[ActionSet]>; public let dismissedRecommendations: JSONFileRecord<[String: Date]>
-    public static func defaultDirectory(home: URL = …) -> URL   // ~/Library/Application Support/com.example.maccleaner
+    public static func defaultDirectory(home: URL = …) -> URL   // ~/Library/Application Support/com.example.featherduster
 }
 ```
 
@@ -844,10 +844,10 @@ Implementation notes (SmartCareModule as built):
 - `AutomationState` holds action sets (presets plus `SmartCareStorage.actionSets`) and schedules;
   `AppState.runSchedule(id:)` performs a schedule's target and posts the result to the inbox and as
   a system notification. The Notification Center reads and writes `SmartCareStorage.inbox`.
-- New deep links: `maccleaner://schedule?id=<uuid>` (run a due schedule, no navigation) and
-  `maccleaner://action-set?id=<uuid>`.
+- New deep links: `featherduster://schedule?id=<uuid>` (run a due schedule, no navigation) and
+  `featherduster://action-set?id=<uuid>`.
 - MenuAgent checks `schedules.json` every 60 s with `ScheduleEvaluator`, writes the run time to
-  `schedule-runs.json` first, then opens `maccleaner://schedule?id=` without activating the app.
+  `schedule-runs.json` first, then opens `featherduster://schedule?id=` without activating the app.
   The agent still never scans or talks to the helper itself (ADR 0002).
 - Smart Insights: `InsightService.provider` is `FallbackInsightProvider(primary:
   OnDeviceInsightProvider (Foundation Models, `#if canImport(FoundationModels)`), fallback:

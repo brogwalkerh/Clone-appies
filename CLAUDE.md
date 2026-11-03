@@ -1,4 +1,4 @@
-# Mac Cleaner (working title) — guide for AI and human contributors
+# Featherduster — guide for AI and human contributors
 
 A native, directly-distributed macOS 27 cleaner app (CleanMyMac-style): Cleanup,
 Protection, Performance, Applications, My Clutter, Space Lens, menu bar agent, CLI.
@@ -15,7 +15,7 @@ Swift 6.2, SwiftUI, Apple Silicon only. Status: pre-alpha, M5 in progress (see P
 App/                  SwiftUI app target (main window, settings, onboarding, Intents)
 MenuAgent/            Login-item agent: menu bar extra, Protection Monitor
 PrivilegedHelper/     Root daemon (SMAppService), XPC server, closed op set
-CLI/                  `maccleaner` command-line tool (SwiftPM package)
+CLI/                  `featherduster` command-line tool (SwiftPM package)
 Packages/Core/        CleanerCore: scan engine, FileSystem, Remover, models
 Packages/HelperProtocol/  Closed op set, validation, command plans for the root helper
 Packages/Modules/Cleanup/  CleanupModule: scanners + cleanup-rules.json
@@ -30,6 +30,8 @@ Packages/UIKitBridge/ AppKit shims (macOS only)
 Scripts/              make-dmg.sh, notarize.sh, generate-fixtures.sh
 .github/workflows/    ci.yml, release.yml
 project.yml           XcodeGen spec; App.xcodeproj is generated, never committed
+.open-design/design-systems/featherduster/  DESIGN.md + tokens.css for Open Design agents;
+                      mirrors Packages/DesignSystem, update both together
 ```
 
 ## Hard rules

@@ -1,4 +1,4 @@
-# Mac Cleaner for macOS 27 — Project Plan
+# Featherduster for macOS 27 — Project Plan
 
 A feature-complete, native clone of CleanMyMac (as of 5.7.1, Oct 2026) built for
 macOS 27 "Golden Gate" with Liquid Glass and Siri AI integration.
@@ -207,8 +207,8 @@ Junk categories, each a pluggable scanner:
   Xcode predictive-completion models). Cheap to add as Cleanup scanners. M1.
 - Safari/Chrome tab-and-window extension (close duplicates, suspend heavy tabs).
   Safari Web Extension target. M7.
-- **Command-line interface**: `maccleaner scan --module cleanup --json`,
-  `maccleaner run smart-care`. Reuses Core package. Great for testing too. M3.
+- **Command-line interface**: `featherduster scan --module cleanup --json`,
+  `featherduster run smart-care`. Reuses Core package. Great for testing too. M3.
 
 ---
 
@@ -253,12 +253,12 @@ Permission status is re-checked on every launch and surfaced as a banner.
 ## 5. Architecture
 
 ```
-MacCleaner.xcworkspace
+Featherduster.xcworkspace
 ├── App/                     SwiftUI app target (main window, settings, onboarding)
 ├── MenuAgent/               Login-item agent: menu bar extra, Protection Monitor UI
 ├── PrivilegedHelper/        Root daemon via SMAppService, XPC server, allow-listed ops
 ├── SecurityExtension/       Endpoint Security system extension (optional, M4)
-├── CLI/                     `maccleaner` command-line tool
+├── CLI/                     `featherduster` command-line tool
 ├── SafariExtension/         Tab manager web extension (M7)
 ├── Intents/                 App Intents + Shortcuts + Siri AI surface
 └── Packages/
@@ -321,6 +321,7 @@ phrases. Entities for apps and action sets so Siri AI can parameterize.
 | Notifications | `UNUserNotificationCenter` | Standard prompt |
 | Cloud/Gmail | OAuth 2.0 PKCE via `ASWebAuthenticationSession` | Browser sign-in |
 | Distribution | Developer ID, Hardened Runtime, notarization, Sparkle for updates | None |
+| Donations | Free download with every feature; GitHub Sponsors link in Settings › General and the Help menu, plus one Smart Care card after 1 GB reclaimed that never returns once answered. No Mac App Store build: it requires the App Sandbox | None |
 
 No App Sandbox on the main app (it would block ~70% of features). The Safari
 extension target is sandboxed as required.
@@ -337,7 +338,7 @@ Add 30% if that ramp is slow.
 | **M0 Foundations** | 2 | Xcode 27 workspace, packages, CI (GitHub Actions on macOS 27 runner), signing, Sparkle, `NavigationSplitView` shell with Liquid Glass, onboarding + permission checks, helper install over XPC with a "ping" op. Icon v1. |
 | **M1 Vertical slice: Cleanup + Space Lens** | 5 | Scan engine, 8–10 Cleanup scanners (caches, logs, Trash, Xcode, AI leftovers, broken downloads, purgeable), trash-with-undo, Space Lens bubble map. First internal build. |
 | **M2 Applications + My Clutter** | 5 | Uninstaller with leftovers, leftovers scan, updater (App Store + Sparkle + brew), extensions, installers, background scanning. Large & old, duplicates, similar images. |
-| **M3 Performance + Menu + CLI** | 4 | Maintenance tasks via helper, login/background items, heavy consumers, hung apps. Menu bar agent with stats. Screen Cleaning Mode. `maccleaner` CLI sharing Core. |
+| **M3 Performance + Menu + CLI** | 4 | Maintenance tasks via helper, login/background items, heavy consumers, hung apps. Menu bar agent with stats. Screen Cleaning Mode. `featherduster` CLI sharing Core. |
 | **M4 Protection** | 5 | Rule engine, ClamAV signature ingest + updater, Quick/Normal/Deep scans, privacy cleaners, permissions review, FSEvents monitor. Submit Endpoint Security entitlement request at M2 so it may land here. |
 | **M5 Smart Care + shell** | 4 | Smart Care home, Assistant rules, My Activity charts, My Tools pins + action sets, Notification Center, scheduler, ignore list, Smart Insights via Foundation Models. |
 | **M6 Cloud + Email** | 4 | iCloud Drive analysis, Google Drive / OneDrive / Dropbox, Gmail Email Cleanup. |

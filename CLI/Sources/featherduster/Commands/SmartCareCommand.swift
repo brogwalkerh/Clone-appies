@@ -25,7 +25,7 @@ struct SmartCareCommand: AsyncParsableCommand {
     var noMalware = false
 
     @Option(name: .customLong("manifest-out"),
-            help: "Where to write the removal manifest (default: ~/.maccleaner/manifests/<uuid>.json).")
+            help: "Where to write the removal manifest (default: ~/.featherduster/manifests/<uuid>.json).")
     var manifestOut: String?
 
     @OptionGroup var history: HistoryOptions
@@ -138,7 +138,7 @@ enum SmartCareRun {
                 io.out.write("Nothing for Smart Care to clean.")
             } else {
                 io.out.write("Smart Care can remove \(ByteFormatter.string(bytes)) now (\(count(selection.count, "item"))). "
-                             + "Run `maccleaner smart-care --run` to move them to the Trash.")
+                             + "Run `featherduster smart-care --run` to move them to the Trash.")
             }
             await record(events, in: activity, io: io)
             return SmartCareOutcome(report: report, selection: selection, removal: nil)
@@ -170,7 +170,7 @@ enum SmartCareRun {
             var line = "  \(name)  \(number) \(noun)"
             if module != .protection { line += "  \(ByteFormatter.string(summary.totalBytes))" }
             if policy.isReviewOnly(module), summary.totalFindings > 0 {
-                line += module == .protection ? "  (quarantine with `maccleaner protect scan`)" : "  (review in the app)"
+                line += module == .protection ? "  (quarantine with `featherduster protect scan`)" : "  (review in the app)"
             }
             lines.append(line)
         }

@@ -69,7 +69,7 @@ enum ActivityReport {
             return
         }
         guard !events.isEmpty else {
-            io.out.write("No activity yet. Run `maccleaner smart-care` to start.")
+            io.out.write("No activity yet. Run `featherduster smart-care` to start.")
             return
         }
         io.out.write("Reclaimed: \(ByteFormatter.string(stats.bytesReclaimed)) (\(ByteFormatter.string(stats.bytesReclaimedLast30Days)) in the last 30 days)")

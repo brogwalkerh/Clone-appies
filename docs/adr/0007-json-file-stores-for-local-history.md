@@ -17,7 +17,7 @@ first exists. Three facts weigh against SwiftData now:
 
 ## Decision
 - `SmartCareModule` owns the stores. Each is an actor over one file in
-  `~/Library/Application Support/com.example.maccleaner/`.
+  `~/Library/Application Support/com.example.featherduster/`.
 - The activity log is **JSON Lines**, append-only (one `ActivityEvent` per
   line). Undecodable lines are skipped, so a torn write loses one event, not
   the log. It is compacted to the newest `maxEvents` on open.

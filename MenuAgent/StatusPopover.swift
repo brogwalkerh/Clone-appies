@@ -37,7 +37,7 @@ struct StatusPopover: View {
                 .frame(width: 32, height: 32)
                 .background(headerBadgeFill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Mac Cleaner")
+                Text("Featherduster")
                     .font(.headline)
                 Text(state.stats == nil ? "Measuring…" : "Menu")
                     .font(.caption)
@@ -86,7 +86,7 @@ struct StatusPopover: View {
                 Button("Free Up") { state.freeUpRAM() }
                     .buttonStyle(.glass)
                     .controlSize(.small)
-                    .help("Free up RAM in Mac Cleaner")
+                    .help("Free up RAM in Featherduster")
             }
 
             row {
@@ -128,7 +128,7 @@ struct StatusPopover: View {
                     .buttonStyle(.glass)
                     .controlSize(.small)
                     .disabled((state.trashBytes ?? 0) == 0)
-                    .help("Empty the Trash in Mac Cleaner")
+                    .help("Empty the Trash in Featherduster")
             }
 
             protectionRow
@@ -161,9 +161,9 @@ struct StatusPopover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Open Protection in Mac Cleaner")
+            .help("Open Protection in Featherduster")
             .accessibilityLabel(Text("Protection Monitor, \(StatusPopover.monitorCaption(for: state.monitorState, error: state.monitorError))"))
-            .accessibilityHint(Text("Opens Protection in Mac Cleaner"))
+            .accessibilityHint(Text("Opens Protection in Featherduster"))
 
             Toggle("Protection Monitor", isOn: Binding(
                 get: { state.isMonitorEnabled },
@@ -204,7 +204,7 @@ struct StatusPopover: View {
             .disabled(state.isScreenCleaningActive)
 
             HStack(spacing: 8) {
-                Button("Open Mac Cleaner") { state.openMainApp() }
+                Button("Open Featherduster") { state.openMainApp() }
                     .buttonStyle(.glass)
                     .frame(maxWidth: .infinity)
                 Button("Quit") { state.quit() }

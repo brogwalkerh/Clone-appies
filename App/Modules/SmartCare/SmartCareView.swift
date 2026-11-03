@@ -12,6 +12,7 @@ struct SmartCareView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage(SettingsStore.Key.removalMode) private var removalModeRaw = RemovalMode.trash.rawValue
+    @AppStorage(SettingsStore.Key.supportPromptAnswered) private var supportPromptAnswered = false
 
     @State private var confirmClean = false
     /// Bumped after a dismissal so the Assistant re-reads the dismissal file.
@@ -20,6 +21,12 @@ struct SmartCareView: View {
     private let moduleItems: [SidebarItem] = [.cleanup, .protection, .performance, .applications, .myClutter]
 
     private var smartCare: SmartCareModel { appState.smartCare }
+
+    /// One quiet ask, only after Featherduster has freed real space (PLAN.md §6, Donations).
+    private var showsSupportCard: Bool {
+        SupportPromptPolicy().shouldShow(bytesReclaimed: ActivityCenter.shared.stats.bytesReclaimed,
+                                         answered: supportPromptAnswered)
+    }
     private var removalMode: RemovalMode { RemovalMode(rawValue: removalModeRaw) ?? .trash }
 
     var body: some View {
@@ -30,6 +37,11 @@ struct SmartCareView: View {
                 AssistantPanel(recommendations: recommendations) { id in
                     appState.dismissRecommendation(id)
                     dismissals += 1
+                }
+                if showsSupportCard {
+                    SupportCard(bytesReclaimed: ActivityCenter.shared.stats.bytesReclaimed) {
+                        supportPromptAnswered = true
+                    }
                 }
                 ActionSetsPanel()
             }
@@ -320,6 +332,44 @@ struct ModuleCard: View {
                         .contentTransition(.numericText())
                 }
                 .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+            }
+        }
+    }
+}
+
+// MARK: - Support
+
+/// The one-time "Support Featherduster" card. Either button answers it for good;
+/// Settings › General keeps a permanent Sponsor link.
+struct SupportCard: View {
+    @Environment(\.openURL) private var openURL
+    let bytesReclaimed: Int64
+    let onAnswer: () -> Void
+
+    var body: some View {
+        GlassCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "heart")
+                    .frame(width: 22)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Support Featherduster").font(.subheadline.weight(.semibold))
+                    Text("Featherduster has freed \(ByteFormatter.string(bytesReclaimed)) on this Mac so far. It's free, with every feature included. If it has been useful, you can support its development on GitHub Sponsors.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button("Sponsor on GitHub") {
+                    openURL(SupportLinks.sponsors)
+                    onAnswer()
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                Button("No Thanks") { onAnswer() }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help("Don't show this again. The link stays in Settings › General.")
             }
         }
     }

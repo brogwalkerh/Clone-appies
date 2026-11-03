@@ -2,7 +2,7 @@ import Foundation
 
 /// File layout shared by the app, the MenuAgent and the CLI (ADR 0007). All
 /// files live in one directory, normally
-/// `~/Library/Application Support/com.example.maccleaner`.
+/// `~/Library/Application Support/com.example.featherduster`.
 public struct SmartCareStorage: Sendable {
     public let directory: URL
     public let activity: JSONLinesActivityStore
@@ -24,8 +24,8 @@ public struct SmartCareStorage: Sendable {
         dismissedRecommendations = JSONFileRecord(fileURL: directory.appendingPathComponent("assistant-dismissed.json"))
     }
 
-    /// `~/Library/Application Support/com.example.maccleaner` for `home`.
+    /// `~/Library/Application Support/com.example.featherduster` for `home`.
     public static func defaultDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent("Library/Application Support/com.example.maccleaner", isDirectory: true)
+        home.appendingPathComponent("Library/Application Support/com.example.featherduster", isDirectory: true)
     }
 }

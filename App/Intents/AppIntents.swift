@@ -13,7 +13,7 @@ import UIKitBridge
 // macOS 27 Siri AI acts in third-party apps only through App Intents, and the
 // rebuilt Spotlight indexes the same intents as actions (PLAN.md §2). Every
 // user-facing action must therefore be reachable from this file. Phrases live
-// in `MacCleanerShortcuts`; `MacCleanerApp.init` calls
+// in `FeatherdusterShortcuts`; `FeatherdusterApp.init` calls
 // `updateAppShortcutParameters()` so the system discovers them at launch.
 
 // MARK: - Shared services
@@ -438,7 +438,7 @@ enum MaintenanceDialogs {
     static func dialog(for outcome: AppServices.MaintenanceOutcome, task: MaintenanceTask) -> IntentDialog {
         switch outcome {
         case .needsHelper:
-            return "\(task.name) needs the privileged helper, which is not installed. Open Mac Cleaner › Settings › Advanced and choose Install, then try again."
+            return "\(task.name) needs the privileged helper, which is not installed. Open Featherduster › Settings › Advanced and choose Install, then try again."
         case .finished(let result):
             if result.succeeded {
                 if let bytes = result.bytesReclaimed, bytes > 0 {
@@ -571,7 +571,7 @@ struct FindDuplicatesIntent: AppIntent {
 
 // MARK: - Shortcuts
 
-struct MacCleanerShortcuts: AppShortcutsProvider {
+struct FeatherdusterShortcuts: AppShortcutsProvider {
     static let shortcutTileColor: ShortcutTileColor = .teal
 
     static var appShortcuts: [AppShortcut] {

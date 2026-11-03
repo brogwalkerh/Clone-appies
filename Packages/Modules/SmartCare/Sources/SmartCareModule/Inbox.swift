@@ -39,7 +39,7 @@ public struct InboxMessage: Codable, Sendable, Hashable, Identifiable {
     public let title: String
     public let body: String
     public var isRead: Bool
-    /// A `maccleaner://` URL the message opens.
+    /// A `featherduster://` URL the message opens.
     public let link: String?
 
     public init(id: UUID = UUID(), date: Date = .now, kind: InboxKind = .info, title: String, body: String,

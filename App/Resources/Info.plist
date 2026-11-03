@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mac Cleaner</string>
+	<string>Featherduster</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -20,7 +20,7 @@
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<!-- maccleaner://smart-care, maccleaner://cleanup?scanner=<id>, maccleaner://performance?task=<id>
+	<!-- featherduster://smart-care, featherduster://cleanup?scanner=<id>, featherduster://performance?task=<id>
 	     (App/Navigation/DeepLinkRouter.swift). Used by the menu bar agent. -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -28,10 +28,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>com.example.maccleaner.deeplink</string>
+			<string>com.example.featherduster.deeplink</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>maccleaner</string>
+				<string>featherduster</string>
 			</array>
 		</dict>
 	</array>
@@ -42,7 +42,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Mac Cleaner contributors. Licensed under GPL-3.0.</string>
+	<string>Copyright © 2026 Featherduster contributors. Licensed under GPL-3.0.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSMainStoryboardFile</key>
@@ -52,12 +52,12 @@
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Mac Cleaner uses Apple Events to quit unresponsive apps and to empty the Trash via Finder.</string>
+	<string>Featherduster uses Apple Events to quit unresponsive apps and to empty the Trash via Finder.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
-	<string>Mac Cleaner needs administrator access to remove system caches and run maintenance tasks.</string>
+	<string>Featherduster needs administrator access to remove system caches and run maintenance tasks.</string>
 	<!-- Sparkle: replace both placeholders before the first public build. -->
 	<key>SUFeedURL</key>
-	<string>https://example.com/maccleaner/appcast.xml</string>
+	<string>https://example.com/featherduster/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY</string>
 	<key>SUEnableInstallerLauncherService</key>

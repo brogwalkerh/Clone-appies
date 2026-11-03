@@ -5,7 +5,7 @@ let package = Package(
     name: "CLI",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "maccleaner", targets: ["maccleaner"]),
+        .executable(name: "featherduster", targets: ["featherduster"]),
     ],
     dependencies: [
         .package(path: "../Packages/Core"),
@@ -20,7 +20,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "maccleaner",
+            name: "featherduster",
             dependencies: [
                 .product(name: "CleanerCore", package: "Core"),
                 .product(name: "CleanupModule", package: "Cleanup"),
@@ -35,9 +35,9 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
-            name: "maccleanerTests",
+            name: "featherdusterTests",
             dependencies: [
-                "maccleaner",
+                "featherduster",
                 .product(name: "CleanerCore", package: "Core"),
                 .product(name: "CleanerCoreTesting", package: "Core"),
                 .product(name: "CleanerHashing", package: "Core"),

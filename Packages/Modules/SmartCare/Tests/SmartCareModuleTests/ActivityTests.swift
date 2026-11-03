@@ -192,7 +192,7 @@ struct InboxStoreTests {
         let app = InboxStore(fileURL: url)
         let agent = InboxStore(fileURL: url)
         let first = InboxMessage(date: date("2026-10-01T00:00:00Z"), kind: .scanResult, title: "Scheduled scan", body: "2 GB",
-                                 link: "maccleaner://smart-care")
+                                 link: "featherduster://smart-care")
         await agent.post(first)
         await app.post(InboxMessage(date: date("2026-10-02T00:00:00Z"), title: "Second", body: ""))
         #expect(await agent.messages().map(\.title) == ["Second", "Scheduled scan"])
@@ -201,7 +201,7 @@ struct InboxStoreTests {
         #expect(await agent.messages().filter(\.isRead).map(\.id) == [first.id])
         await agent.markRead(nil)
         #expect(await app.messages().allSatisfy(\.isRead))
-        #expect(await app.messages().last?.link == "maccleaner://smart-care")
+        #expect(await app.messages().last?.link == "featherduster://smart-care")
 
         await agent.removeAll()
         #expect(await app.messages().isEmpty)

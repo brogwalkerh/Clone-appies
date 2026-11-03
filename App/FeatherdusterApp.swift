@@ -1,11 +1,12 @@
 import AppIntents
+import AppKit
 import SwiftUI
 import DesignSystem
 
 /// App entry point. One main window (minimum 1200×800), a Settings scene, and
 /// text-only menus with ⌘1–⌘9 module shortcuts (PLAN.md §4).
 @main
-struct MacCleanerApp: App {
+struct FeatherdusterApp: App {
     @State private var appState: AppState
 
     init() {
@@ -14,16 +15,16 @@ struct MacCleanerApp: App {
         // Intents and Siri AI reach the UI through this shared service object.
         AppServices.shared.appState = state
         // Publishes the App Shortcuts phrases so Siri AI / Spotlight can discover them.
-        MacCleanerShortcuts.updateAppShortcutParameters()
+        FeatherdusterShortcuts.updateAppShortcutParameters()
     }
 
     var body: some Scene {
-        WindowGroup("Mac Cleaner") {
+        WindowGroup("Featherduster") {
             RootView()
                 .environment(appState)
                 .frame(minWidth: Metrics.minimumWindowSize.width,
                        minHeight: Metrics.minimumWindowSize.height)
-                // `maccleaner://smart-care`, `cleanup?scanner=`, `performance?task=`
+                // `featherduster://smart-care`, `cleanup?scanner=`, `performance?task=`
                 // from the menu bar agent, Spotlight or the CLI (CFBundleURLTypes in Info.plist).
                 .onOpenURL { url in
                     appState.open(url)
@@ -70,6 +71,13 @@ struct ModuleCommands: Commands {
                 appState.runCleanup()
             }
             .keyboardShortcut("r", modifiers: .command)
+        }
+
+        CommandGroup(after: .help) {
+            Divider()
+            Button("Support Featherduster…") {
+                NSWorkspace.shared.open(SupportLinks.sponsors)
+            }
         }
     }
 }

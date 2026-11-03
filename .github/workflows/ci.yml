@@ -94,7 +94,7 @@ jobs:
           python3 -c "import yaml,sys; yaml.safe_load(open('project.yml'))"
           for p in App/Resources/Info.plist App/Resources/App.entitlements \
                    MenuAgent/Resources/Info.plist \
-                   PrivilegedHelper/Resources/com.example.maccleaner.helper.plist \
+                   PrivilegedHelper/Resources/com.example.featherduster.helper.plist \
                    PrivilegedHelper/Resources/Info.plist; do
             python3 -c "import plistlib,sys; plistlib.load(open(sys.argv[1],'rb'))" "$p"
           done

@@ -34,7 +34,7 @@ final class FSEventsWatcher: @unchecked Sendable {
         }
     }
 
-    static let threadName = "com.example.maccleaner.fsevents"
+    static let threadName = "com.example.featherduster.fsevents"
 
     private let sink: Sink
     private let paths: [String]

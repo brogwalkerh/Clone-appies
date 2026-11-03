@@ -6,7 +6,7 @@ import SmartCareModule
 /// (the same files the app uses, ADR 0007).
 struct HistoryOptions: ParsableArguments {
     @Option(name: .customLong("data-dir"),
-            help: "App data directory (default: ~/Library/Application Support/com.example.maccleaner).")
+            help: "App data directory (default: ~/Library/Application Support/com.example.featherduster).")
     var dataDir: String?
 
     @Flag(name: .customLong("no-history"), help: "Do not record this run in My Activity.")

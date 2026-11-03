@@ -8,9 +8,9 @@ deliberately tiny; the real feed replaces them through `SignatureUpdater`.
   anti-malware test file, published by the European Institute for Computer
   Antivirus Research for exactly this purpose. The file is harmless.
 - `starter.ndb`: the EICAR string as a hex body pattern, plus four
-  `MacCleaner.Test.*` markers that match only the literal strings
-  `MACCLEANER-TEST-MARKER-A`, `MACCLEANER-TEST-...-WILDCARD`,
-  `#!...MACCLEANER-SCRIPT` (target 7, ASCII) and `MACCLEANER-MACHO-TEST`
+  `Featherduster.Test.*` markers that match only the literal strings
+  `FEATHERDUSTER-TEST-MARKER-A`, `FEATHERDUSTER-TEST-...-WILDCARD`,
+  `#!...FEATHERDUSTER-SCRIPT` (target 7, ASCII) and `FEATHERDUSTER-MACHO-TEST`
   (target 9, Mach-O). They exercise the pattern grammar (fixed bytes, bounded
   skip ranges, `*`, absolute offsets, target filtering) and contain no bytes
   from real malware.

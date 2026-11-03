@@ -3,7 +3,7 @@ import Testing
 import CleanerCore
 import HelperProtocol
 import PerformanceModule
-@testable import maccleaner
+@testable import featherduster
 
 /// Records every step it is asked to run and answers with a fixed exit code.
 final class FakeCommandRunner: CommandRunner, @unchecked Sendable {

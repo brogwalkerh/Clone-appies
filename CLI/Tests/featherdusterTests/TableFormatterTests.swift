@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import CleanerCore
-@testable import maccleaner
+@testable import featherduster
 
 @Suite("Table formatter")
 struct TableFormatterTests {

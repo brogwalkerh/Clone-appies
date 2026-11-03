@@ -7,7 +7,7 @@ struct RemoveCommand: AsyncParsableCommand {
         commandName: "remove",
         abstract: "Remove the findings listed in a scan JSON document (Trash first; undo via the manifest).")
 
-    @Option(name: .customLong("from-json"), help: "Scan document produced by `maccleaner scan --json`.")
+    @Option(name: .customLong("from-json"), help: "Scan document produced by `featherduster scan --json`.")
     var fromJSON: String
 
     @Option(name: .long, help: "trash (default) or permanent. Permanent removal requires --yes.",
@@ -21,7 +21,7 @@ struct RemoveCommand: AsyncParsableCommand {
     var includeRisky = false
 
     @Option(name: .customLong("manifest-out"),
-            help: "Where to write the removal manifest (default: ~/.maccleaner/manifests/<uuid>.json).")
+            help: "Where to write the removal manifest (default: ~/.featherduster/manifests/<uuid>.json).")
     var manifestOut: String?
 
     @Flag(name: .shortAndLong, help: "Do not prompt for confirmation.")
@@ -54,7 +54,7 @@ struct RemoveOptions: Sendable {
     var dryRun = false
     var includeRisky = false
     var assumeYes = false
-    /// nil means `~/.maccleaner/manifests/<manifest id>.json`.
+    /// nil means `~/.featherduster/manifests/<manifest id>.json`.
     var manifestOut: URL?
 }
 
@@ -106,7 +106,7 @@ enum RemoveRunner {
 
     static func defaultManifestURL(for id: UUID) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".maccleaner/manifests", isDirectory: true)
+            .appendingPathComponent(".featherduster/manifests", isDirectory: true)
             .appendingPathComponent("\(id.uuidString).json", isDirectory: false)
     }
 
@@ -164,7 +164,7 @@ enum RemoveRunner {
         }
         io.out.write("Manifest written to \(manifestURL.path)")
         if options.mode == .trash {
-            io.out.write("Undo with: maccleaner undo --manifest \(manifestURL.path)")
+            io.out.write("Undo with: featherduster undo --manifest \(manifestURL.path)")
         }
         return RemoveOutcome(selected: selected, skippedRisky: skippedRisky, skippedNested: skippedNested,
                              manifest: manifest, manifestURL: manifestURL)

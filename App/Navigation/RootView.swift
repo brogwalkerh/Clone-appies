@@ -43,7 +43,7 @@ struct RootView: View {
             .environment(appState)
         }
         .sheet(isPresented: $appState.helperInstallRequested) {
-            // Performance (and `maccleaner://performance?task=`) asks for the helper
+            // Performance (and `featherduster://performance?task=`) asks for the helper
             // through the same onboarding step rather than a second UI.
             OnboardingView(initialStep: .helper) {
                 appState.helperInstallRequested = false
