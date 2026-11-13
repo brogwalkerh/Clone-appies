@@ -45,7 +45,8 @@ struct DevToolCachesScannerTests {
         #expect(brew.risk == .safe)
         #expect(brew.sizeBytes == 35_000)
         #expect(brew.isDirectory)
-        #expect(findings.at("/Users/test/.m2/repository")?.risk == .caution)
+        // Holds locally installed artifacts: review-only.
+        #expect(findings.at("/Users/test/.m2/repository")?.risk == .risky)
         #expect(findings.at("/Users/test/.gradle/caches")?.risk == .caution)
         #expect(findings.at("/Users/test/.cargo/registry/cache")?.sizeBytes == 500)
         let docker = try #require(findings.named("Docker.raw"))

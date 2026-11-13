@@ -8,7 +8,8 @@ import CleanerCoreTesting
 struct IntegrationTests {
     @Test func allScannersHaveCleanupModuleAndUniqueIDs() {
         let scanners = CleanupScanners.all()
-        #expect(scanners.count == 8)
+        #expect(scanners.count == 7)
+        #expect(!scanners.contains { type(of: $0).id == "cleanup.purgeable" })
         let ids = scanners.map { type(of: $0).id }
         #expect(Set(ids).count == ids.count)
         #expect(ids.allSatisfy { $0.hasPrefix("cleanup.") })
@@ -35,7 +36,9 @@ struct IntegrationTests {
             "Library/Developer/Xcode/Archives/2026-08-01/App.xcarchive/dSYMs/x": .file(size: 6_000),
             ".Trash/old.png": .file(size: 1_500),
             ".Trash/Folder/a": .file(size: 10),
-            "Downloads/Big.pkg.download/Big.pkg": .file(size: 7_000),
+            "Downloads/Big.pkg.download/Big.pkg": .file(size: 7_000, modified: old),
+            "Downloads/Live.zip.download/Live.zip": .file(size: 7_000),
+            "Downloads/Old.zip": .file(size: 8_000, modified: old),
             "Downloads/Old.dmg": .file(size: 8_000, modified: old),
             "Downloads/Fresh.dmg": .file(size: 9_000),
             ".ollama/models/blobs/sha256-1": .file(size: 10_000),
@@ -43,6 +46,10 @@ struct IntegrationTests {
             "Documents/Thesis/thesis.pdf": .file(size: 12_000),
             "Desktop/family.jpg": .file(size: 13_000),
         ])
+        // The bundle directory itself was created just now; age it so the
+        // interrupted download counts as idle.
+        try FileManager.default.setAttributes([.modificationDate: old],
+                                              ofItemAtPath: fixture.url("Downloads/Big.pkg.download").path)
 
         let context = ScanContext(fileSystem: LocalFileSystem(), home: fixture.root)
         let coordinator = ScanCoordinator(scanners: CleanupScanners.all())
@@ -96,6 +103,10 @@ struct IntegrationTests {
         #expect(byPath["Library/Caches/com.apple.Safari"]?.risk == .caution)
         #expect(byPath["Library/Developer/Xcode/Archives/2026-08-01"]?.risk == .risky)
         #expect(byPath["Downloads/Old.dmg"]?.category.id == "cleanup.oldInstallers")
+        #expect(byPath["Downloads/Old.dmg"]?.risk == .risky)
+        #expect(byPath[".cache/huggingface"]?.risk == .risky)
+        #expect(!relative.contains("Downloads/Live.zip.download"))
+        #expect(!relative.contains("Downloads/Old.zip"))
         #expect(byPath[".ollama/models"]?.risk == .risky)
         #expect(summaryValue.byCategory["cleanup.trash"] == 1_510)
     }

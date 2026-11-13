@@ -191,11 +191,10 @@
     "category": "cleanup.oldInstallers",
     "relativePaths": [
       "Downloads/*.dmg",
-      "Downloads/*.pkg",
-      "Downloads/*.zip"
+      "Downloads/*.pkg"
     ],
-    "risk": "caution",
-    "description": "Installer images and archives downloaded more than a month ago. The app is usually already installed; keep any archive you have not unpacked yet."
+    "risk": "risky",
+    "description": "Disk images and installer packages in Downloads that have not been modified for more than a month. The app is usually already installed, but a disk image can also hold your own files; review each one before removing it."
   },
   {
     "id": "ai.ollama",
@@ -212,8 +211,8 @@
     "relativePaths": [
       ".cache/huggingface"
     ],
-    "risk": "caution",
-    "description": "Hugging Face model and dataset cache. Libraries download these again on demand, which can take a long time for large models."
+    "risk": "risky",
+    "description": "Hugging Face model and dataset cache. It also holds your Hugging Face login token, so removing it signs you out; models download again on demand, which can take a long time."
   },
   {
     "id": "ai.lmStudio",
@@ -285,8 +284,8 @@
     "relativePaths": [
       ".m2/repository"
     ],
-    "risk": "caution",
-    "description": "Maven's local repository of downloaded dependencies. Maven re-downloads them on the next build, which can take a while for large projects."
+    "risk": "risky",
+    "description": "Maven's local repository. Downloaded dependencies come back on the next build, but artifacts you installed locally with 'mvn install' exist only here and are lost."
   },
   {
     "id": "dev.cargo",

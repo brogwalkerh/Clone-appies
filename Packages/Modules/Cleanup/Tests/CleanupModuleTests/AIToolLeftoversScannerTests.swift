@@ -38,7 +38,8 @@ struct AIToolLeftoversScannerTests {
         #expect(ollama.risk == .risky)
         #expect(ollama.sizeBytes == 120_100)
         #expect(ollama.detail?.hasPrefix("Downloaded Ollama models, re-download to restore") == true)
-        #expect(findings.at("/Users/test/.cache/huggingface")?.risk == .caution)
+        // Holds the login token: review-only.
+        #expect(findings.at("/Users/test/.cache/huggingface")?.risk == .risky)
         #expect(findings.at("/Users/test/.cache/huggingface")?.sizeBytes == 100_000)
         #expect(findings.at("/Users/test/.cache/lm-studio")?.risk == .risky)
         #expect(findings.at("/Users/test/.lmstudio/models")?.risk == .risky)
