@@ -32,10 +32,13 @@ public struct QuarantineRecord: Codable, Sendable, Hashable {
         originalPermissions = try container.decodeIfPresent(Int16.self, forKey: .originalPermissions) ?? 0o644
     }
 
-    /// Mode to apply on restore: 0o755 for directories and anything that had
-    /// an execute bit, 0o644 otherwise.
+    /// Mode to apply on restore: the permission bits the item had when it was
+    /// quarantined, so a private (0600) file does not come back world-readable.
+    /// The owner always keeps read/write (plus search on directories) so the
+    /// restored item is usable; setuid/setgid/sticky bits are dropped.
     public var restoredPermissions: Int16 {
-        (threat.isDirectory || originalPermissions & 0o111 != 0) ? 0o755 : 0o644
+        let owner: Int16 = threat.isDirectory ? 0o700 : 0o600
+        return (originalPermissions & 0o777) | owner
     }
 }
 
@@ -112,8 +115,25 @@ public actor ThreatQuarantine {
             }
         }
         let manifest = QuarantineManifest(id: id, date: date, records: records)
-        try? Self.write(manifest, to: manifestDirectory)
-        return manifest
+        do {
+            try Self.write(manifest, to: manifestDirectory)
+            return manifest
+        } catch {
+            // Without a manifest the items would be invisible to list, restore
+            // and purge. Put them back rather than orphan them at mode 000.
+            let rolledBack = records.map { record -> QuarantineRecord in
+                guard let stored = record.storedAt else { return record }
+                let fm = FileManager.default
+                try? fm.setAttributes([.posixPermissions: Int(record.restoredPermissions)], ofItemAtPath: stored.path)
+                let original = record.threat.path.standardizedFileURL
+                let movedBack = (try? fm.moveItem(at: stored, to: original)) != nil
+                if movedBack { try? fm.removeItem(at: stored.deletingLastPathComponent()) }
+                return QuarantineRecord(threat: record.threat, storedAt: movedBack ? nil : stored, succeeded: false,
+                                        error: "Could not record the quarantine: \(error)",
+                                        originalPermissions: record.originalPermissions)
+            }
+            return QuarantineManifest(id: id, date: date, records: rolledBack)
+        }
     }
 
     /// Moves the manifest's items back to their original paths and resets
