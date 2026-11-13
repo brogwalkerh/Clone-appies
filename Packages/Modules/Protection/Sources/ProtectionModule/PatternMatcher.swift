@@ -13,7 +13,10 @@ import Foundation
 ///
 /// Matching is a linear scan with backtracking over tokens. Failed
 /// (token, position) pairs reached through a skip are memoized per call, so
-/// patterns with several `*` cannot backtrack combinatorially.
+/// patterns with several `*` cannot backtrack combinatorially. A skip that
+/// runs to the end of the window and fails is remembered too: it must fail
+/// from every later position as well, which keeps a file full of a pattern's
+/// prefix (`ABABAB…` against `4142*4344`) linear instead of quadratic.
 public struct PatternMatcher: Sendable {
     /// Upper bound on `maxPatternLength`; longer bounded spans are treated as
     /// if they were this long for overlap purposes.
@@ -125,8 +128,20 @@ public struct PatternMatcher: Sendable {
     private struct Memo {
         let stride: Int
         private var failed = Set<Int>()
+        /// Token index of the element after an open-ended skip -> lowest
+        /// position from which that skip is known to fail.
+        private var openSkipFailedFrom: [Int: Int] = [:]
 
         init(stride: Int) { self.stride = stride }
+
+        func openSkipHasFailed(_ index: Int, from position: Int) -> Bool {
+            guard let lowest = openSkipFailedFrom[index] else { return false }
+            return position >= lowest
+        }
+
+        mutating func recordOpenSkipFailure(_ index: Int, from position: Int) {
+            openSkipFailedFrom[index] = min(position, openSkipFailedFrom[index] ?? position)
+        }
 
         func hasFailed(_ index: Int, _ position: Int) -> Bool {
             !failed.isEmpty && failed.contains(index * stride + position)
@@ -159,10 +174,12 @@ public struct PatternMatcher: Sendable {
                 guard position < count, bytes[position] & 0x0F == low else { return false }
                 position += 1
             case .skipAny:
-                return matchSkip(tokens, index + 1, bytes, position, minimum: 0, maximum: count - position, &memo)
+                return matchSkip(tokens, index + 1, bytes, position, minimum: 0, maximum: count - position,
+                                 reachesEnd: true, &memo)
             case .skipRange(let minimum, let maximum):
+                let remaining = count - position
                 return matchSkip(tokens, index + 1, bytes, position, minimum: minimum,
-                                 maximum: min(maximum, count - position), &memo)
+                                 maximum: min(maximum, remaining), reachesEnd: maximum >= remaining, &memo)
             }
             index += 1
         }
@@ -171,11 +188,24 @@ public struct PatternMatcher: Sendable {
 
     /// Tries every skip length from `minimum` to `maximum` for the token after
     /// a skip. When that token is a fixed byte, only positions holding it are tried.
+    ///
+    /// `reachesEnd` says the skip may run to the end of the window. Such a skip
+    /// tries every position from `position + minimum` onwards, so if it fails
+    /// here it fails from any later position too (those try a subset).
     private static func matchSkip(_ tokens: [PatternToken], _ index: Int,
                                   _ bytes: UnsafeBufferPointer<UInt8>, _ position: Int,
-                                  minimum: Int, maximum: Int, _ memo: inout Memo) -> Bool {
+                                  minimum: Int, maximum: Int, reachesEnd: Bool, _ memo: inout Memo) -> Bool {
+        if index >= tokens.count { return minimum <= maximum }
+        if reachesEnd, memo.openSkipHasFailed(index, from: position) { return false }
+        if trySkips(tokens, index, bytes, position, minimum: minimum, maximum: maximum, &memo) { return true }
+        if reachesEnd { memo.recordOpenSkipFailure(index, from: position) }
+        return false
+    }
+
+    private static func trySkips(_ tokens: [PatternToken], _ index: Int,
+                                 _ bytes: UnsafeBufferPointer<UInt8>, _ position: Int,
+                                 minimum: Int, maximum: Int, _ memo: inout Memo) -> Bool {
         guard minimum <= maximum else { return false }
-        if index >= tokens.count { return true }
         var next: UInt8?
         if case .byte(let b) = tokens[index] { next = b }
         var skip = minimum
