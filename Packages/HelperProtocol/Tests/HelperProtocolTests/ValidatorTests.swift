@@ -78,6 +78,24 @@ struct ValidatorTests {
         }
     }
 
+    @Test("rejects a cache path whose parent directory or root is a symlink", arguments: [
+        "/Library/Caches/evil", "/Library/Caches/evil/nested", "/Library/Caches",
+    ])
+    func rejectsSymlinkedAncestor(link: String) {
+        let path = "/Library/Caches/evil/nested/Documents"
+        let strict = HelperRequestValidator(isSymlink: { $0 == link })
+        #expect(throws: HelperValidationError.invalidPath(path)) {
+            try strict.validate(request(.removeSystemCache(path: path)))
+        }
+    }
+
+    @Test func symlinkProbeCoversTargetAncestorsAndRootOnly() {
+        #expect(HelperRequestValidator.pathAndAncestors(of: "/private/var/folders/ab/cd/C", downTo: "/private/var/folders")
+            == ["/private/var/folders/ab/cd/C", "/private/var/folders/ab/cd", "/private/var/folders/ab", "/private/var/folders"])
+        #expect(HelperRequestValidator.pathAndAncestors(of: "/Library/Caches/x", downTo: "/Library/Caches")
+            == ["/Library/Caches/x", "/Library/Caches"])
+    }
+
     @Test func symlinkCheckIsOnlyConsultedForCachePaths() throws {
         let paranoid = HelperRequestValidator(isSymlink: { _ in true })
         for operation in HelperOperation.allSamples {

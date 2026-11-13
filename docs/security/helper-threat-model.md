@@ -19,7 +19,8 @@ label, and the caller's home (for Mail's `Envelope Index`).
   `HelperCommandPlan.allowedExecutables` even if a future plan named one.
 - Delete an arbitrary path: `rm` is reachable only through `removeSystemCache`,
   whose path must be standardized, absolute, free of `..`/`.`/`//`, strictly
-  below `/Library/Caches/` or `/private/var/folders/`, and not a symlink.
+  below `/Library/Caches/` or `/private/var/folders/`, with no symlink at the
+  target or in any directory between it and the root.
 - Touch Apple launchd jobs: labels starting with `com.apple.` (any case) are
   refused; labels are restricted to `[A-Za-z0-9_.-]`, so no `/`, space or
   shell metacharacters.
@@ -55,10 +56,13 @@ reviewable, deterministic, dry-run-able and testable without root.
 
 ## Residual risks
 - `removeSystemCache` under `/private/var/folders` can delete other users'
-  per-user cache/temp data (that is its purpose); the symlink check covers
-  only the final component, so a hostile symlinked *parent* directory created
-  by another local user could redirect `rm -rf`. Mitigation planned: resolve
-  the path with `realpath` in the helper and re-check the root (M3 follow-up).
+  per-user cache/temp data (that is its purpose). The validator refuses a path
+  when the target, the root, or any directory between them is a symbolic link,
+  so a planted symlinked *parent* cannot redirect `rm -rf`. What remains is the
+  race between that check and `rm` starting: another local user who can write
+  to a directory on the path could swap it for a link in that window. Closing
+  it needs descriptor-relative removal (`openat`/`unlinkat` with `O_NOFOLLOW`)
+  in the helper instead of `/bin/rm`.
 - The audit token is read via KVC on `NSXPCConnection`; if Apple removes it the
   helper stops accepting connections (safe, but a functional regression).
 - `periodic`, `lsregister` and `tmutil` are system tools with their own
