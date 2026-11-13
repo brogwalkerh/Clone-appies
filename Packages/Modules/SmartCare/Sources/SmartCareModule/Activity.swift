@@ -108,9 +108,11 @@ public protocol ActivityStore: Sendable {
     func removeAll() async throws
 }
 
-/// Append-only JSON Lines log (ADR 0007). Lines that fail to decode are
-/// skipped, so a torn write costs one event. On first use the file is
-/// compacted to the newest `maxEvents`.
+/// Append-only JSON Lines log (ADR 0007), shared by several processes:
+/// appends use `O_APPEND`, so concurrent writers add lines instead of
+/// overwriting each other's. Lines that fail to decode are skipped, so a torn
+/// write costs one event. On first use the file is compacted to the newest
+/// `maxEvents`.
 public actor JSONLinesActivityStore: ActivityStore {
     private let fileURL: URL
     private let maxEvents: Int
@@ -130,24 +132,30 @@ public actor JSONLinesActivityStore: ActivityStore {
             data.append(try encoder.encode(event))
             data.append(0x0A)
         }
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: fileURL.path) {
-            try fm.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: fileURL, options: .atomic)
-            return
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        // O_APPEND: the app, the MenuAgent and the CLI share this file, and
+        // the kernel then puts every write at the current end, so one
+        // process can never write over lines another has just added.
+        let descriptor = open(fileURL.path, O_RDWR | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
+        guard descriptor >= 0 else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSFilePathErrorKey: fileURL.path,
+                NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(errno)),
+            ])
         }
-        let handle = try FileHandle(forUpdating: fileURL)
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         let end = try handle.seekToEnd()
         if end > 0 {
             // After a torn write the last line has no newline; start a fresh
             // line so only the torn event is lost, not this one too.
             try handle.seek(toOffset: end - 1)
-            if handle.readData(ofLength: 1) != Data([0x0A]) {
+            if try handle.read(upToCount: 1) != Data([0x0A]) {
                 data.insert(0x0A, at: 0)
             }
-            try handle.seekToEnd()
         }
+        // The read offset is irrelevant: with O_APPEND writes go to the end.
         try handle.write(contentsOf: data)
     }
 
