@@ -247,6 +247,18 @@ targets:
         product: CleanerCore
       - package: Cleanup
         product: CleanupModule
+      - package: Clutter
+        product: ClutterModule
+      - package: Applications
+        product: ApplicationsModule
+      - package: Performance
+        product: PerformanceModule
+      - package: Protection
+        product: ProtectionModule
+      - package: SmartCare
+        product: SmartCareModule
+      - package: HelperProtocol
+        product: HelperProtocol
       - package: SpaceLens
         product: SpaceLens
       - package: swift-argument-parser
