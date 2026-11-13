@@ -7,7 +7,11 @@ import SmartCareModule
 struct SmartCareCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "smart-care",
-        abstract: "Scan every module at once and report what Smart Care would clean; --run moves it to the Trash.")
+        abstract: "Scan every module at once and report what Smart Care would clean; --run moves it to the Trash.",
+        discussion: """
+            Items that already are in the Trash are deleted permanently by --run and cannot be \
+            restored with `undo`. With --run, exits with status 1 when any item could not be removed.
+            """)
 
     @Option(name: .long, help: "Home directory to scan (default: the current user's home).")
     var home: String?
@@ -45,9 +49,10 @@ struct SmartCareCommand: AsyncParsableCommand {
         let modules = SmartCareRun.modules(registry: .builtIn(),
                                            malware: noMalware ? nil : SignatureDatabase.bundledStarter())
         let remover = GuardedRemover(wrapping: TrashRemover(), protectedPaths: .default)
-        _ = try await SmartCareRun.run(context: context, modules: modules, options: options, remover: remover,
-                                       activity: history.activity, confirm: { promptForConfirmation() },
-                                       io: .standard)
+        let outcome = try await SmartCareRun.run(context: context, modules: modules, options: options,
+                                                 remover: remover, activity: history.activity,
+                                                 confirm: { promptForConfirmation() }, io: .standard)
+        if (outcome.removal?.failedCount ?? 0) > 0 { throw ExitCode(1) }
     }
 }
 
@@ -58,6 +63,8 @@ struct SmartCareOptions: Sendable {
     var manifestOut: URL?
     var showProgress = true
     var policy = SmartCarePolicy.default
+    /// See `RemoveOptions.trashHome`.
+    var trashHome: URL?
 }
 
 struct SmartCareOutcome: Sendable {
@@ -133,20 +140,24 @@ enum SmartCareRun {
 
         io.out.write(table(report, policy: options.policy))
         let bytes = selection.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        var removeOptions = RemoveOptions()
+        removeOptions.assumeYes = options.assumeYes
+        removeOptions.manifestOut = options.manifestOut
+        removeOptions.trashHome = options.trashHome
         guard options.remove else {
             if selection.isEmpty {
                 io.out.write("Nothing for Smart Care to clean.")
             } else {
                 io.out.write("Smart Care can remove \(ByteFormatter.string(bytes)) now (\(count(selection.count, "item"))). "
                              + "Run `featherduster smart-care --run` to move them to the Trash.")
+                if let warning = RemoveRunner.permanentDeletionWarning(selection, options: removeOptions) {
+                    io.out.write(warning)
+                }
             }
             await record(events, in: activity, io: io)
             return SmartCareOutcome(report: report, selection: selection, removal: nil)
         }
 
-        var removeOptions = RemoveOptions()
-        removeOptions.assumeYes = options.assumeYes
-        removeOptions.manifestOut = options.manifestOut
         let removal = try await RemoveRunner.run(document: ScanDocument(findings: selection, duration: report.duration),
                                                  options: removeOptions, remover: remover, confirm: confirm, io: io)
         if let manifest = removal.manifest {

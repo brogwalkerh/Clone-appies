@@ -176,8 +176,15 @@ public enum ByteFormatter {
 
 ```swift
 public enum CleanupScanners {
-    public static func all() -> [any Scanner]      // in display order
+    public static func all() -> [any Scanner]      // in display order; purgeable space is NOT a scanner/finding
 }
+/// Purgeable space is a measurement, never a Finding (its path would be "/"). The type stays for
+/// source compatibility, is not in `CleanupScanners.all()`, and `scan` yields nothing; reclaiming is
+/// the "maintenance.freePurgeable" task.
+public struct PurgeableSpaceScanner: CleanerScanner { public static func purgeableBytes() -> Int64? }
+/// UserCachesScanner fails closed: an empty rules table (missing bundle, undecodable JSON) or an
+/// entry no rule covers yields nothing. BrokenDownloadsScanner offers a partial download only when
+/// nothing in it was modified for 24 h; "cleanup.oldInstallers" is .dmg/.pkg only (no .zip), risk .risky.
 /// Rules table loaded from Resources/cleanup-rules.json: known cache/log dirs with
 /// risk level, human description (Smart Insights fallback), and glob patterns.
 public struct CleanupRule: Codable, Sendable, Hashable {
@@ -203,7 +210,7 @@ public struct CirclePackingLayout: Sendable {
 }
 public struct SizeTreeBuilder: Sendable {
     public init(fileSystem: any FileSystem)
-    public func build(root: URL, maxDepth: Int = 3) async throws -> SizeNode
+    public func build(root: URL, maxDepth: Int = 3) async throws -> SizeNode   // throws CancellationError; checked per directory
 }
 ```
 On Linux `CGPoint` comes from Foundation; keep it or define `Point` typealias in SpaceLens.
@@ -245,6 +252,8 @@ public enum ClutterScanners {
     public static func all(imageFeatures: (any ImageFeatureProvider)? = nil) -> [any CleanerScanner]
 }
 
+/// Every My Clutter finding is review-only: risk .risky (never pre-selected). The walk skips
+/// hidden entries (.git, ...), dependency dirs (node_modules, Pods, ...) and package contents.
 /// Large & Old: files >= minSize or not modified in >= minAge under the user's
 /// home (Documents, Desktop, Downloads, Movies, Music, Pictures by default).
 public struct LargeOldFilesScanner: CleanerScanner {   // id "clutter.largeOld"
@@ -254,7 +263,8 @@ public struct LargeOldFilesScanner: CleanerScanner {   // id "clutter.largeOld"
 /// Duplicates: size bucket -> head+tail FNV-1a 64 -> full streaming SHA-256
 /// (pure Swift, in-package) -> group. Each duplicate group's *keeper* is the
 /// oldest file; the others are emitted as findings with category
-/// "clutter.duplicates", detail "Duplicate of <keeper path>", risk .caution.
+/// "clutter.duplicates", detail "Duplicate of <keeper path>", risk .risky. Dataless iCloud
+/// placeholders (allocated size 0, logical size > 0) are never read (also in Similar Images).
 public struct DuplicatesScanner: CleanerScanner {       // id "clutter.duplicates"
     public init(minSizeBytes: Int64 = 1_024, roots: [String] = [...same as above...])
 }
@@ -270,10 +280,10 @@ public protocol ImageFeatureProvider: Sendable {
 public struct SimilarImagesScanner: CleanerScanner {    // id "clutter.similarImages"
     public init(provider: any ImageFeatureProvider, threshold: Float = 0.25, roots: [String] = ["Pictures","Desktop","Downloads"])
     // Clusters by cosine distance <= threshold; keeper = largest file; others emitted,
-    // detail "Similar to <keeper>", risk .caution, category "clutter.similarImages".
+    // detail "Similar to <keeper>", risk .risky, category "clutter.similarImages".
 }
 /// Downloads triage: category "clutter.downloads"; installers (.dmg/.pkg/.zip), screenshots
-/// ("Screenshot*.png", "Screen Recording*.mov"), and anything older than 90 days. Risk .caution.
+/// ("Screenshot*.png", "Screen Recording*.mov"), and anything not modified for 90 days. Risk .risky.
 public struct DownloadsScanner: CleanerScanner { public init(staleAfter: TimeInterval = 90 * 86_400) }  // id "clutter.downloads"
 ```
 
@@ -298,6 +308,8 @@ public enum AppSource: String, Codable, Sendable, Hashable { case appStore, dire
 
 /// Discovers apps in /Applications, /Applications/Utilities, ~/Applications,
 /// /Applications/Setapp, Homebrew cask dirs (/opt/homebrew/Caskroom, /usr/local/Caskroom).
+/// Plain folders under a search root are entered up to 3 levels (/Applications/<Vendor>/<App>.app);
+/// bundles, other packages and hidden folders are never entered.
 /// Reads Info.plist via PropertyListDecoder. Source heuristics: _MASReceipt/receipt => appStore;
 /// Caskroom symlink target => homebrewCask; /Applications/Setapp => setapp; /System/Applications
 /// and apps whose bundle id starts with com.apple. => system; else direct.
@@ -308,9 +320,11 @@ public struct AppInventory: Sendable {
 
 /// Leftover locations for a bundle id, relative to home:
 /// Library/Application Support/<bid|name>, Library/Caches/<bid>, Library/Preferences/<bid>.plist,
-/// Library/Containers/<bid>, Library/Group Containers/*<bid>*, Library/Saved Application State/<bid>.savedState,
-/// Library/LaunchAgents/<bid>*.plist, Library/Logs/<bid|name>, Library/HTTPStorages/<bid>,
+/// Library/Containers/<bid>, Library/Group Containers/*<full bid>* (component-wise), Library/Saved Application State/<bid>.savedState,
+/// Library/LaunchAgents/<bid>.plist or <bid>.*.plist, Library/Logs/<bid|name>, Library/HTTPStorages/<bid>,
 /// Library/WebKit/<bid>, Library/Application Scripts/<bid>, Library/Cookies/<bid>.binarycookies.
+/// <bid> and <name> come from an untrusted Info.plist: anything that is not a single path component
+/// ("/", ".", "..") is rejected and every result is a direct child of its Library subfolder.
 public struct LeftoverResolver: Sendable {
     public init(fileSystem: any FileSystem)
     public func leftovers(for app: InstalledApp, home: URL) async -> [Finding]   // category "applications.leftovers", risk .safe, detail "<app name> support file"
@@ -319,16 +333,20 @@ public struct LeftoverResolver: Sendable {
 public enum ApplicationsScanners {
     public static func all() -> [any CleanerScanner]
 }
-/// id "applications.orphanedLeftovers": leftover dirs/plists in the locations above whose
-/// bundle id matches NO installed app and is not com.apple.* => risk .safe, category "applications.orphaned".
+/// id "applications.orphanedLeftovers": leftover dirs/plists in the locations above (LaunchAgents
+/// excluded) whose bundle id shares no vendor with any installed app and is not com.apple.* =>
+/// risk .risky (review-only), category "applications.orphaned". Yields nothing when the inventory is
+/// empty or any inventoried app has no readable bundle id.
 public struct OrphanedLeftoversScanner: CleanerScanner { public init() }
-/// id "applications.installers": *.dmg, *.pkg, *.mpkg in Downloads, Desktop, Documents => category "applications.installers", risk .caution.
+/// id "applications.installers": *.dmg, *.pkg, *.mpkg in Downloads, Desktop, Documents => category
+/// "applications.installers"; risk .caution in Downloads, .risky in Desktop and Documents.
 public struct InstallersScanner: CleanerScanner { public init() }
 
 /// Update checking. Network via URLSession; parsing via FoundationXML on Linux (#if canImport(FoundationXML)).
 public struct AvailableUpdate: Sendable, Hashable, Codable { public let app: InstalledApp; public let latestVersion: String; public let downloadURL: URL?; public let releaseNotesURL: URL?; public let source: AppSource }
 public protocol UpdateSource: Sendable { func check(_ apps: [InstalledApp]) async -> [AvailableUpdate] }
-public struct SparkleUpdateSource: UpdateSource { public init(session: URLSession = .shared) }  // fetches SUFeedURL appcasts, compares versions with VersionComparator
+public struct SparkleUpdateSource: UpdateSource { public init(session: URLSession = .shared) }  // fetches SUFeedURL appcasts, compares versions with VersionComparator.
+// SUFeedURL, enclosure and release-notes URLs are kept only when http/https with a host; anything else is nil.
 public struct VersionComparator { public static func compare(_ a: String, _ b: String) -> ComparisonResult }  // numeric dotted, handles "1.2.3 (456)", "2.0b1"
 public actor UpdateChecker { public init(sources: [any UpdateSource]); public func check(_ apps: [InstalledApp]) async -> [AvailableUpdate] }
 ```
@@ -454,7 +472,8 @@ public struct BackgroundItem: Sendable, Hashable, Codable, Identifiable {
     public let program: String?                   // Program or ProgramArguments[0]
     public let runAtLoad: Bool
     public let keepAlive: Bool
-    public let isBroken: Bool                     // program path does not exist
+    public let isBroken: Bool                     // program confirmed missing (a listable ancestor lacks the entry);
+                                                  // never for com.apple.* or /Volumes, /Network, /net programs
     public let isApple: Bool                      // label starts with com.apple.
     public let ownerAppName: String?              // best-effort from path / label
     public let enabledState: Bool?
@@ -465,7 +484,7 @@ public struct BackgroundItemsInventory: Sendable {
     public func discover(home: URL) async throws -> [BackgroundItem]
 }
 public protocol LaunchdStateProvider: Sendable { func isEnabled(label: String, domain: BackgroundItemDomain) async -> Bool? }
-/// id "performance.brokenLoginItems": emits each broken BackgroundItem's plist as a Finding, category "performance.brokenLoginItems", risk .safe.
+/// id "performance.brokenLoginItems": emits each broken BackgroundItem's plist as a Finding, category "performance.brokenLoginItems", risk .risky (never pre-selected; Apple items are not emitted).
 public struct BrokenLoginItemsScanner: CleanerScanner { public init() }
 public enum PerformanceScanners { public static func all() -> [any CleanerScanner] }
 
@@ -723,8 +742,11 @@ public actor InboxStore {
 public struct JSONFileRecord<Value: Codable & Sendable>: Sendable {
     public init(fileURL: URL)
     public func load() -> Value?            // nil when missing or undecodable
-    public func save(_ value: Value) throws // atomic, creates parent directory
+    public func read() throws -> Value?     // nil when missing; throws JSONFileRecordError.undecodable otherwise
+    public func save(_ value: Value) throws // atomic, creates parent directory; an existing file that does not
+                                            // decode is moved to "<name>.corrupt-<yyyyMMdd-HHmmss>" first, never overwritten
 }
+public enum JSONFileRecordError: Error, Sendable, Hashable, CustomStringConvertible { case undecodable(URL, reason: String) }
 
 // MARK: Assistant (rule-based, PLAN.md §3.1)
 public struct AssistantSnapshot: Sendable, Hashable {
@@ -787,6 +809,10 @@ public enum ScheduleTarget: Codable, Sendable, Hashable { case smartCareScan, mo
 public struct ScanSchedule: Codable, Sendable, Hashable, Identifiable {
     public let id: UUID; public var isEnabled: Bool; public var cadence: ScheduleCadence
     public var hour: Int; public var minute: Int; public var target: ScheduleTarget; public let createdAt: Date
+    public private(set) var enabledAt: Date?   // stamped when isEnabled goes false -> true (assignment or setEnabled);
+                                               // optional in JSON; hour/minute are clamped on decode as in init
+    public mutating func setEnabled(_ enabled: Bool, at date: Date = .now)
+    public func anchor(lastRun: Date?) -> Date // max(lastRun, enabledAt ?? createdAt): nothing at or before it fires
     public init(id: UUID = UUID(), isEnabled: Bool = true, cadence: ScheduleCadence, hour: Int, minute: Int,
                 target: ScheduleTarget, createdAt: Date = .now)
     public func nextFire(after date: Date, calendar: Calendar) -> Date?
@@ -830,7 +856,10 @@ Implementation notes (SmartCareModule as built):
 - `SmartCareCoordinator` builds module summaries from the findings it keeps, so a path
   two modules report counts once, under whichever module reported it first.
 - `JSONLinesActivityStore.append` starts a new line when the file does not end in one,
-  so a torn write loses only the torn event.
+  so a torn write loses only the torn event. It opens the file with `O_APPEND`, so the app,
+  the MenuAgent and the CLI can append at the same time without overwriting each other.
+- `ScheduleEvaluator.due` anchors on `ScanSchedule.anchor(lastRun:)`: a schedule that was created
+  disabled, or switched off and on again, waits for its next occurrence instead of firing at once.
 - Rules never fire on unknown (`nil`) facts; a fresh install sees only "firstScan".
 
 ## M5 — App and MenuAgent side (macOS only)

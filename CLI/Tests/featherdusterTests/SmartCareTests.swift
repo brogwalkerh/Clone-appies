@@ -3,6 +3,8 @@ import Testing
 import CleanerCore
 import CleanerCoreTesting
 import ProtectionModule
+import PerformanceModule
+import HelperProtocol
 import SmartCareModule
 @testable import featherduster
 
@@ -75,6 +77,7 @@ struct SmartCareCommandTests {
         options.remove = true
         options.assumeYes = true
         options.manifestOut = trash.url("manifest.json")
+        options.trashHome = home.root
         let activity = InMemoryActivityStore()
         let outcome = try await SmartCareRun.run(
             context: ScanContext(fileSystem: LocalFileSystem(), home: home.root),
@@ -91,6 +94,13 @@ struct SmartCareCommandTests {
         // The Trash item was emptied, not moved into the temp trash.
         let emptied = try #require(manifest.records.first { $0.finding.path.lastPathComponent == "old.txt" })
         #expect(emptied.trashedTo == nil)
+        // ...and the user was told so before anything happened and again afterwards.
+        let warning = "Warning: 1 item is already in the Trash and will be permanently deleted (500 B); this cannot be undone."
+        let warningIndex = try #require(out.lines.firstIndex(of: warning))
+        let removedIndex = try #require(out.lines.firstIndex { $0.hasPrefix("Removed ") })
+        #expect(warningIndex < removedIndex)
+        #expect(out.lines.contains("1 item was already in the Trash and was permanently deleted; undo cannot restore it."))
+        #expect(outcome.removal?.failedCount == 0)
         #expect(exists(home.url("Downloads/eicar.com")))
         #expect(exists(home.url("Documents/keep.pdf")))
         #expect(exists(trash.url("manifest.json")))
@@ -101,6 +111,22 @@ struct SmartCareCommandTests {
         let removals = events.filter { $0.kind == .removal }
         #expect(removals.map(\.module) == [.cleanup])
         #expect(removals.first?.bytes == manifest.bytesReclaimed)
+    }
+
+    @Test func scanOnlyReportWarnsAboutTrashItems() async throws {
+        let home = try makeHome()
+        defer { try? home.remove() }
+        let out = BufferSink()
+        var options = SmartCareOptions()
+        options.showProgress = false
+        options.trashHome = home.root
+        _ = try await SmartCareRun.run(
+            context: ScanContext(fileSystem: LocalFileSystem(), home: home.root),
+            modules: SmartCareRun.modules(registry: .builtIn(), malware: nil), options: options,
+            remover: TrashRemover(trashDirectory: home.url("unused-trash/files")),
+            activity: nil, confirm: { false }, io: CommandIO(out: out, err: BufferSink()))
+        #expect(out.lines.contains { $0.hasPrefix("Warning: 1 item is already in the Trash and will be permanently deleted") })
+        #expect(exists(home.url(".Trash/old.txt")))
     }
 
     @Test func tableMarksReviewOnlyModules() {
@@ -161,11 +187,63 @@ struct ActionsCommandTests {
         #expect(report.results.map(\.succeeded) == [true, false])
         #expect(!exists(home.url("Library/Logs/com.example.app/app.log")))
         #expect(out.lines.contains { $0.hasPrefix("[done] 1. Removed") })
-        #expect(out.lines.contains { $0.hasPrefix("[failed] 2.") })
+        // The helper step was never attempted: skipped, and the run did not fail.
+        #expect(out.lines.contains("[skipped] 2. Flush DNS Cache: requires the privileged helper (run it from the app)"))
+        #expect(!out.text.contains("[failed]"))
+        #expect(!ActionSets.failed(report))
         #expect(out.lines.contains("  2. run Flush DNS Cache (needs the app's helper)"))
         let kinds = try await activity.events(since: nil).map(\.kind)
         #expect(kinds.contains(.removal))
         #expect(kinds.contains(.actionSet))
+        #expect(!kinds.contains(.maintenance))
+    }
+
+    /// What `actions run` builds: a maintenance runner without a helper.
+    @Test func presetsWithHelperTasksAreSkippedNotFailedWithoutAHelper() async throws {
+        let home = try FixtureBuilder(name: "actions-presets")
+        defer { try? home.remove() }
+        try home.file("Library/Logs/com.example.app/app.log", size: 2_000)
+        let context = ScanContext(fileSystem: LocalFileSystem(), home: home.root)
+        let runner = ActionSetRunner(
+            scanners: ScannerRegistry.builtIn().scanners,
+            remover: TrashRemover(fileSystem: HomeFileSystem(home: home.root), trashDirectory: home.url("trash/files")),
+            maintenance: MaintenanceRunner(commands: OKCommandRunner(), helper: nil, home: home.root))
+
+        for preset in [ActionSetPresets.fridayClean, ActionSetPresets.quickTuneUp] {
+            let helperSteps = preset.steps.filter {
+                if case .maintenance(let id) = $0 { return MaintenanceCatalog.task(id: id)?.requiresHelper == true }
+                return false
+            }
+            #expect(!helperSteps.isEmpty, "\(preset.name) is expected to contain a helper task")
+            let out = BufferSink()
+            let activity = InMemoryActivityStore()
+            let report = try #require(try await ActionSets.run(preset, runner: runner, context: context,
+                                                               assumeYes: true, activity: activity, confirm: { false },
+                                                               io: CommandIO(out: out, err: BufferSink())))
+            #expect(!report.succeeded)            // the module still reports the step as not done
+            #expect(!ActionSets.failed(report))   // but the CLI does not exit 2 for it
+            #expect(out.lines.filter { $0.hasPrefix("[skipped] ") }.count == helperSteps.count)
+            #expect(!out.text.contains("[failed]"))
+            let maintenance = try await activity.events(since: nil).filter { $0.kind == .maintenance }
+            #expect(maintenance.allSatisfy { $0.items == 1 })
+        }
+
+        // A step that really fails still fails the run.
+        let broken = ActionSet(name: "Broken", steps: [.clean(scannerIDs: ["no.such.scanner"], includeCaution: false),
+                                                       .maintenance(taskID: "maintenance.freeRAM")])
+        let out = BufferSink()
+        let report = try #require(try await ActionSets.run(broken, runner: runner, context: context, assumeYes: true,
+                                                           activity: nil, confirm: { false },
+                                                           io: CommandIO(out: out, err: BufferSink())))
+        #expect(ActionSets.failed(report))
+        #expect(out.lines.contains { $0.hasPrefix("[failed] 1.") })
+        #expect(out.lines.contains { $0.hasPrefix("[skipped] 2.") })
+    }
+}
+
+private struct OKCommandRunner: CommandRunner {
+    func run(_ step: CommandStep) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        (0, "", "")
     }
 }
 
@@ -215,7 +293,7 @@ struct ActivityCommandTests {
 }
 
 /// `LocalFileSystem` with a fixture home, so the remover treats `<fixture>/.Trash` as the Trash.
-private struct HomeFileSystem: FileSystem {
+struct HomeFileSystem: FileSystem {
     let home: URL
     private let local = LocalFileSystem()
     func exists(_ url: URL) -> Bool { local.exists(url) }
