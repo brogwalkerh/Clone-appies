@@ -162,12 +162,82 @@ struct BackgroundItemsTests {
         let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0)
         let item = try #require(BackgroundItemsInventory.parse(
             plist: data, url: URL(fileURLWithPath: "/Library/LaunchDaemons/com.bin.item.plist"),
-            domain: .systemDaemon, home: testHome) { $0 == "/opt/bin/x" })
+            domain: .systemDaemon, home: testHome) { $0 != "/opt/bin/x" })
         #expect(item.label == "com.bin.item")
         #expect(item.program == "/opt/bin/x")
         #expect(item.runAtLoad)
         #expect(!item.keepAlive)
         #expect(!item.isBroken)
+    }
+
+    // MARK: Broken means confirmed missing
+
+    func parsed(label: String, program: String, missing: Bool = true) throws -> BackgroundItem {
+        try #require(BackgroundItemsInventory.parse(
+            plist: launchdPlistData(label: label, program: program),
+            url: URL(fileURLWithPath: "/Users/test/Library/LaunchAgents/\(label).plist"),
+            domain: .userAgent, home: testHome) { _ in missing })
+    }
+
+    @Test func programsOnDetachableVolumesAreNeverBroken() async throws {
+        #expect(try !parsed(label: "com.ext.agent", program: "/Volumes/External/Tools/agent").isBroken)
+        #expect(try !parsed(label: "com.ext.agent", program: "/Volumes/../Volumes/External/agent").isBroken)
+        #expect(try !parsed(label: "com.net.agent", program: "/Network/Servers/x/agent").isBroken)
+        #expect(try parsed(label: "com.local.agent", program: "/VolumesNot/agent").isBroken)
+        // Through the inventory: /Volumes exists and is listable but the volume is not mounted.
+        let items = try await discover([
+            "/Users/test/Library/LaunchAgents/com.ext.agent.plist": launchdPlist(
+                label: "com.ext.agent", program: "/Volumes/External/Tools/agent"),
+            "/Volumes/Macintosh HD": .directory,
+        ])
+        #expect(items.labeled("com.ext.agent")?.isBroken == false)
+    }
+
+    @Test func appleItemsAreNeverBroken() async throws {
+        #expect(try !parsed(label: "com.apple.gone", program: "/usr/libexec/gone").isBroken)
+        let items = try await discover([
+            "/Library/LaunchAgents/com.apple.gone.plist": launchdPlist(label: "com.apple.gone", program: "/usr/libexec/gone"),
+            "/usr/libexec/other": .file(size: 1),
+        ])
+        #expect(items.labeled("com.apple.gone")?.isBroken == false)
+    }
+
+    @Test func unreadableProgramDirectoryIsNotBroken() async throws {
+        // /opt/secure exists but can be neither listed nor searched, so the
+        // program cannot be stat'ed although it is there.
+        let restricted = RestrictedFileSystem(base: [
+            "/Users/test/Library/LaunchAgents/com.secure.agent.plist": launchdPlist(
+                label: "com.secure.agent", program: "/opt/secure/bin/agent"),
+            "/Users/test/Library/LaunchAgents/com.gone.agent.plist": launchdPlist(
+                label: "com.gone.agent", program: "/opt/open/bin/agent"),
+            "/opt/secure/bin/agent": .file(size: 1),
+            "/opt/open/bin/other": .file(size: 1),
+        ], unreadable: ["/opt/secure"])
+        let items = try await BackgroundItemsInventory(fileSystem: restricted).discover(home: testHome)
+        #expect(items.labeled("com.secure.agent")?.isBroken == false)
+        #expect(items.labeled("com.gone.agent")?.isBroken == true)
+    }
+
+    @Test func confirmedMissingNeedsAListableAncestorWithoutTheEntry() {
+        let fs: MockFileSystem = [
+            "/opt/tool/bin/present": .file(size: 1),
+            "/opt/tool/Dangling": .symlink(to: "/Volumes/Gone/x"),
+            "/opt/file": .file(size: 1),
+        ]
+        func missing(_ path: String) -> Bool { BackgroundItemsInventory.isConfirmedMissing(path, fileSystem: fs) }
+        #expect(!missing("/opt/tool/bin/present"))
+        #expect(missing("/opt/tool/bin/absent"))
+        // The whole bundle is gone: the first missing component is absent from a listable directory.
+        #expect(missing("/opt/removed/Contents/MacOS/x"))
+        // Listed under another case: not confirmed missing.
+        #expect(!missing("/opt/tool/BIN/absent"))
+        // Listed but unreachable (dangling symlink): not confirmed missing.
+        #expect(!missing("/opt/tool/Dangling/x"))
+        // The deepest existing ancestor is a file, not a listable directory.
+        #expect(!missing("/opt/file/x"))
+        let restricted = RestrictedFileSystem(base: ["/opt/secure/bin/agent": .file(size: 1)], unreadable: ["/opt/secure"])
+        #expect(!BackgroundItemsInventory.isConfirmedMissing("/opt/secure/bin/agent", fileSystem: restricted))
+        #expect(!BackgroundItemsInventory.isConfirmedMissing("/opt/secure/bin/absent", fileSystem: restricted))
     }
 
     @Test func roundTripsThroughJSON() async throws {

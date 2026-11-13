@@ -65,6 +65,29 @@ struct UserCachesScannerTests {
         #expect(findings.named("com.apple.dt.Xcode") == nil)
     }
 
+    /// A missing bundle or an undecodable rules file loads as an empty table.
+    /// The never-offer set lives in that table, so nothing may be offered.
+    @Test func emptyRulesYieldNothing() async throws {
+        let findings = try await collect(UserCachesScanner(rules: CleanupRules(rules: [])), context(fs))
+        #expect(findings.isEmpty)
+    }
+
+    @Test func undecodableRulesFileIsAnErrorNotAnEmptyAllowList() {
+        let broken = """
+        [{"id":"x","category":"cleanup.userCaches","relativePaths":["Library/Caches"],"risk":"harmless","description":"d"}]
+        """
+        #expect(throws: (any Error).self) { try CleanupRules(data: Data(broken.utf8)) }
+    }
+
+    @Test func entriesNoRuleCoversAreNotOffered() async throws {
+        let partial = CleanupRules(rules: [
+            CleanupRule(id: "only", category: "cleanup.userCaches",
+                        relativePaths: ["Library/Caches/com.example.app"], risk: .safe, description: "d"),
+        ])
+        let findings = try await collect(UserCachesScanner(rules: partial), context(fs))
+        #expect(findings.paths == ["/Users/test/Library/Caches/com.example.app"])
+    }
+
     @Test func missingParentYieldsNothing() async throws {
         let fs: MockFileSystem = ["/Users/test/Documents/a.txt": .file(size: 1)]
         let findings = try await collect(scanner, context(fs))

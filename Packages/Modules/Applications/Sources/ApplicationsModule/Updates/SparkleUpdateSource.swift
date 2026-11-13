@@ -7,6 +7,25 @@ import FoundationNetworking
 import FoundationXML
 #endif
 
+/// URLs read from an app's Info.plist or from an appcast are untrusted and
+/// end up in `NSWorkspace.open`. Only plain web URLs are let through: any
+/// other scheme (`file:`, `smb:`, `ssh:`, custom app schemes, ...) would let
+/// a feed open local files or drive other apps.
+enum WebURL {
+    /// `url` when it is an `http`/`https` URL with a host, else nil.
+    static func sanitized(_ url: URL?) -> URL? {
+        guard let url, let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = url.host, !host.isEmpty else { return nil }
+        return url
+    }
+
+    /// Parses `string` (surrounding whitespace ignored) as a web URL.
+    static func parse(_ string: String) -> URL? {
+        sanitized(URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+}
+
 /// Checks apps that ship a Sparkle `SUFeedURL` against their appcast.
 ///
 /// Sparkle compares the feed's `sparkle:version` with `CFBundleVersion`; the
@@ -51,7 +70,7 @@ public struct SparkleUpdateSource: UpdateSource {
 
     /// Fetches and evaluates one app's appcast. Any failure yields nil.
     static func checkOne(_ app: InstalledApp, session: URLSession) async -> AvailableUpdate? {
-        guard let feedURL = app.sparkleFeedURL else { return nil }
+        guard let feedURL = WebURL.sanitized(app.sparkleFeedURL) else { return nil }
         guard let data = try? await fetch(feedURL, session: session) else { return nil }
         guard let items = try? AppcastParser.parse(data), !items.isEmpty else { return nil }
         return update(for: app, from: items)
@@ -75,7 +94,8 @@ public struct SparkleUpdateSource: UpdateSource {
         }
         guard isNewer else { return nil }
         return AvailableUpdate(app: app, latestVersion: latest.shortVersion ?? latestVersion,
-                               downloadURL: latest.enclosureURL, releaseNotesURL: latest.releaseNotesURL,
+                               downloadURL: WebURL.sanitized(latest.enclosureURL),
+                               releaseNotesURL: WebURL.sanitized(latest.releaseNotesURL),
                                source: .direct)
     }
 
@@ -154,7 +174,7 @@ public enum AppcastParser {
             }
             guard current != nil, path.dropLast().last?.lowercased() == "item" else { return }
             if name == "enclosure" {
-                if let url = attributeDict["url"], let parsed = URL(string: url) {
+                if let url = attributeDict["url"], let parsed = WebURL.parse(url) {
                     current?.enclosureURL = parsed
                 }
                 if let version = attributeDict["sparkle:version"], !version.isEmpty {
@@ -189,7 +209,7 @@ public enum AppcastParser {
             case "sparkle:shortversionstring":
                 if !value.isEmpty { current?.shortVersion = value }
             case "sparkle:releasenoteslink":
-                current?.releaseNotesURL = URL(string: value)
+                current?.releaseNotesURL = WebURL.parse(value)
             case "sparkle:channel":
                 if !value.isEmpty { current?.channel = value }
             case "sparkle:minimumsystemversion":

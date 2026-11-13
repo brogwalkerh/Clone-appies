@@ -137,4 +137,39 @@ struct SparkleUpdateSourceTests {
         #expect(update?.downloadURL == URL(string: "https://e/3.zip"))
         #expect(SparkleUpdateSource.update(for: installed, from: []) == nil)
     }
+
+    /// Download and release-notes links are opened with NSWorkspace by the
+    /// app, so only web URLs may leave the parser.
+    @Test func nonWebURLsAreDropped() throws {
+        let items = try AppcastParser.parse(appcast(items: [
+            appcastItem(version: "1", url: "file:///Applications/Calculator.app", notes: "x-apple.systempreferences:com.apple.preference"),
+            appcastItem(version: "2", url: "smb://evil.example/share/a.dmg", notes: "javascript:alert(1)"),
+            appcastItem(version: "3", url: "HTTPS://example.com/ok.zip", notes: "http://example.com/notes.html"),
+            appcastItem(version: "4", url: "/relative/path.zip", notes: "https:///nohost"),
+        ]))
+        #expect(items.count == 4)
+        #expect(items[0].enclosureURL == nil && items[0].releaseNotesURL == nil)
+        #expect(items[1].enclosureURL == nil && items[1].releaseNotesURL == nil)
+        #expect(items[2].enclosureURL == URL(string: "HTTPS://example.com/ok.zip"))
+        #expect(items[2].releaseNotesURL == URL(string: "http://example.com/notes.html"))
+        #expect(items[3].enclosureURL == nil && items[3].releaseNotesURL == nil)
+        // The version is still read, so the update itself is still reported.
+        #expect(items[0].version == "1")
+    }
+
+    @Test func handBuiltItemsAndFeedsAreSanitizedToo() async {
+        let installed = makeApp(name: "X", id: "com.x.y", version: "1.0", build: "10")
+        let update = SparkleUpdateSource.update(for: installed, from: [
+            AppcastItem(version: "30", shortVersion: "3.0", enclosureURL: URL(string: "file:///tmp/payload.app"),
+                        releaseNotesURL: URL(string: "ssh://host/x")),
+        ])
+        #expect(update?.latestVersion == "3.0")
+        #expect(update?.downloadURL == nil)
+        #expect(update?.releaseNotesURL == nil)
+
+        // A non-web feed is never fetched.
+        let local = makeApp(name: "Local", id: "com.x.local", feed: "file:///tmp/sparkle-nonweb/appcast.xml")
+        #expect(await source.check([local]).isEmpty)
+        #expect(StubURLProtocol.store.requests(matching: "file:///tmp/sparkle-nonweb").isEmpty)
+    }
 }

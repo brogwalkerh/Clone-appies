@@ -83,6 +83,9 @@ public struct CleanupRules: Sendable {
 
     // MARK: - Loading
 
+    /// An unreadable or undecodable table yields an *empty* rule set. Scanners
+    /// must treat that as "offer nothing" (see `UserCachesScanner`), never as
+    /// "nothing is protected".
     private static func loadBundled() -> CleanupRules {
         guard let url = Bundle.module.url(forResource: "cleanup-rules", withExtension: "json"),
               let data = try? Data(contentsOf: url),

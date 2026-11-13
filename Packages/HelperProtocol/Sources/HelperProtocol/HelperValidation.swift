@@ -45,7 +45,7 @@ public struct HelperRequestValidator: Sendable {
     public func validate(_ request: HelperRequest) throws {
         try Self.validateHome(request.callerHome)
         switch request.operation {
-        case .ping, .freePurgeableSpace, .flushDNSCache, .rebuildLaunchServices,
+        case .ping, .purgeMemory, .freePurgeableSpace, .flushDNSCache, .rebuildLaunchServices,
              .resetBluetoothModule, .speedUpMail:
             return
         case .runPeriodicScripts:
@@ -76,11 +76,30 @@ public struct HelperRequestValidator: Sendable {
 
     func validateSystemCachePath(_ path: String) throws {
         guard Self.isStandardizedAbsolute(path) else { throw HelperValidationError.invalidPath(path) }
-        let underRoot = Self.systemCacheRoots.contains { root in
-            path != root && path.hasPrefix(root + "/")
+        guard let root = Self.systemCacheRoots.first(where: { path != $0 && path.hasPrefix($0 + "/") }) else {
+            throw HelperValidationError.outsideAllowedRoot(path)
         }
-        guard underRoot else { throw HelperValidationError.outsideAllowedRoot(path) }
-        guard !isSymlink(path) else { throw HelperValidationError.invalidPath(path) }
+        // Neither the target, the root, nor any directory between them may be a
+        // symbolic link. `/Library/Caches` is world-writable, so checking only
+        // the final component would let a planted `evil -> /Users/x` parent
+        // send `rm -rf` outside the root.
+        for candidate in Self.pathAndAncestors(of: path, downTo: root) where isSymlink(candidate) {
+            throw HelperValidationError.invalidPath(path)
+        }
+    }
+
+    /// `path`, then each ancestor of it, ending with `root` itself.
+    /// Precondition: `path` is standardized and strictly below `root`.
+    static func pathAndAncestors(of path: String, downTo root: String) -> [String] {
+        var result: [String] = []
+        var current = Substring(path)
+        while current.count > root.count {
+            result.append(String(current))
+            guard let slash = current.lastIndex(of: "/") else { break }
+            current = current[..<slash]
+        }
+        result.append(root)
+        return result
     }
 
     static func validateVolume(_ volume: String) throws {

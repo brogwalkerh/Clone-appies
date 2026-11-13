@@ -14,6 +14,8 @@ import Foundation
 /// - Entries whose attributes or listing cannot be read (e.g. permission denied)
 ///   are skipped; an unreadable directory still appears with size 0 and no
 ///   children. Only a failure to read `root` itself throws.
+/// - Cancellation is checked once per directory at every depth; a cancelled
+///   build throws `CancellationError`.
 /// - Top-level children are walked concurrently with a bounded `TaskGroup`.
 ///   The result is `sorted()` (size descending), so output is deterministic.
 public struct SizeTreeBuilder: Sendable {
@@ -58,7 +60,7 @@ public struct SizeTreeBuilder: Sendable {
                 nextIndex += 1
                 group.addTask {
                     try Task.checkCancellation()
-                    return (index, self.walk(url, depth: 1, maxDepth: maxDepth))
+                    return (index, try self.walk(url, depth: 1, maxDepth: maxDepth))
                 }
             }
 
@@ -78,7 +80,10 @@ public struct SizeTreeBuilder: Sendable {
     // MARK: - Synchronous walk
 
     /// Returns the node for `url` at `depth`, or `nil` if it must be skipped.
-    private func walk(_ url: URL, depth: Int, maxDepth: Int) -> SizeNode? {
+    /// Throws `CancellationError` as soon as the surrounding task is cancelled
+    /// (checked once per directory), so an abandoned build stops walking
+    /// instead of running to completion.
+    private func walk(_ url: URL, depth: Int, maxDepth: Int) throws -> SizeNode? {
         guard let attributes = try? fileSystem.attributes(of: url) else { return nil }
         let name = Self.displayName(for: url)
 
@@ -86,6 +91,7 @@ public struct SizeTreeBuilder: Sendable {
             return SizeNode(id: url, name: name, sizeBytes: max(0, attributes.sizeBytes), isDirectory: false)
         }
 
+        try Task.checkCancellation()
         guard let entries = try? fileSystem.children(of: url) else {
             return SizeNode(id: url, name: name, sizeBytes: 0, isDirectory: true)
         }
@@ -93,7 +99,7 @@ public struct SizeTreeBuilder: Sendable {
         if depth >= maxDepth {
             var total: Int64 = 0
             for entry in entries.sorted(by: { $0.path < $1.path }) {
-                total &+= totalSize(of: entry)
+                total &+= try totalSize(of: entry)
             }
             return SizeNode(id: url, name: name, sizeBytes: total, isDirectory: true)
         }
@@ -102,7 +108,7 @@ public struct SizeTreeBuilder: Sendable {
         children.reserveCapacity(entries.count)
         var total: Int64 = 0
         for entry in entries.sorted(by: { $0.path < $1.path }) {
-            if let child = walk(entry, depth: depth + 1, maxDepth: maxDepth) {
+            if let child = try walk(entry, depth: depth + 1, maxDepth: maxDepth) {
                 total &+= child.sizeBytes
                 children.append(child)
             }
@@ -111,12 +117,14 @@ public struct SizeTreeBuilder: Sendable {
     }
 
     /// Recursive size of `url` without materializing nodes (used past `maxDepth`).
-    private func totalSize(of url: URL) -> Int64 {
+    /// Checks for cancellation once per directory.
+    private func totalSize(of url: URL) throws -> Int64 {
         guard let attributes = try? fileSystem.attributes(of: url) else { return 0 }
         if attributes.isSymlink || !attributes.isDirectory { return max(0, attributes.sizeBytes) }
+        try Task.checkCancellation()
         guard let entries = try? fileSystem.children(of: url) else { return 0 }
         var total: Int64 = 0
-        for entry in entries { total &+= totalSize(of: entry) }
+        for entry in entries { total &+= try totalSize(of: entry) }
         return total
     }
 

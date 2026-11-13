@@ -40,7 +40,7 @@ struct DuplicatesScannerTests {
             "/Users/test/Downloads/report copy.pdf",
         ])
         #expect(findings.named("report (1).pdf") == nil)
-        #expect(group.allSatisfy { $0.sizeBytes == 20_000 && $0.risk == .caution && !$0.isDirectory })
+        #expect(group.allSatisfy { $0.sizeBytes == 20_000 && $0.risk == .risky && !$0.isDirectory })
         #expect(group.allSatisfy { $0.category.id == "clutter.duplicates" && $0.scannerID == "clutter.duplicates" })
         #expect(findings.named("report copy.pdf")?.modifiedAt == daysAgo(1))
     }
@@ -95,12 +95,12 @@ struct DuplicatesScannerTests {
     }
 
     @Test func equalLogicalSizeWithDifferentAllocatedSizeIsGrouped() async throws {
-        // Byte-identical content; APFS compression / clonefile makes the
-        // on-disk footprint differ. They must land in the same bucket.
+        // Byte-identical content; APFS compression makes the on-disk
+        // footprint differ. They must land in the same bucket.
         let fs: MockFileSystem = [
             "/Users/test/Documents/original.bin": .data(blob, allocatedSize: 24_576, modified: daysAgo(40)),
             "/Users/test/Documents/compressed.bin": .data(blob, allocatedSize: 8_192, modified: daysAgo(3)),
-            "/Users/test/Documents/cloned.bin": .data(blob, allocatedSize: 0, modified: daysAgo(1)),
+            "/Users/test/Documents/cloned.bin": .data(blob, allocatedSize: 4_096, modified: daysAgo(1)),
         ]
         let findings = try await collect(scanner, context(fs))
         #expect(findings.paths == [
@@ -110,7 +110,47 @@ struct DuplicatesScannerTests {
         #expect(findings.allSatisfy { $0.detail == "Duplicate of /Users/test/Documents/original.bin" })
         // Findings report the allocated size, so reclaim figures stay accurate.
         #expect(findings.named("compressed.bin")?.sizeBytes == 8_192)
-        #expect(findings.named("cloned.bin")?.sizeBytes == 0)
+        #expect(findings.named("cloned.bin")?.sizeBytes == 4_096)
+    }
+
+    /// Review-only: `.risky` is the one level the app never pre-selects.
+    @Test func duplicatesAreNeverPreselectable() async throws {
+        let findings = try await collect(scanner, context(fs))
+        #expect(!findings.isEmpty)
+        #expect(findings.allSatisfy { $0.risk == .risky })
+    }
+
+    @Test func repositoriesAndDependencyTreesAreNotScanned() async throws {
+        let fs: MockFileSystem = [
+            "/Users/test/Documents/proj/.git/objects/aa/one": .data(blob, modified: daysAgo(9)),
+            "/Users/test/Documents/proj/.git/objects/bb/two": .data(blob, modified: daysAgo(8)),
+            "/Users/test/Documents/proj/node_modules/a/index.js": .data(blob, modified: daysAgo(7)),
+            "/Users/test/Documents/proj/node_modules/b/index.js": .data(blob, modified: daysAgo(6)),
+            "/Users/test/Documents/proj/Pods/A/a.h": .data(blob, modified: daysAgo(5)),
+            "/Users/test/Documents/proj/.venv/lib/x.py": .data(blob, modified: daysAgo(4)),
+            "/Users/test/Documents/.hidden-copy": .data(blob, modified: daysAgo(3)),
+            "/Users/test/Documents/proj/fixture-a.bin": .data(blob, modified: daysAgo(2)),
+            "/Users/test/Documents/proj/fixture-b.bin": .data(blob, modified: daysAgo(1)),
+        ]
+        let findings = try await collect(scanner, context(fs))
+        #expect(findings.paths == ["/Users/test/Documents/proj/fixture-b.bin"])
+        #expect(findings.first?.detail == "Duplicate of /Users/test/Documents/proj/fixture-a.bin")
+    }
+
+    @Test func evictedICloudPlaceholdersAreNeverRead() async throws {
+        // Content length but nothing on disk: hashing would download the file.
+        let base: MockFileSystem = [
+            "/Users/test/Documents/local-a.bin": .data(blob, modified: daysAgo(3)),
+            "/Users/test/Documents/local-b.bin": .data(blob, modified: daysAgo(2)),
+            "/Users/test/Documents/evicted.bin": .data(blob, allocatedSize: 0, modified: daysAgo(900)),
+        ]
+        let fs = ReadRecordingFileSystem(base: base)
+        let findings = try await collect(scanner, ScanContext(fileSystem: fs, protectedPaths: .none, now: testNow))
+        // The placeholder is neither a finding nor the keeper.
+        #expect(findings.paths == ["/Users/test/Documents/local-b.bin"])
+        #expect(findings.first?.detail == "Duplicate of /Users/test/Documents/local-a.bin")
+        #expect(!fs.log.paths.contains("/Users/test/Documents/evicted.bin"))
+        #expect(fs.log.paths.contains("/Users/test/Documents/local-a.bin"))
     }
 
     @Test func minimumSizeGateUsesLogicalSize() async throws {

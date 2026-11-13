@@ -22,16 +22,34 @@ public struct LeftoverResolver: Sendable {
     /// Existing leftover locations for `app`, as findings with category
     /// `applications.leftovers`, risk `.safe` and detail "<app name> support file".
     /// Returns `[]` for apps without a bundle identifier.
+    ///
+    /// `app.name` and the bundle identifier come from the app's own
+    /// Info.plist and are untrusted: a name such as `../../Documents` must
+    /// never turn a user folder into a "support file". Names that are not a
+    /// single safe path component are dropped (an unsafe identifier yields
+    /// nothing at all), and every candidate must sit directly inside the
+    /// `~/Library` subfolder it was built for.
     public func leftovers(for app: InstalledApp, home: URL) async -> [Finding] {
-        guard let bundleID = app.bundleIdentifier, !bundleID.isEmpty else { return [] }
+        guard let bundleID = app.bundleIdentifier, !bundleID.isEmpty,
+              BundleIdentifier.isSafePathComponent(bundleID) else { return [] }
         let home = home.standardizedFileURL
         let library = home.appendingPathComponent("Library", isDirectory: true)
-        var names = [app.name]
-        if app.bundleStem != app.name { names.append(app.bundleStem) }
+        var names: [String] = []
+        for name in [app.name, app.bundleStem]
+        where BundleIdentifier.isSafePathComponent(name) && !names.contains(name) {
+            names.append(name)
+        }
 
         var candidates: [URL] = []
+        /// Appends `<Library>/<relative>/<name>` when it resolves to a direct
+        /// child of `<Library>/<relative>`.
         func add(_ relative: String, _ name: String) {
-            candidates.append(library.appendingPathComponent(relative, isDirectory: true).appendingPathComponent(name))
+            guard BundleIdentifier.isSafePathComponent(name) else { return }
+            let parent = library.appendingPathComponent(relative, isDirectory: true).standardizedFileURL
+            let candidate = parent.appendingPathComponent(name).standardizedFileURL
+            guard candidate.deletingLastPathComponent().standardizedFileURL.path == parent.path,
+                  candidate.lastPathComponent == name else { return }
+            candidates.append(candidate)
         }
 
         add("Application Support", bundleID)
@@ -40,15 +58,19 @@ public struct LeftoverResolver: Sendable {
         add("Preferences", "\(bundleID).plist")
         add("Containers", bundleID)
         candidates += matchingChildren(of: library.appendingPathComponent("Group Containers", isDirectory: true)) { name in
-            if BundleIdentifier.name(name, containsComponents: bundleID) { return true }
-            if let suffix = BundleIdentifier.vendorSuffix(bundleID) {
-                return BundleIdentifier.name(name, containsComponents: suffix)
-            }
-            return false
+            // The full bundle id, never just its last two components:
+            // `vendor.app` also names other vendors' and shared containers.
+            BundleIdentifier.name(name, containsComponents: bundleID)
         }
         add("Saved Application State", "\(bundleID).savedState")
         candidates += matchingChildren(of: library.appendingPathComponent("LaunchAgents", isDirectory: true)) { name in
-            name.lowercased().hasPrefix(bundleID.lowercased()) && name.lowercased().hasSuffix(".plist")
+            // `<bundle id>.plist` or `<bundle id>.<anything>.plist`. A bare
+            // prefix test would hand `com.vendor.app2.*` to `com.vendor.app`.
+            let lower = name.lowercased()
+            guard lower.hasSuffix(".plist") else { return false }
+            let stem = String(lower.dropLast(".plist".count))
+            let id = bundleID.lowercased()
+            return stem == id || stem.hasPrefix(id + ".")
         }
         add("Logs", bundleID)
         for name in names { add("Logs", name) }
@@ -85,7 +107,11 @@ public struct LeftoverResolver: Sendable {
         return findings
     }
 
+    /// Direct children of `directory` whose name satisfies `predicate`.
     private func matchingChildren(of directory: URL, _ predicate: (String) -> Bool) -> [URL] {
-        fileSystem.readableChildren(of: directory).filter { predicate($0.lastPathComponent) }
+        let parent = directory.standardizedFileURL.path
+        return fileSystem.readableChildren(of: directory).filter {
+            $0.standardizedFileURL.deletingLastPathComponent().path == parent && predicate($0.lastPathComponent)
+        }
     }
 }

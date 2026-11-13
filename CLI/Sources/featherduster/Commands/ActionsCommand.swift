@@ -27,7 +27,12 @@ struct ActionsListCommand: AsyncParsableCommand {
 struct ActionsRunCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "run",
-        abstract: "Run an action set by name or id. Removes .safe findings to the Trash; helper tasks are skipped.")
+        abstract: "Run an action set by name or id. Removes .safe findings to the Trash; helper tasks are skipped.",
+        discussion: """
+            Maintenance tasks that need the app's privileged helper cannot run from the command \
+            line; they are reported as [skipped] and do not affect the exit status. Exits with \
+            status 2 when any other step failed.
+            """)
 
     @Argument(help: "Action set name (case-insensitive) or id.")
     var nameOrID: String
@@ -56,7 +61,7 @@ struct ActionsRunCommand: AsyncParsableCommand {
         let report = try await ActionSets.run(set, runner: runner, context: context, assumeYes: yes || dryRun,
                                               activity: dryRun ? nil : history.activity,
                                               confirm: { promptForConfirmation() }, io: .standard)
-        if let report, !report.succeeded { throw ExitCode(2) }
+        if let report, ActionSets.failed(report) { throw ExitCode(2) }
     }
 }
 
@@ -85,6 +90,22 @@ enum ActionSets {
             let helper = task?.requiresHelper == true ? " (needs the app's helper)" : ""
             return "run \(task?.name ?? taskID)\(helper)"
         }
+    }
+
+    static let helperSkipReason = "requires the privileged helper (run it from the app)"
+
+    /// A maintenance step the CLI could not attempt because it has no
+    /// privileged helper: skipped, not failed.
+    static func isSkippedHelperStep(_ result: ActionStepResult) -> Bool {
+        guard case .maintenance(let taskID) = result.step, !result.succeeded,
+              MaintenanceCatalog.task(id: taskID)?.requiresHelper == true else { return false }
+        // No maintenance runner at all, or one without a helper.
+        return result.maintenance == nil || result.maintenance?.message == MaintenanceRunner.helperMissingMessage
+    }
+
+    /// True when a step failed; helper steps the CLI skipped do not count.
+    static func failed(_ report: ActionSetReport) -> Bool {
+        report.results.contains { !$0.succeeded && !isSkippedHelperStep($0) }
     }
 
     static func list(_ sets: [ActionSet], json: Bool, io: CommandIO) throws {
@@ -122,7 +143,17 @@ enum ActionSets {
             case .stepStarted:
                 break
             case .stepFinished(let result):
-                io.out.write("[\(result.succeeded ? "done" : "failed")] \(result.index + 1). \(result.message)")
+                if isSkippedHelperStep(result) {
+                    let name: String
+                    if case .maintenance(let taskID) = result.step {
+                        name = MaintenanceCatalog.task(id: taskID)?.name ?? taskID
+                    } else {
+                        name = result.message
+                    }
+                    io.out.write("[skipped] \(result.index + 1). \(name): \(helperSkipReason)")
+                } else {
+                    io.out.write("[\(result.succeeded ? "done" : "failed")] \(result.index + 1). \(result.message)")
+                }
             case .completed(let finished):
                 report = finished
             }
@@ -133,7 +164,10 @@ enum ActionSets {
         var events: [ActivityEvent] = []
         for result in report.results {
             if let manifest = result.manifest { events += ActivityEvent.removals(manifest) }
-            if let maintenance = result.maintenance { events.append(.maintenance(maintenance)) }
+            // A step that was never attempted is not a failed maintenance run.
+            if let maintenance = result.maintenance, !isSkippedHelperStep(result) {
+                events.append(.maintenance(maintenance))
+            }
         }
         events.append(ActivityEvent(kind: .actionSet, module: nil, title: "Ran \(set.name)",
                                     bytes: report.bytesReclaimed, items: report.results.count,

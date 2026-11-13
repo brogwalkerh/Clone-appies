@@ -49,7 +49,7 @@ struct QuarantineTests {
         #expect(FileManager.default.fileExists(atPath: plain.path))
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/MacOS/evil").path))
         #expect(permissions(script) == 0o755)
-        #expect(permissions(plain) == 0o644)
+        #expect(permissions(plain) == 0o600)   // a private file stays private
         #expect(permissions(bundle) == 0o755)
         #expect(try String(contentsOf: plain, encoding: .utf8) == eicar)
         #expect(try await quarantine.list().isEmpty)
@@ -181,10 +181,10 @@ struct QuarantineTests {
         let record = try JSONDecoder().decode(QuarantineRecord.self, from: Data(json.utf8))
         #expect(record.originalPermissions == 0o644)
         #expect(record.restoredPermissions == 0o644)
-        #expect(QuarantineRecord(threat: threat, storedAt: nil, succeeded: true, error: nil, originalPermissions: 0o711).restoredPermissions == 0o755)
+        #expect(QuarantineRecord(threat: threat, storedAt: nil, succeeded: true, error: nil, originalPermissions: 0o711).restoredPermissions == 0o711)
         let directory = Threat(path: URL(fileURLWithPath: "/tmp/d"), name: "n", kind: .heuristic, severity: .low,
                                detail: "d", sizeBytes: 0, isDirectory: true)
-        #expect(QuarantineRecord(threat: directory, storedAt: nil, succeeded: true, error: nil, originalPermissions: 0o600).restoredPermissions == 0o755)
+        #expect(QuarantineRecord(threat: directory, storedAt: nil, succeeded: true, error: nil, originalPermissions: 0o600).restoredPermissions == 0o700)
         let roundTrip = try JSONDecoder().decode(QuarantineRecord.self, from: try JSONEncoder().encode(record))
         #expect(roundTrip == record)
     }

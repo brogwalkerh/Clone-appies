@@ -7,6 +7,16 @@ enum PathUtil {
     static func normalizedPath(_ url: URL) -> String {
         var path = url.standardizedFileURL.path
         while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        // `/var`, `/tmp` and `/etc` are aliases of `/private/...` on macOS.
+        // Foundation's standardization drops the `/private` only when the
+        // shorter path exists, so a missing file or a dangling symlink under
+        // `/private/var/db` would otherwise compare unequal to the protected
+        // prefix. Always fold to the short form so comparison never depends on
+        // what is on disk.
+        for alias in ["/private/var", "/private/tmp", "/private/etc"]
+        where path == alias || path.hasPrefix(alias + "/") {
+            path.removeFirst("/private".count)
+        }
         return path.isEmpty ? "/" : path
     }
 

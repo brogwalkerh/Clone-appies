@@ -197,6 +197,14 @@ struct SignatureUpdaterTests {
         #expect(throws: Never.self) { try SignatureUpdater.validate(name: "mac.ign2") }
     }
 
+    @Test func refusesPlainHTTPFeedsBeforeAnyRequest() async throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let base = URL(string: "http://feed.invalid/signatures")!
+        let updater = SignatureUpdater(baseURL: base, destination: fixture.url("signatures"))
+        await #expect(throws: SignatureUpdateError.insecureFeedURL(base)) { _ = try await updater.update() }
+    }
+
     @Test func httpErrorsAndBadManifestsThrow() async throws {
         let fixture = try FixtureBuilder(name: "updater-errors")
         defer { try? fixture.remove() }

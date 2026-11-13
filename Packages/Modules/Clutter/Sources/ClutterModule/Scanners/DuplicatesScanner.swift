@@ -3,7 +3,12 @@ import CleanerCore
 
 /// Duplicate files: size bucket -> head+tail FNV-1a 64 prefilter -> full
 /// streaming SHA-256 -> group. Each group's *keeper* is the oldest file (ties
-/// broken by path); every other member is emitted as a finding.
+/// broken by path); every other member is emitted as a review-only
+/// (`.risky`) finding.
+///
+/// Never read: hidden entries, version-control and dependency directories
+/// (see `ScanContext.forEachRegularFile`), and dataless iCloud placeholders,
+/// whose content would have to be downloaded just to be hashed.
 ///
 /// Bucketing, the minimum-size gate and the tail-sample offset all use the
 /// *logical* size (`FileAttributes.logicalSizeBytes`): on APFS, compression
@@ -53,6 +58,7 @@ public struct DuplicatesScanner: CleanerScanner {
             // Phase 1: metadata only.
             var buckets: [Int64: [Candidate]] = [:]
             try await context.forEachRegularFile(under: context.scanRoots(roots)) { url, attributes in
+                guard !attributes.isEvictedPlaceholder else { return }
                 guard attributes.logicalSizeBytes >= minSizeBytes else { return }
                 buckets[attributes.logicalSizeBytes, default: []].append(
                     Candidate(url: url, sizeBytes: attributes.sizeBytes, modifiedAt: attributes.modifiedAt))
@@ -68,7 +74,7 @@ public struct DuplicatesScanner: CleanerScanner {
                     for duplicate in group.dropFirst() {
                         emitter.emit(Finding(path: duplicate.url, sizeBytes: duplicate.sizeBytes,
                                              category: ClutterCategory.duplicates, scannerID: Self.id,
-                                             risk: .caution, detail: "Duplicate of \(keeper.url.path)",
+                                             risk: clutterRisk, detail: "Duplicate of \(keeper.url.path)",
                                              modifiedAt: duplicate.modifiedAt, isDirectory: false))
                     }
                 }

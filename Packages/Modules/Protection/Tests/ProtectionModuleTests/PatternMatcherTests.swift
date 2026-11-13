@@ -115,6 +115,23 @@ struct PatternMatcherTests {
         #expect(try matches("41*43", "AxCAC"))   // backtracks to a later C after a failed branch
     }
 
+    @Test func openSkipOverRepeatedPrefixStaysLinear() throws {
+        // 1 MiB of "AB": every other byte starts the prefix and the tail never
+        // appears. Unmemoized, each start rescans to the end of the window
+        // (~10^11 comparisons); this must finish in well under a second.
+        let data = Data((0..<(1 << 20)).map { $0 % 2 == 0 ? UInt8(0x41) : UInt8(0x42) })
+        let matcher = PatternMatcher(patterns: [
+            try pattern("4142*4344"), try pattern("41{2-}4344", name: "Q"), try pattern("41*42*4344", name: "R"),
+        ])
+        let clock = ContinuousClock()
+        var result: [String] = []
+        let elapsed = clock.measure { result = matcher.matches(in: data) }
+        #expect(result.isEmpty)
+        #expect(elapsed < .seconds(20))
+        // The memo must not hide a real match that sits after many failed starts.
+        #expect(PatternMatcher(patterns: [try pattern("4142*4344")]).matches(in: data + Data("CD".utf8)) == ["P"])
+    }
+
     @Test func backtrackingAcrossSkips() throws {
         // First "B" after "A" is not followed by "CD"; the matcher must try the next one.
         #expect(try matches("41{1-5}4243", "A..B.BC"))

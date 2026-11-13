@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CleanerCore
+import SmartCareModule
 import SpaceLens
 import DesignSystem
 
@@ -26,6 +27,10 @@ final class SpaceLensModel {
 
     private let layout = CirclePackingLayout(padding: 2, minRadius: 3)
     private var layoutGeneration = 0
+    /// The walk in flight, cancelled when a newer build starts so abandoned
+    /// walks stop instead of piling up (`SizeTreeBuilder` checks per directory).
+    private var buildTask: Task<SizeNode, any Error>?
+    private var buildGeneration = 0
 
     var current: SizeNode? { path.last }
 
@@ -36,19 +41,35 @@ final class SpaceLensModel {
     // MARK: Tree
 
     func build(root url: URL) async {
+        buildTask?.cancel()
+        buildGeneration += 1
+        let generation = buildGeneration
         isBuilding = true
         errorMessage = nil
         hovered = nil
-        defer { isBuilding = false }
+        let task = Task.detached(priority: .userInitiated) {
+            try await SizeTreeBuilder(fileSystem: LocalFileSystem()).build(root: url, maxDepth: 4)
+        }
+        buildTask = task
         do {
-            let builder = SizeTreeBuilder(fileSystem: LocalFileSystem())
-            let node = try await builder.build(root: url, maxDepth: 4)
+            let node = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            // A newer build owns the model now; drop this result.
+            guard generation == buildGeneration else { return }
+            isBuilding = false
             rootURL = url
             root = node
             path = [node]
             await relayout()
         } catch {
-            errorMessage = error.localizedDescription
+            guard generation == buildGeneration else { return }
+            isBuilding = false
+            if !(error is CancellationError) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -113,17 +134,38 @@ final class SpaceLensModel {
         NSWorkspace.shared.activateFileViewerSelecting([node.id])
     }
 
-    /// Moves the item to the Trash via `FileManager.trashItem` (never permanent),
-    /// then rebuilds the tree from the current root.
+    /// Folders directly under the home folder that are never trashed from the map.
+    private static let homeFolderNames: Set<String> = [
+        "Library", "Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures", "Public", "Applications",
+    ]
+
+    /// Moves the item to the Trash (never permanent) through the same guarded
+    /// remover as every other module (CLAUDE.md rule 3), records it in My
+    /// Activity, then rebuilds the tree from the current root.
     func trash(_ node: SizeNode) async {
-        guard !ProtectedPaths.default.isProtected(node.id) else {
-            errorMessage = "\(node.name) is a protected system location."
+        let target = node.id.standardizedFileURL
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        let isHomeFolder = target == home
+            || (target.deletingLastPathComponent() == home && Self.homeFolderNames.contains(target.lastPathComponent))
+        // `containsProtected` also covers folders that hold a protected path.
+        guard !isHomeFolder, !ProtectedPaths.default.containsProtected(target) else {
+            errorMessage = "\(node.name) is a protected location."
             return
         }
+        let finding = Finding(path: target, sizeBytes: node.sizeBytes,
+                              category: FindingCategory(id: "spaceLens.item", displayName: "Space Lens",
+                                                        module: .clutter),
+                              scannerID: "spaceLens", risk: .risky, isDirectory: node.isDirectory)
         do {
-            try FileManager.default.trashItem(at: node.id, resultingItemURL: nil)
+            let remover = GuardedRemover(wrapping: TrashRemover(), protectedPaths: .default)
+            let manifest = try await remover.remove([finding], mode: .trash, progress: nil)
+            if let failure = manifest.records.first(where: { !$0.succeeded }) {
+                errorMessage = failure.error ?? "\(node.name) could not be moved to the Trash."
+                return
+            }
+            ActivityCenter.shared.record(ActivityEvent.removal(manifest, module: .clutter))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = String(describing: error)
             return
         }
         await build(root: rootURL)

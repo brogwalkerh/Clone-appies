@@ -79,9 +79,14 @@ struct IntegrationTests {
         #expect(byPath["Documents/Backup/thesis.pdf"]?.category.id == "clutter.duplicates")
         #expect(byPath["Documents/Backup/thesis.pdf"]?.detail == "Duplicate of \(fixture.url("Documents/thesis.pdf").standardizedFileURL.path)")
         #expect(byPath["Downloads/App.dmg"]?.detail == "Installer")
-        #expect(byPath["Downloads/stale.csv"]?.detail?.hasPrefix("Downloaded 200 days ago") == true)
+        // stale.csv is reported by both Large & Old and Downloads; whichever
+        // arrives first wins. Either way the age is described as a
+        // modification age, never as "opened" or "downloaded".
+        let staleDetail = byPath["Downloads/stale.csv"]?.detail
+        #expect(staleDetail == "Modified 200 days ago" || staleDetail == "Not modified in 6 months",
+                "got: \(staleDetail ?? "nil")")
         #expect(summaryValue.byCategory["clutter.duplicates"] == 16_384)
-        #expect(findings.allSatisfy { $0.risk == .caution })
+        #expect(findings.allSatisfy { $0.risk == .risky })
     }
 }
 

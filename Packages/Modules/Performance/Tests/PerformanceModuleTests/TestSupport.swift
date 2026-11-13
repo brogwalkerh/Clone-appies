@@ -19,6 +19,37 @@ func context(_ fs: MockFileSystem, ignore: IgnoreList = .empty,
     ScanContext(fileSystem: fs, ignoreList: ignore, protectedPaths: protected)
 }
 
+/// A file system where some directories exist but cannot be listed or
+/// searched (no permission): nothing below them can be stat'ed.
+struct RestrictedFileSystem: FileSystem {
+    let base: MockFileSystem
+    let unreadable: [String]
+
+    private func isBelowUnreadable(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return unreadable.contains { path.hasPrefix($0 + "/") }
+    }
+
+    func exists(_ url: URL) -> Bool { !isBelowUnreadable(url) && base.exists(url) }
+    func attributes(of url: URL) throws -> FileAttributes {
+        if isBelowUnreadable(url) { throw FileSystemError.unreadable(url, "Permission denied") }
+        return try base.attributes(of: url)
+    }
+    func children(of url: URL) throws -> [URL] {
+        let path = url.standardizedFileURL.path
+        if isBelowUnreadable(url) || unreadable.contains(path) {
+            throw FileSystemError.unreadable(url, "Permission denied")
+        }
+        return try base.children(of: url)
+    }
+    func contents(of url: URL) throws -> Data {
+        if isBelowUnreadable(url) { throw FileSystemError.unreadable(url, "Permission denied") }
+        return try base.contents(of: url)
+    }
+    func homeDirectory() -> URL { base.homeDirectory() }
+    func temporaryDirectory() -> URL { base.temporaryDirectory() }
+}
+
 /// Thread-safe ordered log of events, shared by fakes.
 final class EventLog: @unchecked Sendable {
     private let lock = NSLock()

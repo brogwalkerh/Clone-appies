@@ -99,16 +99,9 @@ public struct Heuristics: Sendable {
         let lower = command.lowercased()
         let tokens = info.tokens
 
-        if lower.contains("curl") || lower.contains("wget") {
-            let piped = command.contains("|")
-            let shell = tokens.contains { token in
-                let name = (token as NSString).lastPathComponent.lowercased()
-                return Self.shellNames.contains(name) || name.hasSuffix(".sh")
-            }
-            if piped || shell {
-                flag("Heuristic.LaunchAgent.RemoteScriptPipeline", .critical,
-                     "Downloads and runs a remote script: \(Self.truncated(command))")
-            }
+        if Self.runsDownloadedScript(command) {
+            flag("Heuristic.LaunchAgent.RemoteScriptPipeline", .critical,
+                 "Downloads and runs a remote script: \(Self.truncated(command))")
         }
         if lower.contains("base64 -d") || lower.contains("base64 --decode") || lower.contains("base64 -D") {
             flag("Heuristic.LaunchAgent.Base64Payload", .critical,
@@ -122,7 +115,7 @@ public struct Heuristics: Sendable {
             flag("Heuristic.LaunchAgent.TemporaryPath", .medium,
                  "Runs from a temporary directory: \(temporary)")
         }
-        if let hidden = tokens.first(where: { $0.contains("/") && PathHelpers.hasHiddenComponent($0) }) {
+        if let hidden = tokens.first(where: { $0.contains("/") && Self.hasSuspiciousHiddenComponent($0) }) {
             flag("Heuristic.LaunchAgent.HiddenPath", .medium, "Runs from a hidden path: \(hidden)")
         }
         if let executable = info.executable, executable.hasPrefix("/") {
@@ -166,7 +159,10 @@ public struct Heuristics: Sendable {
         }
         let library = context.home.appendingPathComponent("Library", isDirectory: true)
         let below = PathHelpers.components(of: url, below: library)
-        if !below.isEmpty, below.dropLast().contains(where: { $0.hasPrefix(".") }) {
+        // Developer tooling keeps scripts and binaries in dot-folders (git hook
+        // samples in package checkouts, `.build`, `node_modules/.bin`).
+        if !below.isEmpty, ext != "sample",
+           below.dropLast().contains(where: { $0.hasPrefix(".") && !Self.benignHiddenNames.contains($0) }) {
             flag("Heuristic.HiddenExecutable", .medium, "\(type.displayName) in a hidden folder under ~/Library")
         }
         if type == .script, Self.launchDirectoryNames.contains(url.deletingLastPathComponent().lastPathComponent) {
@@ -185,6 +181,62 @@ public struct Heuristics: Sendable {
         let offset = Int(bytes[0x3C]) | Int(bytes[0x3D]) << 8 | Int(bytes[0x3E]) << 16 | Int(bytes[0x3F]) << 24
         guard offset >= 0x40, offset <= bytes.count - 4 else { return false }
         return bytes[offset] == 0x50 && bytes[offset + 1] == 0x45 && bytes[offset + 2] == 0 && bytes[offset + 3] == 0
+    }
+
+    /// Dot-directories that ordinary tools and developer setups use. A path
+    /// through one of these is not, by itself, a sign of something hiding.
+    static let benignHiddenNames: Set<String> = [
+        ".config", ".local", ".cache", ".docker", ".orbstack", ".colima", ".cargo", ".rustup",
+        ".nvm", ".npm", ".yarn", ".bun", ".deno", ".volta", ".rbenv", ".pyenv", ".asdf", ".gem",
+        ".sdkman", ".gradle", ".m2", ".nix-profile", ".git", ".github", ".build", ".swiftpm",
+        ".bin", ".venv", ".husky", ".Trash",
+    ]
+
+    /// True when `token` has a dot-component other than the well-known ones.
+    /// `--config=/path` style arguments are judged by the path after the `=`.
+    static func hasSuspiciousHiddenComponent(_ token: String) -> Bool {
+        var path = Substring(token)
+        if token.hasPrefix("-"), let equals = token.firstIndex(of: "=") {
+            path = token[token.index(after: equals)...]
+        }
+        return path.split(separator: "/").contains { component in
+            component.hasPrefix(".") && component != "." && component != ".."
+                && !benignHiddenNames.contains(String(component))
+        }
+    }
+
+    /// True when the command feeds a download to a shell: `curl … | sh`,
+    /// `bash <(curl …)`, `sh -c "$(curl …)"` or backticks. A shell that merely
+    /// *runs* curl (a health-check ping) is not a remote script.
+    static func runsDownloadedScript(_ command: String) -> Bool {
+        let lower = command.lowercased()
+        let downloaders = ["curl", "wget"]
+        guard downloaders.contains(where: lower.contains) else { return false }
+        for opener in ["<(", "$(", "`"] {
+            for tool in downloaders where lower.contains(opener + tool) || lower.contains(opener + " " + tool) {
+                return true
+            }
+        }
+        // Saving a shell script to disk at every launch is the two-step form.
+        if lower.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }).contains(where: { $0.hasSuffix(".sh") }) {
+            return true
+        }
+        let segments = lower.split(separator: "|", omittingEmptySubsequences: false)
+        var sawDownload = false
+        for segment in segments {
+            let words = segment.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" })
+                .filter { $0 != "sudo" && $0 != "exec" }
+            if sawDownload, let first = words.first {
+                // "sh;" / "bash)" / "'zsh'": the interpreter name without shell punctuation.
+                let word = first.trimmingCharacters(in: CharacterSet(charactersIn: ";&()\"'"))
+                let name = word.split(separator: "/").last.map(String.init) ?? word
+                if shellNames.contains(name) || ["python", "python3", "perl", "ruby", "osascript"].contains(name) {
+                    return true
+                }
+            }
+            if downloaders.contains(where: segment.contains) { sawDownload = true }
+        }
+        return false
     }
 
     static func isTemporaryPath(_ token: String) -> Bool {

@@ -67,6 +67,31 @@ public struct ProtectedPaths: Sendable, Hashable, Codable {
         return false
     }
 
+    /// True when removing `url` would remove protected content: `url` is
+    /// protected itself, or it is an ancestor of a protected prefix or of the
+    /// directory a protected glob lives in (`/Library` holds `/Library/Apple`,
+    /// `/Volumes` holds Time Machine bundles, `/` holds everything).
+    ///
+    /// Removers use this; walkers keep using `isProtected`, because walking
+    /// *into* such an ancestor is fine as long as the protected part is skipped.
+    public func containsProtected(_ url: URL) -> Bool {
+        if isProtected(url) { return true }
+        let components = PathUtil.components(url)
+        for prefix in prefixes {
+            if PathUtil.isAncestorOrEqual(prefix: components, path: PathUtil.components(ofPath: prefix)) {
+                return true
+            }
+        }
+        for glob in globs {
+            // The literal directory part of the pattern, up to its first wildcard.
+            let literal = PathUtil.components(ofPath: glob).prefix { !$0.contains("*") && !$0.contains("?") }
+            if PathUtil.isAncestorOrEqual(prefix: components, path: Array(literal)) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Returns a copy with `url` added as a protected prefix.
     public func adding(_ url: URL) -> ProtectedPaths {
         ProtectedPaths(prefixes: prefixURLs + [url], globs: globs)

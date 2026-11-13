@@ -90,6 +90,33 @@ struct JSONLinesActivityStoreTests {
         #expect(titles == ["ok", "after"])
     }
 
+    /// Several writers (the app, the MenuAgent, the CLI) append at once:
+    /// every line must survive.
+    @Test func concurrentWritersNeverOverwriteEachOther() async throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let url = fixture.url("support/activity.jsonl")
+        let base = date("2026-10-01T00:00:00Z")
+        let writers = 4, perWriter = 150
+        await withTaskGroup(of: Void.self) { group in
+            for writer in 0..<writers {
+                group.addTask {
+                    let store = JSONLinesActivityStore(fileURL: url)
+                    for index in 0..<perWriter {
+                        try? await store.append([ActivityEvent(
+                            date: base.addingTimeInterval(Double(writer * perWriter + index)),
+                            kind: .scan, module: .cleanup, title: "\(writer)-\(index)")])
+                    }
+                }
+            }
+        }
+        let events = try await JSONLinesActivityStore(fileURL: url).events(since: nil)
+        #expect(events.count == writers * perWriter)
+        #expect(Set(events.map(\.title)).count == writers * perWriter)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.split(separator: "\n").count == writers * perWriter)
+    }
+
     @Test func compactsToTheNewestEventsOnOpen() async throws {
         let fixture = try FixtureBuilder()
         defer { try? fixture.remove() }
@@ -207,7 +234,7 @@ struct InboxStoreTests {
         #expect(await app.messages().isEmpty)
     }
 
-    @Test func corruptFileReadsAsEmpty() async throws {
+    @Test func corruptFileReadsAsEmptyAndIsKeptAside() async throws {
         let fixture = try FixtureBuilder()
         defer { try? fixture.remove() }
         let url = fixture.url("inbox.json")
@@ -216,6 +243,62 @@ struct InboxStoreTests {
         #expect(await store.messages().isEmpty)
         await store.post(InboxMessage(title: "fresh", body: ""))
         #expect(await store.messages().map(\.title) == ["fresh"])
+        // The file this version could not read was moved aside, not wiped.
+        let kept = try siblings(of: url).filter { $0.hasPrefix("inbox.json.corrupt-") }
+        #expect(kept.count == 1)
+        let preserved = try Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent(kept[0]))
+        #expect(preserved == Data("not json".utf8))
+        // Later writes do not produce more copies.
+        await store.post(InboxMessage(title: "second", body: ""))
+        #expect(try siblings(of: url).filter { $0.contains(".corrupt-") }.count == 1)
+    }
+
+    @Test func recordDistinguishesMissingFromUndecodable() throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let url = fixture.url("schedules.json")
+        let record = JSONFileRecord<[ScanSchedule]>(fileURL: url)
+        #expect(try record.read() == nil)
+        #expect(record.load() == nil)
+
+        // Written by a newer version: valid JSON, unknown shape.
+        let newer = Data(#"{"version":2,"schedules":[{"id":"x"}]}"#.utf8)
+        try newer.write(to: url)
+        #expect(record.load() == nil)
+        #expect(throws: JSONFileRecordError.self) { try record.read() }
+        // Reading never touches the file.
+        #expect(try Data(contentsOf: url) == newer)
+
+        // What the app does: `load() ?? []`, edit, save. The newer file survives.
+        let schedule = ScanSchedule(cadence: .daily, hour: 9, minute: 0, target: .smartCareScan,
+                                    createdAt: date("2026-10-01T00:00:00Z"))
+        try record.save((record.load() ?? []) + [schedule])
+        #expect(try record.read() == [schedule])
+        let kept = try siblings(of: url).filter { $0.hasPrefix("schedules.json.corrupt-") }
+        #expect(kept.count == 1)
+        #expect(try Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent(kept[0])) == newer)
+
+        // A decodable file is replaced in place as before.
+        try record.save([])
+        #expect(try record.read() == [])
+        #expect(try siblings(of: url).filter { $0.contains(".corrupt-") }.count == 1)
+    }
+
+    @Test func undecodableFilesMovedInTheSameSecondDoNotCollide() throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let url = fixture.url("action-sets.json")
+        let record = JSONFileRecord<[String]>(fileURL: url)
+        let now = date("2026-11-13T08:09:10Z")
+        try Data("one".utf8).write(to: url)
+        let first = try #require(try record.preserveUndecodableFile(now: now))
+        try Data("two".utf8).write(to: url)
+        let second = try #require(try record.preserveUndecodableFile(now: now))
+        #expect(first.lastPathComponent == "action-sets.json.corrupt-20261113-080910")
+        #expect(second.lastPathComponent == "action-sets.json.corrupt-20261113-080910-2")
+        #expect(try Data(contentsOf: first) == Data("one".utf8))
+        #expect(try Data(contentsOf: second) == Data("two".utf8))
+        #expect(try record.preserveUndecodableFile(now: now) == nil)
     }
 
     @Test func recordRoundTripsDictionaries() throws {
@@ -227,4 +310,8 @@ struct InboxStoreTests {
         try record.save(value)
         #expect(record.load() == value)
     }
+}
+
+private func siblings(of url: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).sorted()
 }

@@ -154,6 +154,89 @@ struct ScheduleTests {
         #expect(evaluator.due([off], lastRuns: [:], now: now).isEmpty)
     }
 
+    @Test func enablingDoesNotMakeUpForTheTimeItWasOff() {
+        let evaluator = ScheduleEvaluator(calendar: calendar)
+        let created = date("2026-10-01T00:00:00Z")
+        let now = date("2026-10-29T12:00:00Z")
+        let set = UUID()
+
+        // Created disabled weeks ago, switched on just now: waits for the next 09:00.
+        var schedule = ScanSchedule(isEnabled: false, cadence: .daily, hour: 9, minute: 0,
+                                    target: .actionSet(set), createdAt: created)
+        #expect(schedule.enabledAt == nil)
+        schedule.setEnabled(true, at: now)
+        #expect(schedule.enabledAt == now)
+        #expect(evaluator.due([schedule], lastRuns: [:], now: now.addingTimeInterval(60)).isEmpty)
+        #expect(evaluator.nextFire([schedule], lastRuns: [:], now: now) == date("2026-10-30T09:00:00Z"))
+        #expect(evaluator.due([schedule], lastRuns: [:], now: date("2026-10-30T09:00:30Z")).map(\.id) == [schedule.id])
+
+        // Ran weeks ago, then off, re-enabled now: same.
+        var paused = ScanSchedule(cadence: .daily, hour: 9, minute: 0, target: .actionSet(set), createdAt: created)
+        #expect(paused.enabledAt == created)
+        let lastRuns = [paused.id: date("2026-10-05T09:00:05Z")]
+        paused.setEnabled(false, at: date("2026-10-06T00:00:00Z"))
+        #expect(evaluator.due([paused], lastRuns: lastRuns, now: now).isEmpty)
+        paused.setEnabled(true, at: now)
+        #expect(evaluator.due([paused], lastRuns: lastRuns, now: now.addingTimeInterval(60)).isEmpty)
+        #expect(evaluator.due([paused], lastRuns: lastRuns, now: date("2026-10-30T09:00:30Z")).count == 1)
+        // A run after re-enabling still wins over enabledAt.
+        #expect(evaluator.due([paused], lastRuns: [paused.id: date("2026-10-30T09:00:10Z")],
+                              now: date("2026-10-30T12:00:00Z")).isEmpty)
+
+        // Setting an enabled schedule to enabled again keeps its anchor.
+        paused.setEnabled(true, at: date("2026-11-05T00:00:00Z"))
+        #expect(paused.enabledAt == now)
+    }
+
+    /// The app's toggle assigns the property on a copy and saves it.
+    @Test func assigningIsEnabledStampsEnabledAt() {
+        let evaluator = ScheduleEvaluator(calendar: calendar)
+        var schedule = ScanSchedule(isEnabled: false, cadence: .daily, hour: 9, minute: 0, target: .smartCareScan,
+                                    createdAt: date("2020-01-01T00:00:00Z"))
+        let before = Date()
+        schedule.isEnabled = true
+        let stamped = schedule.enabledAt
+        #expect(stamped != nil)
+        #expect((stamped ?? .distantPast) >= before)
+        #expect(evaluator.due([schedule], lastRuns: [:], now: Date()).isEmpty)
+        // Re-assigning true, or switching off, leaves the stamp alone.
+        schedule.isEnabled = true
+        #expect(schedule.enabledAt == stamped)
+        schedule.isEnabled = false
+        #expect(schedule.enabledAt == stamped)
+    }
+
+    @Test func decodingClampsAndAcceptsFilesWithoutEnabledAt() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        // As written before `enabledAt` existed, then hand-edited to hour 24.
+        let original = ScanSchedule(cadence: .daily, hour: 9, minute: 0, target: .smartCareScan,
+                                    createdAt: date("2026-10-01T00:00:00Z"))
+        var object = try #require(try JSONSerialization.jsonObject(with: encoder.encode(original)) as? [String: Any])
+        #expect(object["enabledAt"] != nil)
+        object["enabledAt"] = nil
+        object["hour"] = 24
+        object["minute"] = 75
+        let legacy = try decoder.decode(ScanSchedule.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.hour == 23)
+        #expect(legacy.minute == 59)
+        #expect(legacy.enabledAt == nil)
+        #expect(legacy.isEnabled)
+        // It fires (at 23:59) and, never having been toggled, counts from its creation.
+        let evaluator = ScheduleEvaluator(calendar: calendar)
+        #expect(legacy.nextFire(after: date("2026-10-29T12:00:00Z"), calendar: calendar) == date("2026-10-29T23:59:00Z"))
+        #expect(evaluator.due([legacy], lastRuns: [:], now: date("2026-10-29T12:00:00Z")).count == 1)
+        object["hour"] = -3
+        #expect(try decoder.decode(ScanSchedule.self, from: JSONSerialization.data(withJSONObject: object)).hour == 0)
+        // enabledAt round-trips.
+        var toggled = original
+        toggled.setEnabled(false)
+        toggled.setEnabled(true, at: date("2026-10-20T00:00:00Z"))
+        #expect(try decoder.decode(ScanSchedule.self, from: encoder.encode(toggled)) == toggled)
+    }
+
     @Test func nextFireAcrossSchedules() {
         let evaluator = ScheduleEvaluator(calendar: calendar)
         let now = date("2026-10-29T12:00:00Z")

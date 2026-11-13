@@ -6,7 +6,7 @@ Scope: `com.example.featherduster.helper`, the root daemon installed via
 `App/Services/HelperClient.swift` (client).
 
 ## What the helper can do
-Exactly the eleven `HelperOperation` cases, each mapped by `HelperCommandPlan`
+Exactly the twelve `HelperOperation` cases, each mapped by `HelperCommandPlan`
 to a fixed argv for an allow-listed absolute executable (`tmutil`, `purge`,
 `dscacheutil`, `killall`, `periodic`, `mdutil`, `lsregister`, `launchctl`,
 `sqlite3`, `rm`). Caller input reaches argv in only five places, each after
@@ -19,7 +19,8 @@ label, and the caller's home (for Mail's `Envelope Index`).
   `HelperCommandPlan.allowedExecutables` even if a future plan named one.
 - Delete an arbitrary path: `rm` is reachable only through `removeSystemCache`,
   whose path must be standardized, absolute, free of `..`/`.`/`//`, strictly
-  below `/Library/Caches/` or `/private/var/folders/`, and not a symlink.
+  below `/Library/Caches/` or `/private/var/folders/`, with no symlink at the
+  target or in any directory between it and the root.
 - Touch Apple launchd jobs: labels starting with `com.apple.` (any case) are
   refused; labels are restricted to `[A-Za-z0-9_.-]`, so no `/`, space or
   shell metacharacters.
@@ -55,17 +56,20 @@ reviewable, deterministic, dry-run-able and testable without root.
 
 ## Residual risks
 - `removeSystemCache` under `/private/var/folders` can delete other users'
-  per-user cache/temp data (that is its purpose); the symlink check covers
-  only the final component, so a hostile symlinked *parent* directory created
-  by another local user could redirect `rm -rf`. Mitigation planned: resolve
-  the path with `realpath` in the helper and re-check the root (M3 follow-up).
+  per-user cache/temp data (that is its purpose). The validator refuses a path
+  when the target, the root, or any directory between them is a symbolic link,
+  so a planted symlinked *parent* cannot redirect `rm -rf`. What remains is the
+  race between that check and `rm` starting: another local user who can write
+  to a directory on the path could swap it for a link in that window. Closing
+  it needs descriptor-relative removal (`openat`/`unlinkat` with `O_NOFOLLOW`)
+  in the helper instead of `/bin/rm`.
 - The audit token is read via KVC on `NSXPCConnection`; if Apple removes it the
   helper stops accepting connections (safe, but a functional regression).
 - `periodic`, `lsregister` and `tmutil` are system tools with their own
   behaviour; we only choose fixed arguments.
 - Operations run serially per helper process but not across a reinstall.
 
-## Test coverage enforcing the invariants (`Packages/HelperProtocol`, 42 tests)
+## Test coverage enforcing the invariants (`Packages/HelperProtocol`)
 - Validator: home, cache path (roots, `..`, `.`, `//`, trailing slash, NUL,
   symlink), volume, label (Apple prefix, metacharacters), byte count.
 - Plans: every operation has a plan; every executable is absolute and

@@ -76,6 +76,10 @@ struct ApplicationsView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBar
         }
+        // Remove acts on the visible tab only (ScanViewModel.selectionScope);
+        // the tabs without findings select nothing.
+        .onAppear { model.selectionScope = tab.categoryPrefix.map { [$0] } ?? [] }
+        .onChange(of: tab) { _, newTab in model.selectionScope = newTab.categoryPrefix.map { [$0] } ?? [] }
         .task {
             await store.refreshIfNeeded()
         }
@@ -446,7 +450,7 @@ struct ApplicationsView: View {
             let findings = model.findings(withCategoryPrefix: tab.categoryPrefix ?? "")
             guard !findings.isEmpty else { return tab.title }
             let bytes = findings.reduce(Int64(0)) { $0 + $1.sizeBytes }
-            return "\(ByteFormatter.string(bytes)) found • \(ByteFormatter.string(model.selectedBytes)) selected overall"
+            return "\(ByteFormatter.string(bytes)) found • \(ByteFormatter.string(model.selectedBytes)) selected"
         }
     }
 

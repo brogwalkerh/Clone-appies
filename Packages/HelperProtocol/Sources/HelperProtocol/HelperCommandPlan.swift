@@ -62,6 +62,11 @@ public struct HelperCommandPlan: Sendable, Hashable, Codable {
         case .ping:
             return HelperCommandPlan(steps: [])
 
+        case .purgeMemory:
+            return HelperCommandPlan(steps: [
+                CommandStep(executable: Executable.purge, arguments: []),
+            ])
+
         case .freePurgeableSpace:
             return HelperCommandPlan(steps: [
                 CommandStep(executable: Executable.tmutil, arguments: ["thinlocalsnapshots", "/", "9999999999", "4"]),

@@ -423,7 +423,9 @@ struct RunMaintenanceIntent: AppIntent {
         guard let catalogTask = task.task else {
             return .result(dialog: "\(task.name) is not available in this build.")
         }
-        if catalogTask.risk == .risky {
+        // The catalog rates nothing `.risky`; Thin Snapshots, Reindex Spotlight
+        // and Reset Bluetooth are `.caution` and must not run unconfirmed.
+        if catalogTask.risk != .safe {
             // TODO(macOS27): verify `requestConfirmation(result:confirmationActionName:)`
             // is still the preferred confirmation API in the 27 SDK.
             try await requestConfirmation(

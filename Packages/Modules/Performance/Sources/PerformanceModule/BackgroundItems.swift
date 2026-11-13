@@ -18,7 +18,11 @@ public struct BackgroundItem: Sendable, Hashable, Codable, Identifiable {
     public let program: String?                   // Program or ProgramArguments[0]
     public let runAtLoad: Bool
     public let keepAlive: Bool
-    public let isBroken: Bool                     // program path does not exist
+    /// The program is confirmed missing: a directory on its path could be
+    /// listed and does not contain the next component. Never true for Apple
+    /// items, programs on removable/network volumes, or when the path cannot
+    /// be inspected (unmounted volume, permission-restricted directory).
+    public let isBroken: Bool
     public let isApple: Bool                      // label starts with com.apple.
     public let ownerAppName: String?              // best-effort from path / label
     public let enabledState: Bool?
@@ -99,10 +103,13 @@ public struct BackgroundItemsInventory: Sendable {
 
     // MARK: - Parsing
 
-    /// Parses one launchd plist; `programExists` answers for the (expanded)
-    /// program path. Returns nil when the data is not a plist dictionary.
+    /// Parses one launchd plist; `isConfirmedMissing` answers for the
+    /// (expanded) absolute program path and must return true only when the
+    /// program is known to be gone, not merely unreachable. It is not asked
+    /// about Apple items or programs on removable/network volumes. Returns nil
+    /// when the data is not a plist dictionary.
     static func parse(plist data: Data, url: URL, domain: BackgroundItemDomain, home: URL,
-                      programExists: (String) -> Bool) -> BackgroundItem? {
+                      isConfirmedMissing: (String) -> Bool) -> BackgroundItem? {
         guard let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
               let dict = object as? [String: Any] else { return nil }
         let label = (dict["Label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -126,11 +133,14 @@ public struct BackgroundItemsInventory: Sendable {
             keepAlive = false
         }
 
+        // A working agent must never be reported broken (the finding is a
+        // candidate for removal), so Apple items and programs on volumes that
+        // may simply be unmounted are never flagged.
         var isBroken = false
-        if let program {
+        if let program, !isAppleLabel(resolvedLabel) {
             let expanded = expandHome(program, home: home)
-            if expanded.hasPrefix("/") {
-                isBroken = !programExists(expanded)
+            if expanded.hasPrefix("/"), !isOnDetachableVolume(expanded) {
+                isBroken = isConfirmedMissing(expanded)
             }
         }
 
@@ -143,6 +153,41 @@ public struct BackgroundItemsInventory: Sendable {
 
     static func isAppleLabel(_ label: String) -> Bool {
         label.hasPrefix("com.apple.")
+    }
+
+    /// Mount points for external and network volumes: a program there may be
+    /// absent only because the volume is not mounted right now.
+    static let detachableVolumeRoots = ["/Volumes", "/Network", "/net"]
+
+    static func isOnDetachableVolume(_ path: String) -> Bool {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return detachableVolumeRoots.contains { standardized == $0 || standardized.hasPrefix($0 + "/") }
+    }
+
+    /// True only with positive evidence that `path` is gone: its deepest
+    /// existing ancestor is a directory that can be listed and the listing
+    /// does not contain the next path component. A path that cannot be
+    /// stat'ed because a directory is unreadable, or whose entry is listed but
+    /// unreachable (dangling symlink, no search permission), is not missing.
+    static func isConfirmedMissing(_ path: String, fileSystem: any FileSystem) -> Bool {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        if fileSystem.exists(url) { return false }
+        var missing = url
+        var ancestor = url.deletingLastPathComponent()
+        while !fileSystem.exists(ancestor) {
+            guard ancestor.pathComponents.count > 1 else { return false }
+            missing = ancestor
+            ancestor = ancestor.deletingLastPathComponent()
+        }
+        guard let attributes = try? fileSystem.attributes(of: ancestor), attributes.isDirectory,
+              let listing = try? fileSystem.children(of: ancestor) else { return false }
+        let wanted = comparableName(missing.lastPathComponent)
+        return !listing.contains { comparableName($0.lastPathComponent) == wanted }
+    }
+
+    /// Case- and normalization-insensitive, like the default APFS volume.
+    private static func comparableName(_ name: String) -> String {
+        name.precomposedStringWithCanonicalMapping.lowercased()
     }
 
     /// `~` or `~/...` expanded against `home`; anything else unchanged.
@@ -189,7 +234,7 @@ public struct BackgroundItemsInventory: Sendable {
 
     private func parseItem(_ data: Data, url: URL, domain: BackgroundItemDomain, home: URL) -> BackgroundItem? {
         Self.parse(plist: data, url: url, domain: domain, home: home) { path in
-            fileSystem.exists(URL(fileURLWithPath: path))
+            Self.isConfirmedMissing(path, fileSystem: fileSystem)
         }
     }
 

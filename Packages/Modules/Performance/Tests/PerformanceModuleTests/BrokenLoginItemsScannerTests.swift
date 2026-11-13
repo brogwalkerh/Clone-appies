@@ -46,7 +46,8 @@ struct BrokenLoginItemsScannerTests {
         #expect(findings.allSatisfy { $0.category.id == "performance.brokenLoginItems" })
         #expect(findings.allSatisfy { $0.category.module == .performance })
         #expect(findings.allSatisfy { $0.scannerID == "performance.brokenLoginItems" })
-        #expect(findings.allSatisfy { $0.risk == .safe })
+        // Never pre-selected: trashing a working agent's plist breaks it.
+        #expect(findings.allSatisfy { $0.risk == .risky })
         #expect(findings.allSatisfy { !$0.isDirectory })
         let gone = try #require(findings.first { $0.path.lastPathComponent == "com.gone.agent.plist" })
         #expect(gone.detail == "com.gone.agent points to a missing program: ~/Library/Gone/agent")
@@ -94,6 +95,23 @@ struct BrokenLoginItemsScannerTests {
             "/Users/test/Library/LaunchAgents/com.gone.agent.plist",
             "/Library/LaunchAgents/com.vendor.missing.plist",
         ])
+    }
+
+    @Test func unverifiableProgramsAreNotReported() async throws {
+        let restricted = RestrictedFileSystem(base: [
+            "/Users/test/Library/LaunchAgents/com.ext.agent.plist": launchdPlist(
+                label: "com.ext.agent", program: "/Volumes/External/agent"),
+            "/Users/test/Library/LaunchAgents/com.apple.gone.plist": launchdPlist(
+                label: "com.apple.gone", program: "/usr/libexec/gone"),
+            "/Users/test/Library/LaunchAgents/com.secure.agent.plist": launchdPlist(
+                label: "com.secure.agent", program: "/opt/secure/bin/agent"),
+            "/opt/secure/bin/agent": .file(size: 1),
+            "/usr/libexec/other": .file(size: 1),
+            "/Volumes/Macintosh HD": .directory,
+        ], unreadable: ["/opt/secure"])
+        let findings = try await collect(scanner, ScanContext(fileSystem: restricted, ignoreList: .empty,
+                                                              protectedPaths: .none))
+        #expect(findings.isEmpty)
     }
 
     @Test func nothingBrokenYieldsNothing() async throws {

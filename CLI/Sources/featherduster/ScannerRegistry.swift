@@ -29,7 +29,10 @@ struct ScannerRegistry: Sendable {
         // Similar-images needs a platform feature provider (Vision, in UIKitBridge);
         // the CLI runs without it.
         all.append(contentsOf: ClutterScanners.all(imageFeatures: nil))
-        all.append(DemoScanner())
+        // `DemoScanner` is deliberately absent: it reports every `*.log` and
+        // `*.tmp` under the home folder as safe to remove, which on a real Mac
+        // includes the live LevelDB logs of every Chromium and Electron app.
+        // Tests construct it directly.
         return ScannerRegistry(scanners: all)
     }
 
