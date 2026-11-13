@@ -351,7 +351,8 @@ transport lives in `PrivilegedHelper/` and `App/Services/HelperClient.swift`.
 ```swift
 public enum HelperOperation: Codable, Sendable, Hashable {
     case ping
-    case freePurgeableSpace                       // runs /usr/sbin/purge-equivalent: `tmutil thinlocalsnapshots / 9999999999 4` + `purge`
+    case purgeMemory                              // `purge` only (Free Up RAM); never touches snapshots
+    case freePurgeableSpace                       // `tmutil thinlocalsnapshots / 9999999999 4` + `purge`; deletes local snapshots
     case flushDNSCache                            // dscacheutil -flushcache; killall -HUP mDNSResponder
     case runPeriodicScripts(PeriodicInterval)     // periodic daily|weekly|monthly
     case reindexSpotlight(volume: String)         // mdutil -E <volume>; volume must be "/" or under /Volumes/

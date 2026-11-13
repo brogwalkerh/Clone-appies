@@ -7,6 +7,7 @@ extension HelperOperation {
     static var allSamples: [HelperOperation] {
         [
             .ping,
+            .purgeMemory,
             .freePurgeableSpace,
             .flushDNSCache,
             .runPeriodicScripts(.weekly),
@@ -35,10 +36,11 @@ extension HelperOperation {
         case .setLaunchDaemonEnabled: return 8
         case .resetBluetoothModule: return 9
         case .speedUpMail: return 10
+        case .purgeMemory: return 11
         }
     }
 
-    static let caseCount = 11
+    static let caseCount = 12
 }
 
 let validHome = "/Users/alice"

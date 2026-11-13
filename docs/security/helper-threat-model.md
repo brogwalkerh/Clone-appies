@@ -6,7 +6,7 @@ Scope: `com.example.featherduster.helper`, the root daemon installed via
 `App/Services/HelperClient.swift` (client).
 
 ## What the helper can do
-Exactly the eleven `HelperOperation` cases, each mapped by `HelperCommandPlan`
+Exactly the twelve `HelperOperation` cases, each mapped by `HelperCommandPlan`
 to a fixed argv for an allow-listed absolute executable (`tmutil`, `purge`,
 `dscacheutil`, `killall`, `periodic`, `mdutil`, `lsregister`, `launchctl`,
 `sqlite3`, `rm`). Caller input reaches argv in only five places, each after
@@ -69,7 +69,7 @@ reviewable, deterministic, dry-run-able and testable without root.
   behaviour; we only choose fixed arguments.
 - Operations run serially per helper process but not across a reinstall.
 
-## Test coverage enforcing the invariants (`Packages/HelperProtocol`, 42 tests)
+## Test coverage enforcing the invariants (`Packages/HelperProtocol`)
 - Validator: home, cache path (roots, `..`, `.`, `//`, trailing slash, NUL,
   symlink), volume, label (Apple prefix, metacharacters), byte count.
 - Plans: every operation has a plan; every executable is absolute and

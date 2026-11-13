@@ -57,7 +57,7 @@ struct MaintenanceCatalogTests {
 
     @Test func specificOperationsAndRisks() throws {
         let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
-        #expect(byID["maintenance.freeRAM"]?.helperOperation == .freePurgeableSpace)
+        #expect(byID["maintenance.freeRAM"]?.helperOperation == .purgeMemory)
         #expect(byID["maintenance.freeRAM"]?.risk == .safe)
         #expect(byID["maintenance.freePurgeable"]?.helperOperation == .freePurgeableSpace)
         #expect(byID["maintenance.freePurgeable"]?.risk == .safe)

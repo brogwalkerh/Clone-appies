@@ -59,7 +59,7 @@ public enum MaintenanceCatalog {
             or when the system has become sluggish after heavy file copying. The purge \
             needs root, so it runs through the privileged helper.
             """,
-            requiresHelper: true, helperOperation: .freePurgeableSpace, risk: .safe,
+            requiresHelper: true, helperOperation: .purgeMemory, risk: .safe,
             estimatedSeconds: 15),
         MaintenanceTask(
             id: "maintenance.freePurgeable",

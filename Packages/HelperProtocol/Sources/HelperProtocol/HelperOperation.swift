@@ -9,7 +9,11 @@ import Foundation
 public enum HelperOperation: Codable, Sendable, Hashable {
     /// Protocol liveness check; the helper runs nothing.
     case ping
-    /// `tmutil thinlocalsnapshots / 9999999999 4` followed by `purge`.
+    /// `purge` alone: drops the file cache and other inactive memory. Touches
+    /// nothing on disk.
+    case purgeMemory
+    /// `tmutil thinlocalsnapshots / 9999999999 4` followed by `purge`. Deletes
+    /// local Time Machine snapshots, so it is not a memory operation.
     case freePurgeableSpace
     /// `dscacheutil -flushcache` then `killall -HUP mDNSResponder`.
     case flushDNSCache
@@ -39,6 +43,7 @@ public enum HelperOperation: Codable, Sendable, Hashable {
     public var name: String {
         switch self {
         case .ping: return "ping"
+        case .purgeMemory: return "purgeMemory"
         case .freePurgeableSpace: return "freePurgeableSpace"
         case .flushDNSCache: return "flushDNSCache"
         case .runPeriodicScripts: return "runPeriodicScripts"

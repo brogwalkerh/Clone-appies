@@ -45,7 +45,7 @@ public struct HelperRequestValidator: Sendable {
     public func validate(_ request: HelperRequest) throws {
         try Self.validateHome(request.callerHome)
         switch request.operation {
-        case .ping, .freePurgeableSpace, .flushDNSCache, .rebuildLaunchServices,
+        case .ping, .purgeMemory, .freePurgeableSpace, .flushDNSCache, .rebuildLaunchServices,
              .resetBluetoothModule, .speedUpMail:
             return
         case .runPeriodicScripts:

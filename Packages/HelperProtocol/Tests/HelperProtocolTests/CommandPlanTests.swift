@@ -52,6 +52,11 @@ struct CommandPlanTests {
         #expect(HelperCommandPlan.plan(for: req) == HelperCommandPlan.plan(for: req.operation, callerHome: req.callerHome))
     }
 
+    @Test func purgeMemoryNeverTouchesSnapshots() {
+        let steps = HelperCommandPlan.plan(for: .purgeMemory, callerHome: validHome).steps
+        #expect(steps == [CommandStep(executable: "/usr/sbin/purge", arguments: [])])
+    }
+
     @Test func freePurgeableSpace() {
         let steps = HelperCommandPlan.plan(for: .freePurgeableSpace, callerHome: validHome).steps
         #expect(steps == [
