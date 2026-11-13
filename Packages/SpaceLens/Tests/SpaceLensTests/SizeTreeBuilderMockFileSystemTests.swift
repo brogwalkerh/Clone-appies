@@ -43,4 +43,55 @@ struct SizeTreeBuilderMockFileSystemTests {
         // Nothing outside the root leaks in.
         #expect(tree.find(id: URL(fileURLWithPath: "/Applications/Foo.app")) == nil)
     }
+
+    @Test("cancellation stops the walk inside a subtree, above and below maxDepth",
+          arguments: [1, 10])
+    func cancellationIsCheckedPerDirectory(maxDepth: Int) async throws {
+        let mock: MockFileSystem = [
+            "/root/top/a/trigger/b/c/d/e/file.bin": .file(size: 10),
+            "/root/top/a/trigger/b/other/file.bin": .file(size: 10),
+        ]
+        let fs = CancellingFileSystem(base: mock, trigger: "trigger")
+        await #expect(throws: CancellationError.self) {
+            _ = try await SizeTreeBuilder(fileSystem: fs)
+                .build(root: URL(fileURLWithPath: "/root"), maxDepth: maxDepth)
+        }
+        // Nothing below the directory that was being listed when the task was
+        // cancelled may be listed afterwards.
+        #expect(fs.log.listedAfterCancel == [])
+    }
+}
+
+/// Lists through `base`; listing the directory named `trigger` cancels the
+/// calling task, and every later listing is recorded.
+private struct CancellingFileSystem: FileSystem {
+    final class Log: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        private var after: [String] = []
+
+        var listedAfterCancel: [String] { lock.withLock { after } }
+        func record(_ name: String, isTrigger: Bool) {
+            lock.withLock {
+                if cancelled { after.append(name) }
+                if isTrigger { cancelled = true }
+            }
+        }
+    }
+
+    let base: MockFileSystem
+    let trigger: String
+    let log = Log()
+
+    func exists(_ url: URL) -> Bool { base.exists(url) }
+    func attributes(of url: URL) throws -> FileAttributes { try base.attributes(of: url) }
+    func children(of url: URL) throws -> [URL] {
+        let isTrigger = url.lastPathComponent == trigger
+        log.record(url.lastPathComponent, isTrigger: isTrigger)
+        if isTrigger { withUnsafeCurrentTask { $0?.cancel() } }
+        return try base.children(of: url)
+    }
+    func contents(of url: URL) throws -> Data { try base.contents(of: url) }
+    func homeDirectory() -> URL { base.homeDirectory() }
+    func temporaryDirectory() -> URL { base.temporaryDirectory() }
 }

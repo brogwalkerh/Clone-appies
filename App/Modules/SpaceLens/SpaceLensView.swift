@@ -27,6 +27,10 @@ final class SpaceLensModel {
 
     private let layout = CirclePackingLayout(padding: 2, minRadius: 3)
     private var layoutGeneration = 0
+    /// The walk in flight, cancelled when a newer build starts so abandoned
+    /// walks stop instead of piling up (`SizeTreeBuilder` checks per directory).
+    private var buildTask: Task<SizeNode, any Error>?
+    private var buildGeneration = 0
 
     var current: SizeNode? { path.last }
 
@@ -37,19 +41,35 @@ final class SpaceLensModel {
     // MARK: Tree
 
     func build(root url: URL) async {
+        buildTask?.cancel()
+        buildGeneration += 1
+        let generation = buildGeneration
         isBuilding = true
         errorMessage = nil
         hovered = nil
-        defer { isBuilding = false }
+        let task = Task.detached(priority: .userInitiated) {
+            try await SizeTreeBuilder(fileSystem: LocalFileSystem()).build(root: url, maxDepth: 4)
+        }
+        buildTask = task
         do {
-            let builder = SizeTreeBuilder(fileSystem: LocalFileSystem())
-            let node = try await builder.build(root: url, maxDepth: 4)
+            let node = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            // A newer build owns the model now; drop this result.
+            guard generation == buildGeneration else { return }
+            isBuilding = false
             rootURL = url
             root = node
             path = [node]
             await relayout()
         } catch {
-            errorMessage = error.localizedDescription
+            guard generation == buildGeneration else { return }
+            isBuilding = false
+            if !(error is CancellationError) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
