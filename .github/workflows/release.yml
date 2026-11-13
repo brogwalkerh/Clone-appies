@@ -41,6 +41,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A release must not ship development placeholders: the example bundle
+      # identifier, the example appcast URL or the unset Sparkle public key
+      # (Sparkle refuses to update without a real one).
+      - name: Refuse to release with placeholders
+        run: |
+          set -euo pipefail
+          if grep -rnE 'com\.example|example\.com|REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY' \
+               project.yml App/Resources MenuAgent/Resources PrivilegedHelper/Resources \
+               Packages/HelperProtocol/Sources; then
+            echo "::error::Replace the placeholders listed above before tagging a release."
+            exit 1
+          fi
+
       - name: Select newest Xcode
         run: |
           newest=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
