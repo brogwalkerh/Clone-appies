@@ -11,7 +11,8 @@ public protocol ImageFeatureProvider: Sendable {
 
 /// Similar images: feature prints clustered by cosine distance (single
 /// linkage). Each cluster's *keeper* is its largest file; the others are
-/// emitted with detail "Similar to <keeper name>".
+/// emitted with detail "Similar to <keeper name>" as review-only (`.risky`)
+/// findings.
 public struct SimilarImagesScanner: CleanerScanner {
     public static let id = "clutter.similarImages"
     public static let imageExtensions: Set<String> = [
@@ -48,6 +49,9 @@ public struct SimilarImagesScanner: CleanerScanner {
             var items: [Item] = []
             try await context.forEachRegularFile(under: context.scanRoots(roots)) { url, attributes in
                 guard Self.imageExtensions.contains(url.pathExtension.lowercased()) else { return }
+                // A dataless iCloud placeholder would be downloaded in full
+                // just to compute its feature print.
+                guard !attributes.isEvictedPlaceholder else { return }
                 let vector: [Float]?
                 do {
                     vector = try await provider.featurePrint(for: url)
@@ -66,7 +70,7 @@ public struct SimilarImagesScanner: CleanerScanner {
                 for other in cluster.dropFirst() {
                     emitter.emit(Finding(path: other.url, sizeBytes: other.sizeBytes,
                                          category: ClutterCategory.similarImages, scannerID: Self.id,
-                                         risk: .caution, detail: "Similar to \(keeper.url.lastPathComponent)",
+                                         risk: clutterRisk, detail: "Similar to \(keeper.url.lastPathComponent)",
                                          modifiedAt: other.modifiedAt, isDirectory: false))
                 }
             }

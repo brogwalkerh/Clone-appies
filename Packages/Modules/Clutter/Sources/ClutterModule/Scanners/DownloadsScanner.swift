@@ -3,7 +3,8 @@ import CleanerCore
 
 /// Downloads triage: top-level items in `~/Downloads` that are installers,
 /// screenshots / screen recordings, or stale. Each item is reported once with
-/// the first matching rule's detail; folders are sized recursively.
+/// the first matching rule's detail; folders are sized recursively. Findings
+/// are review-only (`.risky`); "stale" is judged by modification time.
 public struct DownloadsScanner: CleanerScanner {
     public static let id = "clutter.downloads"
     public static let installerExtensions: Set<String> = ["dmg", "pkg", "zip", "mpkg"]
@@ -34,7 +35,7 @@ public struct DownloadsScanner: CleanerScanner {
                 guard let detail = Self.detail(for: item, attributes: attributes, now: context.now,
                                                staleAfter: staleAfter) else { continue }
                 if let finding = await context.finding(at: item, category: ClutterCategory.downloads,
-                                                       scannerID: Self.id, risk: .caution, detail: detail) {
+                                                       scannerID: Self.id, risk: clutterRisk, detail: detail) {
                     emitter.emit(finding)
                 }
             }
@@ -54,7 +55,7 @@ public struct DownloadsScanner: CleanerScanner {
         if let modified = attributes.modifiedAt {
             let age = now.timeIntervalSince(modified)
             if age >= staleAfter {
-                return "Downloaded \(Int(age / 86_400)) days ago"
+                return "Modified \(Int(age / 86_400)) days ago"
             }
         }
         return nil

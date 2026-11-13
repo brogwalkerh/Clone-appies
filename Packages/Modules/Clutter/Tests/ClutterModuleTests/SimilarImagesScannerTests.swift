@@ -52,7 +52,7 @@ struct SimilarImagesScannerTests {
         #expect(findings.named("cat-2.png")?.detail == "Similar to cat-1.png")
         #expect(findings.named("beach-1.jpg")?.sizeBytes == 2_000)
         #expect(findings.named("beach-1.jpg")?.modifiedAt == daysAgo(3))
-        #expect(findings.allSatisfy { $0.risk == .caution && $0.category.id == "clutter.similarImages" })
+        #expect(findings.allSatisfy { $0.risk == .risky && $0.category.id == "clutter.similarImages" })
         #expect(findings.allSatisfy { $0.scannerID == "clutter.similarImages" && !$0.isDirectory })
     }
 
@@ -65,6 +65,20 @@ struct SimilarImagesScannerTests {
         #expect(findings.named("odd.webp") == nil)
         #expect(findings.named("unknown.png") == nil)
         #expect(!findings.contains { $0.path.path.hasPrefix("/Users/test/Documents") })
+    }
+
+    @Test func evictedPlaceholdersAndHiddenFoldersAreNotCandidates() async throws {
+        let fs: MockFileSystem = [
+            "/Users/test/Pictures/beach-1.jpg": .file(size: 2_000),
+            "/Users/test/Pictures/beach-2.JPG": .file(size: 5_000, allocatedSize: 0),
+            "/Users/test/Pictures/.thumbnails/beach-3.heic": .file(size: 1_000),
+            "/Users/test/Pictures/cat-1.png": .file(size: 3_500),
+            "/Users/test/Pictures/cat-2.png": .file(size: 3_000),
+        ]
+        let findings = try await collect(SimilarImagesScanner(provider: provider), context(fs))
+        // Only the cat cluster survives: beach-1 has no local partner left.
+        #expect(findings.paths == ["/Users/test/Pictures/cat-2.png"])
+        #expect(findings.allSatisfy { $0.risk == .risky })
     }
 
     @Test func providerFailureOnOneFileIsSkipped() async throws {

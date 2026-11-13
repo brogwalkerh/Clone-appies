@@ -35,9 +35,10 @@ struct LargeOldFilesScannerTests {
         #expect(old.paths == [
             "/Users/test/Documents/small-old.txt",
             "/Users/test/Documents/Nested/Deeper/ancient.doc",
-            "/Users/test/Downloads/.hidden-old",
         ])
-        #expect(findings.allSatisfy { $0.risk == .caution && $0.scannerID == "clutter.largeOld" && !$0.isDirectory })
+        // Hidden files are tool state, not clutter.
+        #expect(findings.named(".hidden-old") == nil)
+        #expect(findings.allSatisfy { $0.risk == .risky && $0.scannerID == "clutter.largeOld" && !$0.isDirectory })
         #expect(findings.allSatisfy { $0.category.module == .clutter })
     }
 
@@ -54,8 +55,8 @@ struct LargeOldFilesScannerTests {
     @Test func detailsAreHumanReadable() async throws {
         let findings = try await collect(scanner, context(fs))
         #expect(findings.named("big-fresh.mov")?.detail == "Large file, 5 MB")
-        #expect(findings.named("small-old.txt")?.detail == "Not opened in 6 months")
-        #expect(findings.named("ancient.doc")?.detail == "Not opened in 33 months")
+        #expect(findings.named("small-old.txt")?.detail == "Not modified in 6 months")
+        #expect(findings.named("ancient.doc")?.detail == "Not modified in 33 months")
     }
 
     @Test func thresholdsAreInclusiveAndUseInjectedNow() async throws {
@@ -90,6 +91,16 @@ struct LargeOldFilesScannerTests {
             "/Users/test/Documents/big-old.iso",
             "/Users/test/Documents/small-old.txt",
         ])
+    }
+
+    @Test func hiddenAndDependencyDirectoriesAreNotEntered() async throws {
+        let fs: MockFileSystem = [
+            "/Users/test/Documents/proj/.git/objects/pack/pack-1.pack": .file(size: 9_000_000, modified: daysAgo(900)),
+            "/Users/test/Documents/proj/node_modules/lib/index.js": .file(size: 10, modified: daysAgo(900)),
+            "/Users/test/Documents/proj/src/main.c": .file(size: 10, modified: daysAgo(900)),
+        ]
+        let findings = try await collect(scanner, context(fs))
+        #expect(findings.paths == ["/Users/test/Documents/proj/src/main.c"])
     }
 
     @Test func defaultsMatchContract() {

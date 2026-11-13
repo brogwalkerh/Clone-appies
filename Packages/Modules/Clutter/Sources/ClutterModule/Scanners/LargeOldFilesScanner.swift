@@ -4,7 +4,7 @@ import CleanerCore
 /// Large & Old: files at least `minSizeBytes` (category `clutter.largeFiles`)
 /// or not modified for `minAge` (category `clutter.oldFiles`) under the
 /// user's home folders. A file that is both large and old is reported once,
-/// as a large file.
+/// as a large file. Findings are review-only (`.risky`).
 public struct LargeOldFilesScanner: CleanerScanner {
     public static let id = "clutter.largeOld"
     public static let largeFilesCategoryID = "clutter.largeFiles"
@@ -36,7 +36,7 @@ public struct LargeOldFilesScanner: CleanerScanner {
                 if attributes.sizeBytes >= minSizeBytes {
                     emitter.emit(Finding(path: url, sizeBytes: attributes.sizeBytes,
                                          category: ClutterCategory.largeFiles, scannerID: Self.id,
-                                         risk: .caution, detail: Self.largeDetail(attributes.sizeBytes),
+                                         risk: clutterRisk, detail: Self.largeDetail(attributes.sizeBytes),
                                          modifiedAt: attributes.modifiedAt, isDirectory: false))
                     return
                 }
@@ -45,7 +45,7 @@ public struct LargeOldFilesScanner: CleanerScanner {
                 guard age >= minAge else { return }
                 emitter.emit(Finding(path: url, sizeBytes: attributes.sizeBytes,
                                      category: ClutterCategory.oldFiles, scannerID: Self.id,
-                                     risk: .caution, detail: Self.oldDetail(age: age),
+                                     risk: clutterRisk, detail: Self.oldDetail(age: age),
                                      modifiedAt: modified, isDirectory: false))
             }
         }
@@ -56,8 +56,9 @@ public struct LargeOldFilesScanner: CleanerScanner {
         "Large file, \(bytes / 1_000_000) MB"
     }
 
-    /// "Not opened in 6 months" (30-day months, whole number).
+    /// "Not modified in 6 months" (30-day months, whole number). The age is
+    /// the modification time; nothing here knows when a file was last opened.
     static func oldDetail(age: TimeInterval) -> String {
-        "Not opened in \(Int(age / (30 * 86_400))) months"
+        "Not modified in \(Int(age / (30 * 86_400))) months"
     }
 }

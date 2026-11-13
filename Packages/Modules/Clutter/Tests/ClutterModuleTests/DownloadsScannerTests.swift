@@ -52,9 +52,9 @@ struct DownloadsScannerTests {
         #expect(findings.named("Installer.mpkg")?.detail == "Installer")
         #expect(findings.named("Screenshot 2026-10-01 at 10.00.00.png")?.detail == "Screenshot", "screenshot rule wins over stale")
         #expect(findings.named("Screen Recording 2026-10-02.mov")?.detail == "Screenshot")
-        #expect(findings.named("invoice.pdf")?.detail == "Downloaded 90 days ago")
-        #expect(findings.named("Old Folder")?.detail == "Downloaded 400 days ago")
-        #expect(findings.allSatisfy { $0.risk == .caution && $0.category.id == "clutter.downloads" })
+        #expect(findings.named("invoice.pdf")?.detail == "Modified 90 days ago")
+        #expect(findings.named("Old Folder")?.detail == "Modified 400 days ago")
+        #expect(findings.allSatisfy { $0.risk == .risky && $0.category.id == "clutter.downloads" })
         #expect(findings.allSatisfy { $0.scannerID == "clutter.downloads" })
     }
 
@@ -84,9 +84,9 @@ struct DownloadsScannerTests {
     @Test func staleAfterAndNowAreHonoured() async throws {
         let strict = DownloadsScanner(staleAfter: 30 * 86_400)
         let findings = try await collect(strict, context(fs))
-        #expect(findings.named("recent.pdf")?.detail == "Downloaded 89 days ago")
+        #expect(findings.named("recent.pdf")?.detail == "Modified 89 days ago")
         let later = context(fs, now: testNow.addingTimeInterval(86_400))
-        #expect(try await collect(scanner, later).named("recent.pdf")?.detail == "Downloaded 90 days ago")
+        #expect(try await collect(scanner, later).named("recent.pdf")?.detail == "Modified 90 days ago")
         #expect(DownloadsScanner().staleAfter == 90 * 86_400)
     }
 

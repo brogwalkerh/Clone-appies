@@ -10,6 +10,31 @@ enum ClutterCategory {
     static let downloads = FindingCategory(id: "clutter.downloads", displayName: "Downloads", module: .clutter)
 }
 
+/// Every My Clutter finding is a personal file (document, photo, download)
+/// picked by a heuristic, so all of them are review-only: `.risky` is the
+/// one level that is never pre-selected. This also means a file one scanner
+/// keeps (a duplicates keeper) cannot be silently removed because another
+/// scanner listed it.
+let clutterRisk = RiskLevel.risky
+
+/// Directory names the clutter walk never enters, in addition to anything
+/// whose name starts with a dot (`.git`, `.svn`, `.venv`, `.build`, ...).
+/// Their contents belong to a tool: removing one "duplicate" breaks a
+/// checkout or a dependency tree.
+let clutterExcludedDirectoryNames: Set<String> = [
+    "node_modules", "bower_components", "Pods", "Carthage", "DerivedData",
+    "__pycache__", "site-packages", "venv", "virtualenv", "CVS",
+]
+
+extension FileAttributes {
+    /// A dataless placeholder (iCloud Drive "Optimise Storage", other File
+    /// Provider domains): it has content length but nothing on disk. Reading
+    /// it makes the system download the whole file.
+    var isEvictedPlaceholder: Bool {
+        !isDirectory && !isSymlink && sizeBytes == 0 && logicalSizeBytes > 0
+    }
+}
+
 /// Hands findings from a scanner body to its stream.
 struct FindingEmitter: Sendable {
     let continuation: AsyncThrowingStream<Finding, any Error>.Continuation
@@ -96,15 +121,35 @@ extension ScanContext {
 
     /// Visits every regular file under `roots` (package contents skipped,
     /// symlinks and directories not reported, ignored/protected paths dropped).
+    ///
+    /// Hidden entries (name starting with a dot) and the directories in
+    /// `clutterExcludedDirectoryNames` are neither reported nor entered, so
+    /// version-control metadata and dependency trees never become clutter.
+    /// Depth-first in listing order; unreadable entries are skipped.
     func forEachRegularFile(under roots: [URL],
                             _ body: (URL, FileAttributes) async throws -> Void) async throws {
         for root in roots {
-            for try await (url, attributes) in listingWalker.walk(root) {
+            var stack: [URL] = [root.standardizedFileURL]
+            while let directory = stack.popLast() {
                 try Task.checkCancellation()
-                guard !attributes.isDirectory, !attributes.isSymlink else { continue }
-                let standardized = url.standardizedFileURL
-                if shouldSkip(standardized) { continue }
-                try await body(standardized, attributes)
+                guard let children = try? fileSystem.children(of: directory) else { continue }
+                var pending: [URL] = []
+                for child in children {
+                    try Task.checkCancellation()
+                    let url = child.standardizedFileURL
+                    let name = url.lastPathComponent
+                    if name.hasPrefix(".") || shouldSkip(url) { continue }
+                    guard let attributes = try? fileSystem.attributes(of: url) else { continue }
+                    if attributes.isSymlink { continue }
+                    if attributes.isDirectory {
+                        if attributes.isPackage || clutterExcludedDirectoryNames.contains(name) { continue }
+                        pending.append(url)
+                    } else {
+                        try await body(url, attributes)
+                    }
+                }
+                // Push in reverse so subdirectories are visited in listing order.
+                stack.append(contentsOf: pending.reversed())
             }
         }
     }

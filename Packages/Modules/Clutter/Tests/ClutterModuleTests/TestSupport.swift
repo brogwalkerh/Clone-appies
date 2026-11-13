@@ -70,3 +70,26 @@ extension Array where Element == Finding {
     var paths: Set<String> { Set(map { $0.path.standardizedFileURL.path }) }
     var totalBytes: Int64 { reduce(0) { $0 + $1.sizeBytes } }
 }
+
+/// Forwards to `base` and records every path whose contents are read.
+struct ReadRecordingFileSystem: FileSystem {
+    final class Log: @unchecked Sendable {
+        private let lock = NSLock()
+        private var read: Set<String> = []
+        var paths: Set<String> { lock.withLock { read } }
+        func record(_ url: URL) { lock.withLock { _ = read.insert(url.standardizedFileURL.path) } }
+    }
+
+    let base: MockFileSystem
+    let log = Log()
+
+    func exists(_ url: URL) -> Bool { base.exists(url) }
+    func attributes(of url: URL) throws -> FileAttributes { try base.attributes(of: url) }
+    func children(of url: URL) throws -> [URL] { try base.children(of: url) }
+    func contents(of url: URL) throws -> Data {
+        log.record(url)
+        return try base.contents(of: url)
+    }
+    func homeDirectory() -> URL { base.homeDirectory() }
+    func temporaryDirectory() -> URL { base.temporaryDirectory() }
+}

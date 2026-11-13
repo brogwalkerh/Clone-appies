@@ -90,7 +90,8 @@ struct MyClutterView: View {
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 if !model.findings.isEmpty, !model.isScanning {
-                    Button("Select Safe Items") { model.selectAllNonRisky() }
+                    // No "Select Safe Items": every My Clutter finding is the
+                    // user's own file and review-only, so nothing is pre-ticked.
                     Button("Rescan") { startScan() }
                 }
             }
