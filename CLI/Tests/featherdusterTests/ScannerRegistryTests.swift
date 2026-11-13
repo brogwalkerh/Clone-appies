@@ -46,11 +46,10 @@ struct ScannerRegistryTests {
         #expect(duplicated.scanner(withID: "missing") == nil)
     }
 
-    @Test("built-in registry has the Cleanup scanners plus the demo scanner, with unique ids")
+    @Test("built-in registry has the Cleanup scanners, never the demo scanner, with unique ids")
     func builtIn() {
         let ids = ScannerRegistry.builtIn().scanners.map(\.id)
-        #expect(ids.contains(DemoScanner.id))
-        #expect(ids.last == DemoScanner.id)
+        #expect(!ids.contains(DemoScanner.id))
         for scanner in CleanupScanners.all() {
             #expect(ids.contains(scanner.id))
         }

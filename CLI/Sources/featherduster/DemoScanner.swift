@@ -1,8 +1,9 @@
 import Foundation
 import CleanerCore
 
-/// Built-in scanner so the CLI is exercisable on any tree: walks `--home` and
-/// reports `*.tmp`, `*.log` and the contents of `.Trash`.
+/// Fixture scanner for the CLI's own tests: walks `--home` and reports every
+/// `*.tmp`, `*.log` and the contents of `.Trash`. It is far too broad for a
+/// real home folder, so `ScannerRegistry.builtIn()` must never register it.
 struct DemoScanner: CleanerScanner {
     static let id = "cli.demo"
 
