@@ -23,7 +23,8 @@ enum DeepLink: Hashable, Sendable {
     case protection(scope: ScanScope?)
     /// Runs a due schedule's target in the background (no navigation).
     case schedule(id: UUID)
-    /// Opens Smart Care and runs a My Tools action set.
+    /// Opens Smart Care, where My Tools lists the action set. The link never
+    /// runs it: any process or web page can open a URL, and a set can delete.
     case actionSet(id: UUID)
 
     static let scheme = "featherduster"
@@ -133,8 +134,8 @@ struct DeepLinkRouter {
             appState.select(.performance)
             if let taskID, let task = MaintenanceCatalog.all.first(where: { $0.id == taskID }) {
                 // The Performance screen consumes `pendingFocusTaskID`: it switches to
-                // the Maintenance tab, runs the task when the helper allows, and
-                // otherwise shows the helper install step.
+                // the Maintenance tab and runs the task only when it is rated safe;
+                // anything else is left selected for the user to run.
                 appState.maintenance.selectedTaskIDs = [task.id]
                 appState.maintenance.pendingFocusTaskID = task.id
             }
@@ -149,10 +150,11 @@ struct DeepLinkRouter {
             // Scheduled work runs where the user is; results arrive as a notification.
             Task { await appState.runSchedule(id: id) }
 
-        case .actionSet(let id):
+        case .actionSet:
+            // Navigation only. Preset ids are fixed constants, so running here
+            // would let any `open featherduster://action-set?id=…` remove files
+            // and empty the Trash without the confirmation the Run button shows.
             appState.select(.smartCare)
-            guard let set = appState.automation.actionSet(withID: id) else { return }
-            Task { await appState.automation.run(set) }
         }
     }
 }

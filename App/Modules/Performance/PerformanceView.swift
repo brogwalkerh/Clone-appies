@@ -282,12 +282,15 @@ struct PerformanceView: View {
             .map(\.id))
     }
 
-    /// `featherduster://performance?task=<id>`: focus Maintenance, run the task if it
-    /// can run, otherwise show the helper install step.
+    /// `featherduster://performance?task=<id>`: focus Maintenance and, for a task
+    /// rated safe, run it (or show the helper install step). A URL can come from
+    /// any process or web page, so tasks that thin snapshots, reindex Spotlight
+    /// or reset Bluetooth are only selected; the user presses Run.
     private func consumePendingFocus(_ taskID: String?) {
         guard let taskID, let task = MaintenanceState.task(withID: taskID) else { return }
         maintenance.pendingFocusTaskID = nil
         tab = .maintenance
+        guard task.risk == .safe else { return }
         Task {
             await HelperClient.shared.checkAvailability()
             if task.requiresHelper, !HelperClient.shared.isAvailable {
