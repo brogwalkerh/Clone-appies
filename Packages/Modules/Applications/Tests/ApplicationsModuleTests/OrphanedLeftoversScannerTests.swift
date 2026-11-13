@@ -71,14 +71,14 @@ struct OrphanedLeftoversScannerTests {
             "HTTPStorages/com.gone.app.binarycookies",
             "HTTPStorages/com.gone.app",
             "WebKit/com.gone.app",
-            "LaunchAgents/com.gone.app.agent.plist",
         ].map { lib + $0 })
         #expect(findings.paths == expected, "missing: \(expected.subtracting(findings.paths)) extra: \(findings.paths.subtracting(expected))")
         #expect(findings.allSatisfy { $0.category.id == "applications.orphaned" })
         #expect(findings.allSatisfy { $0.category.module == .applications })
         #expect(findings.allSatisfy { $0.scannerID == "applications.orphanedLeftovers" })
-        #expect(findings.allSatisfy { $0.risk == .safe })
-        #expect(findings.allSatisfy { $0.detail == "Left behind by an app that is no longer installed" })
+        // Review-only: an orphan is a guess, so it is never pre-selected.
+        #expect(findings.allSatisfy { $0.risk == .risky })
+        #expect(findings.allSatisfy { $0.detail == "No installed app appears to own this; review before removing" })
         let support = try #require(findings.at(lib + "Application Support/com.gone.app"))
         #expect(support.isDirectory)
         #expect(support.sizeBytes == 3_000)
@@ -108,10 +108,83 @@ struct OrphanedLeftoversScannerTests {
         tree = MockFileSystem([
             "/Applications/Gone.app/Contents/Info.plist": infoPlist(name: "Gone", id: "com.gone.app"),
             "/Users/test/Library/Application Support/com.gone.app/data.db": .file(size: 1),
+            // Same vendor name under another TLD: now owned as well.
             "/Users/test/Library/Caches/org.gone.tool/x": .file(size: 11),
+            "/Users/test/Library/Caches/org.departed.tool/x": .file(size: 12),
         ])
         let findings = try await collect(scanner, context(tree))
-        #expect(findings.paths == ["/Users/test/Library/Caches/org.gone.tool"])
+        #expect(findings.paths == ["/Users/test/Library/Caches/org.departed.tool"])
+    }
+
+    /// brew services (`homebrew.mxcl.redis.plist`) and hand-written agents
+    /// belong to no app bundle; they must never be offered.
+    @Test func launchAgentsAreNeverOrphans() async throws {
+        let tree: MockFileSystem = [
+            "/Applications/Keeper.app/Contents/Info.plist": infoPlist(name: "Keeper", id: "com.vendor.keeper"),
+            "/Users/test/Library/LaunchAgents/homebrew.mxcl.redis.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.me.backup.nightly.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.gone.app.agent.plist": .file(size: 1),
+            "/Users/test/Library/Caches/com.gone.app/x": .file(size: 1),
+        ]
+        let findings = try await collect(scanner, context(tree))
+        #expect(findings.paths == ["/Users/test/Library/Caches/com.gone.app"])
+    }
+
+    @Test func emptyInventoryYieldsNothing() async throws {
+        let tree: MockFileSystem = [
+            "/Users/test/Library/Application Support/com.gone.app/x": .file(size: 1),
+            "/Users/test/Library/Caches/org.gone.tool/x": .file(size: 1),
+        ]
+        #expect(try await collect(scanner, context(tree)).isEmpty)
+    }
+
+    @Test func unreadableInfoPlistYieldsNothing() async throws {
+        var entries: [String: MockFileSystem.Node] = [
+            "/Applications/Keeper.app/Contents/Info.plist": infoPlist(name: "Keeper", id: "com.vendor.keeper"),
+            "/Users/test/Library/Application Support/com.gone.app/x": .file(size: 1),
+        ]
+        #expect(try await collect(scanner, context(MockFileSystem(entries))).paths
+                == ["/Users/test/Library/Application Support/com.gone.app"])
+        // One app whose identifier cannot be read may own anything.
+        entries["/Applications/Broken.app/Contents/Info.plist"] = .data(Data("not a plist".utf8))
+        #expect(try await collect(scanner, context(MockFileSystem(entries))).isEmpty)
+        entries["/Applications/Broken.app/Contents/Info.plist"] = infoPlist(name: "Broken")
+        #expect(try await collect(scanner, context(MockFileSystem(entries))).isEmpty)
+    }
+
+    @Test func appsInVendorSubfoldersOwnTheirFiles() async throws {
+        let tree: MockFileSystem = [
+            "/Applications/Keeper.app/Contents/Info.plist": infoPlist(name: "Keeper", id: "com.vendor.keeper"),
+            "/Applications/Acme/Suite 2026/Painter.app/Contents/Info.plist": infoPlist(name: "Painter", id: "net.acme.painter"),
+            "/Users/test/Library/Application Support/net.acme.painter/x": .file(size: 1),
+            "/Users/test/Library/Caches/com.gone.app/x": .file(size: 1),
+        ]
+        let findings = try await collect(scanner, context(tree))
+        #expect(findings.paths == ["/Users/test/Library/Caches/com.gone.app"])
+    }
+
+    @Test func siblingAndPrefixedIdentifiersAreOwned() async throws {
+        let tree: MockFileSystem = [
+            "/Applications/Dropbox.app/Contents/Info.plist": infoPlist(name: "Dropbox", id: "com.getdropbox.dropbox"),
+            "/Applications/Word.app/Contents/Info.plist": infoPlist(name: "Word", id: "com.bigcorp.Word"),
+            // Different vendor spelling, same product.
+            "/Users/test/Library/Application Support/com.dropbox.DropboxMacUpdate/x": .file(size: 1),
+            // Same vendor, different product.
+            "/Users/test/Library/Caches/com.bigcorp.shared.licensing/x": .file(size: 1),
+            // Team-identifier and group prefixes.
+            "/Users/test/Library/Application Support/ABCDE12345.com.bigcorp.Office/x": .file(size: 1),
+            "/Users/test/Library/Containers/group.com.bigcorp.suite/x": .file(size: 1),
+            "/Users/test/Library/Caches/systemgroup.com.apple.configurationprofiles/x": .file(size: 1),
+            "/Users/test/Library/Caches/ABCDE12345.group.com.getdropbox.sync/x": .file(size: 1),
+            // Still an orphan, with and without a team prefix.
+            "/Users/test/Library/Caches/com.gone.app/x": .file(size: 1),
+            "/Users/test/Library/Caches/ZYXWV98765.com.gone.app/x": .file(size: 1),
+        ]
+        let findings = try await collect(scanner, context(tree))
+        #expect(findings.paths == [
+            "/Users/test/Library/Caches/com.gone.app",
+            "/Users/test/Library/Caches/ZYXWV98765.com.gone.app",
+        ])
     }
 
     @Test func ignoreListAndProtectedPathsAreRespected() async throws {
@@ -154,7 +227,22 @@ struct OrphanedLeftoversScannerTests {
         #expect(known.contains("com.adobe.Reader"))
         #expect(known.contains("com.google.Keystone"))
         #expect(!known.contains("com.google.Chrome"))
-        #expect(!known.contains("com.vendorx.app"))
         #expect(!known.contains("com.other.app"))
+        // Vendor-level ownership.
+        #expect(known.contains("com.vendor.somethingelse"))
+        #expect(known.contains("ABCDE12345.com.vendor.shared"))
+        #expect(known.contains("systemgroup.com.vendor.shared"))
+        #expect(known.contains("com.vendorx.app"), "vendor spelled slightly differently")
+        #expect(!known.contains("ABCDE12345.com.other.app"))
+        #expect(!known.contains("technology.other.app"), "a lower-case first component is not a team id")
+        let dropbox = KnownIdentifiers(apps: [makeApp(name: "Dropbox", id: "com.getdropbox.dropbox")])
+        #expect(dropbox.contains("com.dropbox.DropboxMacUpdate"))
+        #expect(dropbox.contains("io.syncthing.dropbox"), "a component naming an installed app")
+        #expect(!dropbox.contains("com.other.app"))
+        #expect(BundleIdentifier.ownershipComponents("ABCDE12345.group.com.Vendor.App") == ["com", "vendor", "app"])
+        #expect(BundleIdentifier.ownershipComponents("group.vendor") == ["group", "vendor"])
+        #expect(BundleIdentifier.isTeamID("ABCDE12345"))
+        #expect(!BundleIdentifier.isTeamID("abcde12345"))
+        #expect(!BundleIdentifier.isTeamID("ABCDE1234"))
     }
 }

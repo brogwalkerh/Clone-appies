@@ -3,9 +3,13 @@ import CleanerCore
 
 /// Discovers installed application bundles.
 ///
-/// Search roots are listed non-recursively: every `*.app` entry is a bundle
-/// and bundles are not entered looking for more apps. `/Applications/Utilities`
-/// is a root of its own. Homebrew Caskrooms use the
+/// Every `*.app` entry of a search root is a bundle; bundles are not entered
+/// looking for more apps. Plain folders are entered up to `searchDepth`
+/// levels below the root, because vendors install into
+/// `/Applications/<Vendor>/<App>.app` (Adobe, Microsoft, JetBrains Toolbox);
+/// missing those would make their support files look orphaned.
+/// `/Applications/Utilities` is also a root of its own; duplicates collapse
+/// by resolved bundle URL. Homebrew Caskrooms use the
 /// `Caskroom/<token>/<version>/<App>.app` layout and are searched three levels
 /// deep. Only roots that exist are read.
 public struct AppInventory: Sendable {
@@ -21,6 +25,10 @@ public struct AppInventory: Sendable {
         "/opt/homebrew/Caskroom",
         "/usr/local/Caskroom",
     ]
+
+    /// Levels below a search root that are searched for bundles: 1 is the
+    /// root's direct children, 3 reaches `<root>/<Vendor>/<Suite>/<App>.app`.
+    static let searchDepth = 3
 
     private let fileSystem: any FileSystem
     private let searchPaths: [String]
@@ -44,12 +52,7 @@ public struct AppInventory: Sendable {
 
         var candidates: [Candidate] = []
         for root in roots {
-            try Task.checkCancellation()
-            for child in fileSystem.readableChildren(of: root) {
-                if let candidate = candidate(at: child, inCaskroom: false) {
-                    candidates.append(candidate)
-                }
-            }
+            try collectCandidates(in: root, depth: 1, into: &candidates)
         }
         for caskroom in caskrooms.map({ URL(fileURLWithPath: $0, isDirectory: true) }) {
             try Task.checkCancellation()
@@ -99,6 +102,29 @@ public struct AppInventory: Sendable {
         let isCaskHinted: Bool
     }
 
+    /// Appends the bundles directly in `directory`, then those in its plain
+    /// subfolders while `depth` is below `searchDepth`. Bundles, other
+    /// packages, hidden folders and symlinked folders are never entered.
+    private func collectCandidates(in directory: URL, depth: Int, into candidates: inout [Candidate]) throws {
+        try Task.checkCancellation()
+        var subfolders: [URL] = []
+        for child in fileSystem.readableChildren(of: directory) {
+            if child.pathExtension.lowercased() == "app" {
+                if let candidate = candidate(at: child, inCaskroom: false) {
+                    candidates.append(candidate)
+                }
+                continue
+            }
+            guard depth < Self.searchDepth, !child.lastPathComponent.hasPrefix("."),
+                  let attributes = try? fileSystem.attributes(of: child),
+                  attributes.isDirectory, !attributes.isSymlink, !attributes.isPackage else { continue }
+            subfolders.append(child)
+        }
+        for subfolder in subfolders {
+            try collectCandidates(in: subfolder, depth: depth + 1, into: &candidates)
+        }
+    }
+
     private func isDirectory(_ url: URL) -> Bool {
         (try? fileSystem.attributes(of: url))?.isDirectory == true
     }
@@ -146,7 +172,8 @@ public struct AppInventory: Sendable {
         let sizeWalker = FileWalker(fileSystem: fileSystem, followsSymlinks: false,
                                     skipsPackageContents: false, protectedPaths: .none)
         let size = (try? await sizeWalker.directorySize(resolvedURL)) ?? 0
-        let feed = plist?.sparkleFeedURL.flatMap { URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        // Untrusted: only web feeds are kept (no file:, no custom schemes).
+        let feed = plist?.sparkleFeedURL.flatMap { WebURL.parse($0) }
         let source = classify(bundleURL: bundleURL, resolvedURL: resolvedURL, bundleID: bundleID,
                               caskHinted: caskHinted, hasPlist: plist != nil)
         return InstalledApp(bundleURL: bundleURL, name: name, bundleIdentifier: bundleID,

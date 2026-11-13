@@ -120,6 +120,35 @@ struct AppInventoryTests {
         #expect(apps.names == ["Custom"])
     }
 
+    @Test func vendorSubfoldersAreSearchedToDepthThree() async throws {
+        let fs: MockFileSystem = [
+            "/Applications/Top.app/Contents/Info.plist": infoPlist(name: "Top", id: "com.vendor.top"),
+            "/Applications/Acme/Two.app/Contents/Info.plist": infoPlist(name: "Two", id: "com.acme.two"),
+            "/Applications/Acme/Suite/Three.app/Contents/Info.plist": infoPlist(name: "Three", id: "com.acme.three"),
+            "/Applications/Acme/Suite/Deep/Four.app/Contents/Info.plist": infoPlist(name: "Four", id: "com.acme.four"),
+            // Never entered: bundles, other packages, hidden folders.
+            "/Applications/Top.app/Contents/Helpers/Inner.app/Contents/Info.plist": infoPlist(name: "Inner", id: "com.vendor.inner"),
+            "/Applications/Thing.bundle": .package,
+            "/Applications/Thing.bundle/Hidden.app/Contents/Info.plist": infoPlist(name: "InPackage", id: "com.vendor.inpackage"),
+            "/Applications/.cache/Dot.app/Contents/Info.plist": infoPlist(name: "Dot", id: "com.vendor.dot"),
+        ]
+        let apps = try await AppInventory(fileSystem: fs).discover(home: testHome)
+        #expect(apps.names == ["Three", "Top", "Two"])
+        #expect(apps.named("Two")?.bundleURL.path == "/Applications/Acme/Two.app")
+    }
+
+    @Test func feedURLsAreLimitedToWebSchemes() async throws {
+        let fs: MockFileSystem = [
+            "/Applications/Web.app/Contents/Info.plist": infoPlist(name: "Web", id: "com.vendor.web", feed: " https://example.com/a.xml "),
+            "/Applications/File.app/Contents/Info.plist": infoPlist(name: "File", id: "com.vendor.file", feed: "file:///etc/passwd"),
+            "/Applications/Scheme.app/Contents/Info.plist": infoPlist(name: "Scheme", id: "com.vendor.scheme", feed: "x-evil://run?cmd=1"),
+        ]
+        let apps = try await AppInventory(fileSystem: fs).discover(home: testHome)
+        #expect(apps.named("Web")?.sparkleFeedURL == URL(string: "https://example.com/a.xml"))
+        #expect(apps.named("File")?.sparkleFeedURL == nil)
+        #expect(apps.named("Scheme")?.sparkleFeedURL == nil)
+    }
+
     @Test func installedAppRoundTripsThroughCodable() throws {
         let app = makeApp(name: "Round", id: "com.vendor.round", feed: "https://example.com/a.xml")
         let data = try JSONEncoder().encode(app)

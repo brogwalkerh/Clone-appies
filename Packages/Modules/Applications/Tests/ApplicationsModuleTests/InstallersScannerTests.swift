@@ -29,7 +29,6 @@ struct InstallersScannerTests {
         let findings = try await collect(scanner, context(fs))
         #expect(findings.paths == [
             "/Users/test/Downloads/App.dmg",
-            "/Users/test/Downloads/linux.ISO",
             "/Users/test/Downloads/undated.dmg",
             "/Users/test/Desktop/Tool.pkg",
             "/Users/test/Documents/Suite.mpkg",
@@ -37,17 +36,36 @@ struct InstallersScannerTests {
         #expect(findings.allSatisfy { $0.category.id == "applications.installers" })
         #expect(findings.allSatisfy { $0.category.module == .applications })
         #expect(findings.allSatisfy { $0.scannerID == "applications.installers" })
-        #expect(findings.allSatisfy { $0.risk == .caution })
+        // `.iso` images are not app installers.
+        #expect(findings.named("linux.ISO") == nil)
+    }
+
+    /// Only Downloads may be pre-selected; a disk image filed under Desktop
+    /// or Documents (an encrypted vault, an archived installer) is review-only.
+    @Test func onlyDownloadsIsPreselectable() async throws {
+        let tree: MockFileSystem = [
+            "/Users/test/Downloads/App.dmg": .file(size: 1, modified: daysAgo(10)),
+            "/Users/test/Documents/Vault.dmg": .file(size: 9_000, modified: daysAgo(700)),
+            "/Users/test/Documents/Fresh.dmg": .file(size: 9_000, modified: daysAgo(0)),
+            "/Users/test/Desktop/Tool.pkg": .file(size: 1, modified: daysAgo(400)),
+            "/Users/test/Documents/backup.iso": .file(size: 1, modified: daysAgo(400)),
+        ]
+        let findings = try await collect(scanner, context(tree))
+        #expect(findings.named("App.dmg")?.risk == .caution)
+        #expect(findings.named("Vault.dmg")?.risk == .risky)
+        #expect(findings.named("Fresh.dmg")?.risk == .risky)
+        #expect(findings.named("Tool.pkg")?.risk == .risky)
+        #expect(findings.named("backup.iso") == nil)
+        #expect(findings.named("Vault.dmg")?.detail == "Disk image or installer package, modified 700 days ago")
     }
 
     @Test func ageDetailUsesInjectedNow() async throws {
         let findings = try await collect(scanner, context(fs))
-        #expect(findings.named("App.dmg")?.detail == "Installer, 10 days old")
-        #expect(findings.named("linux.ISO")?.detail == "Installer, 0 days old")
-        #expect(findings.named("Tool.pkg")?.detail == "Installer, 400 days old")
+        #expect(findings.named("App.dmg")?.detail == "Installer, modified 10 days ago")
+        #expect(findings.named("Tool.pkg")?.detail == "Disk image or installer package, modified 400 days ago")
         #expect(findings.named("undated.dmg")?.detail == "Installer")
         let later = try await collect(scanner, context(fs, now: testNow.addingTimeInterval(5 * 86_400)))
-        #expect(later.named("App.dmg")?.detail == "Installer, 15 days old")
+        #expect(later.named("App.dmg")?.detail == "Installer, modified 15 days ago")
     }
 
     @Test func packagesAreSizedAsDirectories() async throws {
@@ -62,7 +80,7 @@ struct InstallersScannerTests {
 
     @Test func ignoreListIsRespected() async throws {
         let findings = try await collect(scanner, context(fs, ignore: IgnoreList(globs: ["*.dmg"])))
-        #expect(findings.paths == ["/Users/test/Downloads/linux.ISO", "/Users/test/Desktop/Tool.pkg", "/Users/test/Documents/Suite.mpkg"])
+        #expect(findings.paths == ["/Users/test/Desktop/Tool.pkg", "/Users/test/Documents/Suite.mpkg"])
     }
 
     @Test func missingRootsYieldNothing() async throws {

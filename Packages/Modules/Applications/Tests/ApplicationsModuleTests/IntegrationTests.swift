@@ -25,16 +25,16 @@ struct IntegrationTests {
             "Applications/Installed.app/Contents/MacOS/Installed": .file(size: 2_048),
             "Library/Application Support/com.example.installed/data.db": .file(size: 100),
             "Library/Application Support/com.example.installed.helper/x": .file(size: 100),
-            "Library/Application Support/com.example.vanished/data.db": .file(size: 1_000),
-            "Library/Application Support/com.example.vanished/blobs/b": .file(size: 2_000),
+            "Library/Application Support/com.departed.vanished/data.db": .file(size: 1_000),
+            "Library/Application Support/com.departed.vanished/blobs/b": .file(size: 2_000),
             "Library/Application Support/Plain Folder/x": .file(size: 10),
             "Library/Caches/com.apple.Safari/x": .file(size: 10),
-            "Library/Caches/org.example.vanishedtool/x": .file(size: 300),
-            "Library/Preferences/com.example.vanished.plist": .file(size: 400),
+            "Library/Caches/org.departed.tool/x": .file(size: 300),
+            "Library/Preferences/com.departed.vanished.plist": .file(size: 400),
             "Library/Preferences/com.example.installed.plist": .file(size: 10),
-            "Library/Saved Application State/com.example.vanished.savedState/d": .file(size: 500),
-            "Library/LaunchAgents/com.example.vanished.agent.plist": .file(size: 600),
-            "Library/Containers/com.example.vanished/Data/x": .file(size: 700),
+            "Library/Saved Application State/com.departed.vanished.savedState/d": .file(size: 500),
+            "Library/LaunchAgents/com.departed.vanished.agent.plist": .file(size: 600),
+            "Library/Containers/com.departed.vanished/Data/x": .file(size: 700),
             "Downloads/Installer.dmg": .file(size: 8_000, modified: tenDaysAgo),
             "Downloads/notes.txt": .file(size: 1),
             "Desktop/Tool.pkg": .file(size: 9_000, modified: tenDaysAgo),
@@ -63,12 +63,11 @@ struct IntegrationTests {
         let home = fixture.root.path
         let relative = Set(findings.map { String($0.path.standardizedFileURL.path.dropFirst(home.count + 1)) })
         let expected: Set<String> = [
-            "Library/Application Support/com.example.vanished",
-            "Library/Caches/org.example.vanishedtool",
-            "Library/Preferences/com.example.vanished.plist",
-            "Library/Saved Application State/com.example.vanished.savedState",
-            "Library/LaunchAgents/com.example.vanished.agent.plist",
-            "Library/Containers/com.example.vanished",
+            "Library/Application Support/com.departed.vanished",
+            "Library/Caches/org.departed.tool",
+            "Library/Preferences/com.departed.vanished.plist",
+            "Library/Saved Application State/com.departed.vanished.savedState",
+            "Library/Containers/com.departed.vanished",
             "Downloads/Installer.dmg",
             "Desktop/Tool.pkg",
         ]
@@ -76,13 +75,15 @@ struct IntegrationTests {
 
         let byPath = Dictionary(findings.map { (String($0.path.standardizedFileURL.path.dropFirst(home.count + 1)), $0) },
                                 uniquingKeysWith: { a, _ in a })
-        #expect(byPath["Library/Application Support/com.example.vanished"]?.sizeBytes == 3_000)
-        #expect(byPath["Library/Application Support/com.example.vanished"]?.category.id == "applications.orphaned")
+        #expect(byPath["Library/Application Support/com.departed.vanished"]?.sizeBytes == 3_000)
+        #expect(byPath["Library/Application Support/com.departed.vanished"]?.category.id == "applications.orphaned")
         #expect(byPath["Downloads/Installer.dmg"]?.category.id == "applications.installers")
-        #expect(byPath["Downloads/Installer.dmg"]?.detail == "Installer, 10 days old")
-        #expect(byPath["Desktop/Tool.pkg"]?.risk == .caution)
+        #expect(byPath["Downloads/Installer.dmg"]?.detail == "Installer, modified 10 days ago")
+        #expect(byPath["Downloads/Installer.dmg"]?.risk == .caution)
+        #expect(byPath["Desktop/Tool.pkg"]?.risk == .risky)
+        #expect(byPath["Library/Application Support/com.departed.vanished"]?.risk == .risky)
         #expect(summaryValue.byCategory["applications.installers"] == 17_000)
-        #expect(summaryValue.byCategory["applications.orphaned"] == 5_500)
+        #expect(summaryValue.byCategory["applications.orphaned"] == 4_900)
     }
 
     @Test func inventoryAndLeftoversOverRealFixtureTree() async throws {

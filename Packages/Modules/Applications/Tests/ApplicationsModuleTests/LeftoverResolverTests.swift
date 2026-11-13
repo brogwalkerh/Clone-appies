@@ -48,7 +48,6 @@ struct LeftoverResolverTests {
             "Preferences/com.vendor.fancy.plist",
             "Containers/com.vendor.fancy",
             "Group Containers/ABC123.com.vendor.fancy",
-            "Group Containers/group.vendor.fancy.shared",
             "Saved Application State/com.vendor.fancy.savedState",
             "LaunchAgents/com.vendor.fancy.helper.plist",
             "LaunchAgents/com.vendor.fancy.plist",
@@ -76,6 +75,74 @@ struct LeftoverResolverTests {
         #expect(prefs.sizeBytes == 300)
         #expect(prefs.modifiedAt == daysAgo(3))
         #expect(findings.named("com.vendor.fancy.savedState")?.sizeBytes == 80)
+    }
+
+    /// CFBundleName and CFBundleIdentifier are attacker-controlled.
+    @Test func pathTraversalInNameOrIdentifierIsRejected() async {
+        let tree: MockFileSystem = [
+            "/Users/test/Documents/thesis.pdf": .file(size: 1_000),
+            "/Users/test/Library/Preferences/com.evil.app.plist": .file(size: 10),
+            "/Users/test/Library/Application Support/Legit/x": .file(size: 10),
+            "/Users/test/Library/Logs/x.log": .file(size: 10),
+            "/Users/test/.ssh/id_ed25519": .file(size: 10),
+        ]
+        let resolver = LeftoverResolver(fileSystem: tree, protectedPaths: .none)
+        for name in ["../../Documents", "..", ".", "../Logs", "a/../../../Documents", "/Users/test/Documents", ""] {
+            let evil = makeApp(name: name, id: "com.evil.app", path: "/Applications/Legit.app")
+            let findings = await resolver.leftovers(for: evil, home: testHome)
+            #expect(findings.paths == [
+                "/Users/test/Library/Preferences/com.evil.app.plist",
+                "/Users/test/Library/Application Support/Legit",
+            ], "name \(name.debugDescription): \(findings.paths)")
+        }
+        for id in ["../../Documents", "..", "../../.ssh", "com.evil/../../../Documents", "/Users/test/Documents"] {
+            let evil = makeApp(name: "Legit", id: id)
+            let findings = await resolver.leftovers(for: evil, home: testHome)
+            #expect(findings.isEmpty, "id \(id): \(findings.paths)")
+        }
+    }
+
+    @Test func everyLeftoverIsADirectChildOfItsLibraryFolder() async {
+        let findings = await LeftoverResolver(fileSystem: fs, protectedPaths: .none).leftovers(for: app, home: testHome)
+        for finding in findings {
+            let parts = finding.path.standardizedFileURL.pathComponents
+            #expect(parts.count == 6 && Array(parts[0..<4]) == ["/", "Users", "test", "Library"], "\(finding.path.path)")
+        }
+    }
+
+    @Test func launchAgentsMatchOnIdentifierBoundary() async {
+        let teams = makeApp(name: "Teams", id: "com.microsoft.teams")
+        let tree: MockFileSystem = [
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams.updater.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/COM.Microsoft.Teams.Helper.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams2.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams2.updater.plist": .file(size: 1),
+            "/Users/test/Library/LaunchAgents/com.microsoft.teamsplist": .file(size: 1),
+        ]
+        let findings = await LeftoverResolver(fileSystem: tree, protectedPaths: .none).leftovers(for: teams, home: testHome)
+        #expect(findings.paths == [
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams.plist",
+            "/Users/test/Library/LaunchAgents/com.microsoft.teams.updater.plist",
+            "/Users/test/Library/LaunchAgents/COM.Microsoft.Teams.Helper.plist",
+        ])
+    }
+
+    @Test func groupContainersNeedTheFullBundleIdentifier() async {
+        let word = makeApp(name: "Word", id: "com.microsoft.Word")
+        let tree: MockFileSystem = [
+            "/Users/test/Library/Group Containers/UBF8T346G9.com.microsoft.Word/x": .file(size: 1),
+            "/Users/test/Library/Group Containers/group.com.microsoft.word.shared/x": .file(size: 1),
+            // Last two components only: another vendor's, or a suite-wide, container.
+            "/Users/test/Library/Group Containers/group.net.other.microsoft.word/x": .file(size: 1),
+            "/Users/test/Library/Group Containers/UBF8T346G9.Office/x": .file(size: 1),
+            "/Users/test/Library/Group Containers/UBF8T346G9.com.microsoft.Wordle/x": .file(size: 1),
+        ]
+        let findings = await LeftoverResolver(fileSystem: tree, protectedPaths: .none).leftovers(for: word, home: testHome)
+        #expect(findings.paths == [
+            "/Users/test/Library/Group Containers/UBF8T346G9.com.microsoft.Word",
+            "/Users/test/Library/Group Containers/group.com.microsoft.word.shared",
+        ])
     }
 
     @Test func nothingWithoutBundleIdentifier() async {
