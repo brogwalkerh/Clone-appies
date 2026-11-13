@@ -72,8 +72,21 @@ final class ScanViewModel {
         findings.reduce(0) { $0 + $1.sizeBytes }
     }
 
+    /// Category-id prefixes of the tab on screen, for modules whose tabs share
+    /// one model (My Clutter, Applications). When set, `selectedFindings`, and
+    /// with it the action bar, the confirmation and `remove`, cover only that
+    /// tab: Remove must never take selected items from a tab the user is not
+    /// looking at. `nil` means every finding.
+    var selectionScope: [String]?
+
+    func isInSelectionScope(_ finding: Finding) -> Bool {
+        guard let selectionScope else { return true }
+        return selectionScope.contains { finding.category.id.hasPrefix($0) }
+    }
+
+    /// The selected findings inside `selectionScope`: exactly what `remove` removes.
     var selectedFindings: [Finding] {
-        findings.filter { selectedIDs.contains($0.id) }
+        findings.filter { selectedIDs.contains($0.id) && isInSelectionScope($0) }
     }
 
     var selectedBytes: Int64 {

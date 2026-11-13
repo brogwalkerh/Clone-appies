@@ -27,12 +27,15 @@ struct MyClutterView: View {
             }
         }
 
-        var categoryPrefix: String {
+        /// Category ids (`ClutterCategory` in ClutterModule) this tab shows.
+        /// Large & Old is two categories: the scanner emits large files and
+        /// old files separately.
+        var categoryPrefixes: [String] {
             switch self {
-            case .largeOld: return "clutter.largeOld"
-            case .duplicates: return "clutter.duplicates"
-            case .similarImages: return "clutter.similarImages"
-            case .downloads: return "clutter.downloads"
+            case .largeOld: return ["clutter.largeFiles", "clutter.oldFiles"]
+            case .duplicates: return ["clutter.duplicates"]
+            case .similarImages: return ["clutter.similarImages"]
+            case .downloads: return ["clutter.downloads"]
             }
         }
 
@@ -101,6 +104,9 @@ struct MyClutterView: View {
                               onClean: { confirmRemove = true },
                               onUndo: { undo() })
         }
+        // Remove acts on the visible tab only (ScanViewModel.selectionScope).
+        .onAppear { model.selectionScope = tab.categoryPrefixes }
+        .onChange(of: tab) { _, newTab in model.selectionScope = newTab.categoryPrefixes }
         .onChange(of: minSizeMB) { _, _ in rebuildScanners() }
         .onChange(of: minAgeDays) { _, _ in rebuildScanners() }
         .onChange(of: model.summary) { _, summary in
@@ -201,7 +207,7 @@ struct MyClutterView: View {
 
     @ViewBuilder
     private var content: some View {
-        let groups = model.groups(withCategoryPrefix: tab.categoryPrefix)
+        let groups = model.groups(withCategoryPrefixes: tab.categoryPrefixes)
         switch model.phase {
         case .idle:
             EmptyState(title: "Ready to Scan",
@@ -222,7 +228,7 @@ struct MyClutterView: View {
             switch tab {
             case .duplicates, .similarImages:
                 KeeperGroupList(model: model,
-                                findings: model.findings(withCategoryPrefix: tab.categoryPrefix),
+                                findings: model.findings(withCategoryPrefixes: tab.categoryPrefixes),
                                 expandedGroups: $expandedGroups)
             case .largeOld, .downloads:
                 FindingsList(model: model, groups: groups, expandedGroups: $expandedGroups)
@@ -232,10 +238,10 @@ struct MyClutterView: View {
 
     private var subtitle: String {
         if model.isScanning { return "Scanning…" }
-        let findings = model.findings(withCategoryPrefix: tab.categoryPrefix)
+        let findings = model.findings(withCategoryPrefixes: tab.categoryPrefixes)
         guard !findings.isEmpty else { return tab.title }
         let bytes = findings.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        return "\(ByteFormatter.string(bytes)) in \(findings.count) items • \(ByteFormatter.string(model.selectedBytes)) selected overall"
+        return "\(ByteFormatter.string(bytes)) in \(findings.count) items • \(ByteFormatter.string(model.selectedBytes)) selected"
     }
 
     // MARK: Actions

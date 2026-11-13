@@ -128,6 +128,16 @@ extension ScanViewModel {
     func findings(withCategoryPrefix prefix: String) -> [Finding] {
         findings.filter { $0.category.id.hasPrefix(prefix) }
     }
+
+    /// Groups whose category id starts with any of `prefixes`.
+    func groups(withCategoryPrefixes prefixes: [String]) -> [FindingGroup] {
+        groups.filter { group in prefixes.contains { group.category.id.hasPrefix($0) } }
+    }
+
+    /// Findings whose category id starts with any of `prefixes`.
+    func findings(withCategoryPrefixes prefixes: [String]) -> [Finding] {
+        findings.filter { finding in prefixes.contains { finding.category.id.hasPrefix($0) } }
+    }
 }
 
 // MARK: - Rows
