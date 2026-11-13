@@ -123,6 +123,7 @@ public struct ProtectedPaths: Sendable, Hashable, Codable {
     public static let `default`: ProtectedPaths   // /System, /usr, /bin, /sbin, /private/var/db, /Library/Apple, Time Machine mounts, app's own containers
     public init(prefixes: [URL])
     public func isProtected(_ url: URL) -> Bool
+    public func containsProtected(_ url: URL) -> Bool   // isProtected, or an ancestor of a protected path; removers use this
 }
 
 public struct IgnoreList: Sendable, Hashable, Codable {
@@ -156,7 +157,7 @@ public protocol Remover: Sendable {
 /// macOS: FileManager.trashItem. Linux: moves into XDG trash dir (~/.local/share/Trash/files) for test parity.
 public struct TrashRemover: Remover { public init(fileSystem: any FileSystem = LocalFileSystem()) }
 
-/// Refuses to remove anything under ProtectedPaths; wraps another Remover.
+/// Refuses to remove anything under ProtectedPaths or any folder holding a protected path; wraps another Remover.
 public struct GuardedRemover: Remover { public init(wrapping: any Remover, protectedPaths: ProtectedPaths) }
 
 /// Recursive directory walker used by scanners.

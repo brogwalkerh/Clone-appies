@@ -37,6 +37,34 @@ struct ProtectedPathsTests {
         #expect(!tm.isProtected(URL(fileURLWithPath: "/Volumes/Data")))
     }
 
+    @Test func ancestorsOfProtectedPathsContainProtectedContent() {
+        // Not "protected" for walking purposes, but removing them is refused.
+        for ancestor in ["/", "/var", "/private/var"] {
+            let url = URL(fileURLWithPath: ancestor)
+            #expect(!paths.isProtected(url))
+            #expect(paths.containsProtected(url))
+        }
+        #expect(paths.containsProtected(URL(fileURLWithPath: "/usr/lib")))
+        #expect(!paths.containsProtected(URL(fileURLWithPath: "/private/var/dbx")))
+        #expect(!paths.containsProtected(URL(fileURLWithPath: "/home/user/Downloads")))
+        #expect(!ProtectedPaths.none.containsProtected(URL(fileURLWithPath: "/")))
+    }
+
+    @Test func privateAliasesCompareEqualWhetherOrNotThePathExists() {
+        // Neither file exists; both spellings must still be protected.
+        #expect(paths.isProtected(URL(fileURLWithPath: "/private/var/db/no-such-file-\(UUID().uuidString)")))
+        #expect(paths.isProtected(URL(fileURLWithPath: "/var/db/no-such-file-\(UUID().uuidString)")))
+        #expect(!paths.isProtected(URL(fileURLWithPath: "/private/variable")))
+    }
+
+    @Test func ancestorsOfGlobDirectoriesContainProtectedContent() {
+        let tm = ProtectedPaths(prefixes: [], globs: ["/Volumes/*.backupbundle"])
+        #expect(tm.containsProtected(URL(fileURLWithPath: "/Volumes")))
+        #expect(tm.containsProtected(URL(fileURLWithPath: "/")))
+        #expect(tm.containsProtected(URL(fileURLWithPath: "/Volumes/Backups.backupbundle")))
+        #expect(!tm.containsProtected(URL(fileURLWithPath: "/Volumes/Data")))
+    }
+
     @Test func defaultProtectsSystemDirectories() {
         #expect(ProtectedPaths.default.isProtected(URL(fileURLWithPath: "/usr/lib")))
         #expect(ProtectedPaths.default.isProtected(URL(fileURLWithPath: "/bin/sh")))

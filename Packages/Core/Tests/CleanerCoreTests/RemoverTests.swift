@@ -183,6 +183,22 @@ struct GuardedRemoverTests {
         #expect(restored[0].succeeded)
         #expect(FileManager.default.fileExists(atPath: ok.path))
     }
+
+    @Test func refusesFolderThatHoldsAProtectedPath() async throws {
+        let fixture = try FixtureBuilder()
+        defer { try? fixture.remove() }
+        let parent = try fixture.directory("parent")
+        let protectedDir = try fixture.directory("parent/protected")
+        _ = try fixture.file("parent/protected/secret.txt", size: 1)
+
+        let inner = TrashRemover(fileSystem: LocalFileSystem(), trashDirectory: fixture.url("Trash/files"))
+        let guarded = GuardedRemover(wrapping: inner, protectedPaths: ProtectedPaths(prefixes: [protectedDir]))
+
+        await #expect(throws: RemovalError.protectedPath(parent)) {
+            _ = try await guarded.remove([finding(parent)], mode: .trash, progress: nil)
+        }
+        #expect(FileManager.default.fileExists(atPath: protectedDir.path))
+    }
 }
 
 /// Thread-safe progress recorder for the `@Sendable` progress callback.

@@ -1,6 +1,8 @@
 import Foundation
 
-/// Refuses to remove anything under ProtectedPaths; wraps another Remover.
+/// Refuses to remove anything under ProtectedPaths, or any folder that holds a
+/// protected path (removing `/Library` would take `/Library/Apple` with it);
+/// wraps another Remover.
 ///
 /// The protected check runs over the whole batch before anything is touched:
 /// if any finding is protected, `RemovalError.protectedPath` is thrown and the
@@ -16,7 +18,7 @@ public struct GuardedRemover: Remover {
 
     public func remove(_ findings: [Finding], mode: RemovalMode,
                        progress: (@Sendable (Int, Int) -> Void)?) async throws -> RemovalManifest {
-        for finding in findings where protectedPaths.isProtected(finding.path) {
+        for finding in findings where protectedPaths.containsProtected(finding.path) {
             throw RemovalError.protectedPath(finding.path)
         }
         return try await wrapped.remove(findings, mode: mode, progress: progress)
