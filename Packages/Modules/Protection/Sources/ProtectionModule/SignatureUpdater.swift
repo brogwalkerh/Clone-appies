@@ -52,9 +52,13 @@ public enum SignatureUpdateError: Error, Sendable, Hashable, LocalizedError {
     case sizeMismatch(name: String, expected: Int64, actual: Int64)
     case replaceFailed(name: String, reason: String)
     case removeFailed(name: String, reason: String)
+    case insecureFeedURL(URL)
+    case fileTooLarge(name: String, bytes: Int64)
 
     public var errorDescription: String? {
         switch self {
+        case .insecureFeedURL(let url): "Signature feeds must use https: \(url.absoluteString)"
+        case .fileTooLarge(let name, let bytes): "\(name) is \(bytes) bytes, larger than a signature file may be"
         case .badResponse(let url, let code): "\(url.lastPathComponent): HTTP \(code)"
         case .invalidManifest(let reason): "Invalid signature manifest: \(reason)"
         case .invalidFileName(let name): "Manifest names an unexpected file: \(name)"
@@ -83,6 +87,13 @@ public struct SignatureUpdater: Sendable {
     /// Names of the files the last successful update installed, one per line.
     public static let installedFileName = "INSTALLED"
     public static let allowedExtensions = SignatureDatabase.supportedExtensions
+    /// Feed schemes the updater will fetch from. Plain http is refused: the
+    /// manifest carries the digests, so anyone on the network path could swap
+    /// both and install signatures that flag every app or allowlist real
+    /// malware. `file` is a local feed built by `Scripts/build-signature-feed.sh`.
+    public static let allowedSchemes: Set<String> = ["https", "file"]
+    /// Largest signature file (and manifest) the updater will install.
+    public static let maxFileBytes: Int64 = 128 * 1024 * 1024
 
     public let baseURL: URL
     public let destination: URL
@@ -104,6 +115,9 @@ public struct SignatureUpdater: Sendable {
     }
 
     public func update() async throws -> SignatureUpdateResult {
+        guard let scheme = baseURL.scheme?.lowercased(), Self.allowedSchemes.contains(scheme) else {
+            throw SignatureUpdateError.insecureFeedURL(baseURL)
+        }
         let manifestData = try await fetch(Self.manifestFileName)
         let manifest: SignatureFeedManifest
         do {
@@ -112,8 +126,13 @@ public struct SignatureUpdater: Sendable {
             throw SignatureUpdateError.invalidManifest("\(error)")
         }
         guard !manifest.version.isEmpty else { throw SignatureUpdateError.invalidManifest("empty version") }
+        // An empty list would withdraw every installed signature file at once.
+        guard !manifest.files.isEmpty else { throw SignatureUpdateError.invalidManifest("no files") }
         for file in manifest.files {
             try Self.validate(name: file.name)
+            guard file.bytes <= Self.maxFileBytes else {
+                throw SignatureUpdateError.fileTooLarge(name: file.name, bytes: file.bytes)
+            }
         }
 
         let fm = FileManager.default
@@ -162,6 +181,9 @@ public struct SignatureUpdater: Sendable {
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw SignatureUpdateError.badResponse(url, statusCode: http.statusCode)
+        }
+        guard Int64(data.count) <= Self.maxFileBytes else {
+            throw SignatureUpdateError.fileTooLarge(name: name, bytes: Int64(data.count))
         }
         return data
     }
