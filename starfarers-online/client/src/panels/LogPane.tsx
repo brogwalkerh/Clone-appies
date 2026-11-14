@@ -13,9 +13,12 @@ export function LogPane({ state }: { state: GameState }) {
   const setReplayIndex = useGame((s) => s.setReplayIndex);
   const replayMin = useGame((s) => Math.min(s.replayMin ?? 0, s.actions.length));
   const ensureReplay = useGame((s) => s.ensureReplay);
-  const bottom = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLOListElement>(null);
+  // Keep the newest entry in view by scrolling the list itself: `scrollIntoView` also scrolls
+  // every scrollable ancestor, which dragged the whole side column down and cut off the hand.
   useEffect(() => {
-    bottom.current?.scrollIntoView?.({ block: 'nearest' });
+    const el = list.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [state.log.length]);
   // Ask only once the slider rests: every server-side backward jump replays from the initial state.
   useEffect(() => {
@@ -67,13 +70,12 @@ export function LogPane({ state }: { state: GameState }) {
           </button>
         )}
       </div>
-      <ol className="log-list">
+      <ol className="log-list" ref={list} data-testid="log-list">
         {state.log.map((e) => (
           <li key={e.seq} className={e.kind} style={{ borderLeftColor: playerColor(state, e.playerId) }}>
             <span className="muted small">T{e.turnNumber}</span> {e.message}
           </li>
         ))}
-        <div ref={bottom} />
       </ol>
     </section>
   );

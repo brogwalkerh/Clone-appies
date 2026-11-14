@@ -27,10 +27,11 @@ import {
   type ShipId,
 } from '@starfarers/shared';
 import { useMemo, useState } from 'react';
-import { CIV_COLOR, CIV_LABEL, PLAYER_COLOR, RESOURCE_COLOR, dicePips, playerColor } from '../ui/format.js';
+import { CIV_LABEL, dicePips } from '../ui/format.js';
 import { NO_MOTION, useFlips, useShipSlide, type BoardMotion, type Point } from './motion.js';
 import { onActivateKey } from '../ui/keyboard.js';
 import { DOCK_R, LABEL_FONT, outpostLayout } from './outpostLayout.js';
+import { BoardDefs, INK, civFill, pieceFill, planetFill, tileFill } from './palette.js';
 
 export const SCALE = 58;
 const PAD = 26;
@@ -58,11 +59,39 @@ function px(p: { x: number; y: number }): { x: number; y: number } {
   return { x: p.x * SCALE + PAD, y: p.y * SCALE + PAD };
 }
 
-function hexPoints(hex: readonly [number, number]): string {
+/** The hex outline, shrunk toward its centre by `inset` (0 = the tile edge). */
+function hexPoints(hex: readonly [number, number], inset = 0): string {
+  const c = px(hexCenter(hex));
   return hexCorners(hex)
     .map((id) => px(vertexPosition(id)))
+    .map((p) => ({ x: p.x + (c.x - p.x) * inset, y: p.y + (c.y - p.y) * inset }))
     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
     .join(' ');
+}
+
+/** A player's piece gradient (grey for an unknown owner). */
+function ownerFill(state: GameState, id: PlayerId): string {
+  const p = state.players.find((x) => x.id === id);
+  return p ? pieceFill(p.color) : '#777';
+}
+
+/** A printed card tile: fill, dark cut edge, and a light bevel just inside it. */
+function Tile({ hex, fill }: { hex: readonly [number, number]; fill: string }) {
+  return (
+    <>
+      <polygon points={hexPoints(hex)} fill={fill} stroke={INK.line} strokeWidth={2.2} strokeLinejoin="round" />
+      <polygon points={hexPoints(hex, 0.07)} fill="none" stroke="#ffffff" strokeOpacity={0.16} strokeWidth={1.2} strokeLinejoin="round" />
+    </>
+  );
+}
+
+/** Pieces are drawn at their node's coordinates and enlarged about it, so the geometry stays at the node. */
+const PIECE_SCALE = 1.3;
+const enlarge = (p: { x: number; y: number }) => `translate(${p.x} ${p.y}) scale(${PIECE_SCALE}) translate(${-p.x} ${-p.y})`;
+
+/** Highlight stripe across the top of a piece so it reads as moulded plastic. */
+function Gloss({ x, y, w }: { x: number; y: number; w: number }) {
+  return <rect x={x - w / 2} y={y} width={w} height={2.2} rx={1.1} fill="#ffffff" fillOpacity={0.45} pointerEvents="none" />;
 }
 
 function PlanetHex({ planet, flip }: { planet: Planet; flip: boolean }) {
@@ -74,9 +103,10 @@ function PlanetHex({ planet, flip }: { planet: Planet; flip: boolean }) {
   if (token) {
     const pirate = token.kind === 'pirateBase';
     discNode = (
-      <g data-testid={`token-${planet.id}`} className={flip ? 'flip' : undefined}>
-        <circle cx={c.x} cy={c.y} r={r} fill={pirate ? '#1b1b1b' : '#bfe3f2'} stroke={pirate ? '#ff5e5e' : '#2b7a99'} strokeWidth={2.5} />
-        <text x={c.x} y={c.y + 5} textAnchor="middle" fontSize={14} fontWeight={700} fill={pirate ? '#ff5e5e' : '#114'}>
+      <g data-testid={`token-${planet.id}`} className={flip ? 'flip token' : 'token'}>
+        <circle cx={c.x} cy={c.y} r={r} fill={pirate ? '#1f1a1a' : '#d7eef7'} stroke={pirate ? '#ff5e5e' : '#2b7a99'} strokeWidth={2.5} />
+        <circle cx={c.x} cy={c.y} r={r - 4} fill="none" stroke={pirate ? '#ff5e5e' : '#2b7a99'} strokeOpacity={0.4} strokeWidth={1} />
+        <text x={c.x} y={c.y + 5} textAnchor="middle" className="token-num" fontSize={15} fill={pirate ? '#ff6b6b' : '#113'}>
           {pirate ? 'P' : 'I'}
           {token.value}
         </text>
@@ -85,24 +115,39 @@ function PlanetHex({ planet, flip }: { planet: Planet; flip: boolean }) {
   } else if (disc && disc.faceUp) {
     const nums = disc.numbers;
     const best = Math.max(...nums.map(dicePips));
-    const size = nums.length > 1 ? 11 : 9 + best * 1.7;
+    const size = nums.length > 1 ? 13 : 11 + best * 1.9;
     const hot = best >= 5;
     discNode = (
-      <g data-testid={`disc-${planet.id}`} className={flip ? 'flip' : undefined}>
-        <circle cx={c.x} cy={c.y} r={r} fill="#f7f1dc" stroke="#4a4030" strokeWidth={1.5} />
-        <text x={c.x} y={c.y + size * 0.36} textAnchor="middle" fontSize={size} fontWeight={700} fill={hot ? '#b3261e' : '#222'}>
+      <g data-testid={`disc-${planet.id}`} className={flip ? 'flip token' : 'token'}>
+        <circle cx={c.x} cy={c.y} r={r} fill="url(#token-face)" stroke={INK.tokenRim} strokeWidth={1.5} />
+        <circle cx={c.x} cy={c.y} r={r - 3.5} fill="none" stroke={INK.tokenRim} strokeOpacity={0.35} strokeWidth={0.8} />
+        <text x={c.x} y={c.y + size * 0.35} textAnchor="middle" className="token-num" fontSize={size} fill={hot ? INK.tokenHot : INK.tokenInk}>
           {disc.label}
         </text>
       </g>
     );
   } else if (disc) {
+    // Face-down: the printed back of the disc, a ring and a four-point star.
+    const s = r * 0.5;
     discNode = (
-      <circle data-testid={`disc-${planet.id}`} cx={c.x} cy={c.y} r={r} fill="#3b4150" stroke="#9aa3b5" strokeWidth={1.5} strokeDasharray="4 3" />
+      <g data-testid={`disc-${planet.id}`} className="token">
+        <circle cx={c.x} cy={c.y} r={r} fill="url(#token-back)" stroke={INK.brass} strokeWidth={1.5} />
+        <circle cx={c.x} cy={c.y} r={r - 4} fill="none" stroke={INK.brass} strokeOpacity={0.45} strokeWidth={0.8} />
+        <path
+          d={`M${c.x},${c.y - s} Q${c.x},${c.y} ${c.x + s},${c.y} Q${c.x},${c.y} ${c.x},${c.y + s} Q${c.x},${c.y} ${c.x - s},${c.y} Q${c.x},${c.y} ${c.x},${c.y - s}Z`}
+          fill={INK.brass}
+          fillOpacity={0.8}
+        />
+      </g>
     );
   }
   return (
     <g>
-      <polygon points={hexPoints(planet.hex)} fill={RESOURCE_COLOR[planet.resource]} fillOpacity={0.55} stroke="#0d1017" strokeWidth={1.2} />
+      <Tile hex={planet.hex} fill={tileFill(planet.resource)} />
+      <circle cx={c.x} cy={c.y} r={SCALE * 0.42} fill={planetFill(planet.resource)} stroke={INK.line} strokeOpacity={0.6} strokeWidth={1} />
+      {planet.resource === 'goods' && (
+        <ellipse cx={c.x} cy={c.y} rx={SCALE * 0.52} ry={SCALE * 0.12} fill="none" stroke="#e8d7ff" strokeOpacity={0.55} strokeWidth={2} transform={`rotate(-18 ${c.x} ${c.y})`} />
+      )}
       {discNode}
     </g>
   );
@@ -116,9 +161,9 @@ function Outpost({ state, sector, flip }: { state: GameState; sector: Sector; fl
   return (
     <g data-testid={`outpost-${sector.id}`} className={flip ? 'flip' : undefined}>
       {sector.lobes.map((hex) => (
-        <polygon key={hex.join(',')} points={hexPoints(hex)} fill={CIV_COLOR[civ]} fillOpacity={0.45} stroke="#0d1017" strokeWidth={1.2} />
+        <Tile key={hex.join(',')} hex={hex} fill={civFill(civ)} />
       ))}
-      <text data-testid={`civ-label-${sector.id}`} x={layout.label.x} y={layout.label.y} textAnchor="middle" fontSize={LABEL_FONT} fill="#e8ecf4" fontWeight={600}>
+      <text data-testid={`civ-label-${sector.id}`} x={layout.label.x} y={layout.label.y} textAnchor="middle" fontSize={LABEL_FONT + 1} className="civ-label">
         {CIV_LABEL[civ]}
       </text>
       {docks.map((owner, i) => {
@@ -130,9 +175,9 @@ function Outpost({ state, sector, flip }: { state: GameState; sector: Sector; fl
             cx={at.x}
             cy={at.y}
             r={DOCK_R}
-            fill={owner ? playerColor(state, owner) : '#1b2030'}
-            stroke="#d8dde8"
-            strokeWidth={1.2}
+            fill={owner ? ownerFill(state, owner) : '#0c1226'}
+            stroke={owner ? INK.line : INK.dock}
+            strokeWidth={1.4}
           />
         );
       })}
@@ -144,7 +189,7 @@ function EmptySector({ sector, flip }: { sector: Sector; flip: boolean }) {
   return (
     <g data-testid={`empty-${sector.id}`} className={flip ? 'flip' : undefined}>
       {sector.lobes.map((hex) => (
-        <polygon key={hex.join(',')} points={hexPoints(hex)} fill="#141a26" stroke="#0d1017" strokeWidth={1.2} />
+        <Tile key={hex.join(',')} hex={hex} fill={INK.empty} />
       ))}
     </g>
   );
@@ -155,10 +200,13 @@ function HiddenSector({ sector }: { sector: Sector }) {
   return (
     <g data-testid={`hidden-${sector.id}`}>
       {sector.lobes.map((hex) => (
-        <polygon key={hex.join(',')} points={hexPoints(hex)} fill="#1c2233" stroke="#3a4360" strokeWidth={1.6} strokeDasharray="5 3" />
+        <g key={hex.join(',')}>
+          <Tile hex={hex} fill="url(#tile-back)" />
+          <polygon points={hexPoints(hex, 0.22)} fill="none" stroke={INK.brass} strokeOpacity={0.35} strokeWidth={1} />
+        </g>
       ))}
-      <circle cx={centre.x} cy={centre.y} r={SCALE * 0.3} fill="#232b3f" stroke="#4a5578" strokeWidth={1.5} />
-      <text x={centre.x} y={centre.y + 7} textAnchor="middle" fontSize={20} fontWeight={700} fill="#8d97ab">
+      <circle cx={centre.x} cy={centre.y} r={SCALE * 0.3} fill="url(#token-back)" stroke={INK.brass} strokeWidth={1.5} />
+      <text x={centre.x} y={centre.y + 8} textAnchor="middle" className="token-num" fontSize={22} fill={INK.brass}>
         ?
       </text>
     </g>
@@ -184,13 +232,30 @@ function ShipGlyph({
 }) {
   const p = px(state.board.nodes[ship.nodeId]?.pos ?? { x: 0, y: 0 });
   const slide = useShipSlide(ship.id, ship.nodeId, motion, posOf);
-  const fill = playerColor(state, ship.owner);
-  const stroke = selected ? '#ffffff' : '#0d1017';
+  const fill = ownerFill(state, ship.owner);
+  const stroke = selected ? INK.selected : INK.line;
+  const width = selected ? 3 : 1.5;
+  // Colony ship: an arrowhead hull with a notched tail; transport: a cargo hull with a hatch.
+  // The first polygon / rect keeps the anchor the tests read (apex and right-hand foot / top-left corner).
   const shape =
     ship.kind === 'colony' ? (
-      <polygon points={`${p.x},${p.y - 11} ${p.x + 9},${p.y + 8} ${p.x - 9},${p.y + 8}`} fill={fill} stroke={stroke} strokeWidth={selected ? 3 : 1.5} />
+      <>
+        <polygon
+          points={`${p.x},${p.y - 13} ${p.x + 10},${p.y + 8} ${p.x},${p.y + 4} ${p.x - 10},${p.y + 8}`}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={width}
+          strokeLinejoin="round"
+        />
+        <circle cx={p.x} cy={p.y - 2} r={2.2} fill={INK.line} fillOpacity={0.55} />
+      </>
     ) : (
-      <rect x={p.x - 10} y={p.y - 7} width={20} height={14} rx={4} fill={fill} stroke={stroke} strokeWidth={selected ? 3 : 1.5} />
+      <>
+        <rect x={p.x - 10} y={p.y - 7} width={20} height={14} rx={4} fill={fill} stroke={stroke} strokeWidth={width} />
+        <line x1={p.x - 4} y1={p.y - 4} x2={p.x - 4} y2={p.y + 4} stroke={INK.line} strokeOpacity={0.45} strokeWidth={1.2} />
+        <line x1={p.x + 4} y1={p.y - 4} x2={p.x + 4} y2={p.y + 4} stroke={INK.line} strokeOpacity={0.45} strokeWidth={1.2} />
+        <Gloss x={p.x} y={p.y - 5.5} w={14} />
+      </>
     );
   return (
     <g
@@ -210,10 +275,10 @@ function ShipGlyph({
       }}
     >
       <g className="ship-motion" style={slide}>
-        {focusable && <circle className="focus-ring" cx={p.x} cy={p.y} r={15} fill="none" />}
-        {shape}
+        {focusable && <circle className="focus-ring" cx={p.x} cy={p.y} r={18} fill="none" />}
+        <g transform={enlarge(p)}>{shape}</g>
         {ship.mustFoundOrLeave && (
-          <text x={p.x + 10} y={p.y - 8} fontSize={12} fontWeight={700} fill="#ffd166">
+          <text x={p.x + 10} y={p.y - 8} fontSize={13} className="token-num" fill={INK.highlight}>
             !
           </text>
         )}
@@ -273,7 +338,8 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
 
   return (
     <svg className="board" viewBox={viewBox} role="group" aria-label="Game board" data-testid="board">
-      <g className="sectors">
+      <BoardDefs />
+      <g className="sectors" filter="url(#lay)">
         {sectors.map((sector) => {
           if (sector.kind === 'hidden') return <HiddenSector key={sector.id} sector={sector} />;
           const flip = flips.sectors.has(sector.id);
@@ -289,21 +355,21 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
           );
         })}
       </g>
-      <g className="edges" stroke="#5b6478" strokeOpacity={0.35} strokeWidth={1}>
+      <g className="edges" stroke={INK.lane} strokeOpacity={0.28} strokeWidth={1} strokeDasharray="2 3">
         {board.edges.map(([a, b]) => {
           const pa = px(board.nodes[a]?.pos ?? { x: 0, y: 0 });
           const pb = px(board.nodes[b]?.pos ?? { x: 0, y: 0 });
           return <line key={`${a}-${b}`} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} />;
         })}
       </g>
-      {previewPoints && <polyline className="path-preview" points={previewPoints} fill="none" stroke="#ffd166" strokeWidth={3} strokeDasharray="6 4" />}
+      {previewPoints && <polyline className="path-preview" points={previewPoints} fill="none" stroke={INK.highlight} strokeWidth={3} strokeDasharray="6 4" strokeLinecap="round" />}
       <g className="nodes">
         {Object.values(board.nodes).map((node) => {
           const p = px(node.pos);
           const hl = highlights.has(node.id);
           const isSite = node.siteType === 'colonySite';
           const isDock = node.siteType === 'dockingPoint';
-          const r = isSite || isDock ? 6 : 4;
+          const r = isDock ? 5 : isSite ? 4.5 : 2.6;
           return (
             <g
               key={node.id}
@@ -320,44 +386,62 @@ export function Board({ state, viewer, highlights, selectedShip, onNodeClick, on
               onMouseEnter={() => setHover(node.id)}
               onMouseLeave={() => setHover((h) => (h === node.id ? null : h))}
             >
-              {hl && <circle cx={p.x} cy={p.y} r={12} className="halo" fill="#ffd166" fillOpacity={0.25} stroke="#ffd166" strokeWidth={2} />}
-              <circle cx={p.x} cy={p.y} r={r} fill={isDock ? '#f6c667' : isSite ? '#cfe3ff' : '#8d97ab'} stroke="#0d1017" strokeWidth={1} />
+              <circle cx={p.x} cy={p.y} r={9} fill="transparent" />
+              {hl && <circle cx={p.x} cy={p.y} r={12} className="halo" fill={INK.highlight} fillOpacity={0.25} stroke={INK.highlight} strokeWidth={2} />}
+              {/* Printed studs: a ring for colony sites, a gold pip for docking points, a small dot elsewhere. The dot is the last circle. */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={r}
+                fill={isDock ? INK.dock : isSite ? '#0c1430' : INK.stud}
+                fillOpacity={isSite || isDock ? 1 : 0.7}
+                stroke={isSite ? INK.site : INK.line}
+                strokeWidth={isSite ? 1.6 : 1}
+              />
             </g>
           );
         })}
       </g>
-      <g className="settlements">
+      <g className="settlements" filter="url(#stand)">
         {Object.values(board.settlements).map((s) => {
           const p = px(board.nodes[s.nodeId]?.pos ?? { x: 0, y: 0 });
-          const fill = PLAYER_COLOR[s.color];
+          const fill = pieceFill(s.color);
           const blocker = s.owner === null;
+          const dash = blocker ? '3 2' : undefined;
           if (s.kind === 'spaceport') {
+            // Station: a hexagonal deck with a docking ring.
+            const hexPts = [0, 1, 2, 3, 4, 5]
+              .map((i) => {
+                const a = (Math.PI / 3) * i + Math.PI / 6;
+                return `${(p.x + 13 * Math.cos(a)).toFixed(1)},${(p.y + 13 * Math.sin(a)).toFixed(1)}`;
+              })
+              .join(' ');
             return (
-              <g key={s.nodeId} data-testid={`settlement-${s.nodeId}`} data-kind="spaceport" onClick={() => onNodeClick(s.nodeId)}>
-                <rect x={p.x - 11} y={p.y - 11} width={22} height={22} rx={3} fill={fill} stroke="#0d1017" strokeWidth={1.5} strokeDasharray={blocker ? '3 2' : undefined} />
-                <circle cx={p.x} cy={p.y} r={4.5} fill="#0d1017" />
+              <g key={s.nodeId} data-testid={`settlement-${s.nodeId}`} data-kind="spaceport" transform={enlarge(p)} onClick={() => onNodeClick(s.nodeId)}>
+                <polygon points={hexPts} fill={fill} stroke={INK.line} strokeWidth={1.6} strokeLinejoin="round" strokeDasharray={dash} />
+                <circle cx={p.x} cy={p.y} r={6} fill="none" stroke={INK.line} strokeOpacity={0.6} strokeWidth={1.4} />
+                <circle cx={p.x} cy={p.y} r={2.4} fill={INK.line} />
+                <Gloss x={p.x} y={p.y - 10} w={10} />
               </g>
             );
           }
+          // Colony: a domed habitat on a base plate.
           return (
-            <rect
-              key={s.nodeId}
-              data-testid={`settlement-${s.nodeId}`}
-              data-kind="colony"
-              x={p.x - 7}
-              y={p.y - 7}
-              width={14}
-              height={14}
-              fill={fill}
-              stroke="#0d1017"
-              strokeWidth={1.5}
-              strokeDasharray={blocker ? '3 2' : undefined}
-              onClick={() => onNodeClick(s.nodeId)}
-            />
+            <g key={s.nodeId} data-testid={`settlement-${s.nodeId}`} data-kind="colony" transform={enlarge(p)} onClick={() => onNodeClick(s.nodeId)}>
+              <path
+                d={`M${p.x - 8},${p.y + 7} L${p.x - 8},${p.y + 1} A8,8 0 0 1 ${p.x + 8},${p.y + 1} L${p.x + 8},${p.y + 7} Z`}
+                fill={fill}
+                stroke={INK.line}
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+                strokeDasharray={dash}
+              />
+              <path d={`M${p.x - 4.5},${p.y - 3} A5,5 0 0 1 ${p.x + 1},${p.y - 5.5}`} fill="none" stroke="#ffffff" strokeOpacity={0.55} strokeWidth={1.6} strokeLinecap="round" />
+            </g>
           );
         })}
       </g>
-      <g className="ships">
+      <g className="ships" filter="url(#stand)">
         {[...shipsByNode.values()].map((ship) => (
           <ShipGlyph
             key={ship.id}

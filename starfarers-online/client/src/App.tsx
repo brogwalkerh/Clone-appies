@@ -188,8 +188,10 @@ export function GameScreen({ extraPanels, subtitle, headerExtra }: GameScreenPro
       {replaying && <div className="toast info">Replay view — the board shows an earlier state. Use the slider in the log to return to live play.</div>}
       <main className="layout">
         <div className="board-col">
-          <VpTrack state={state} motion={motion} />
-          <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
+          <div className="board-frame">
+            <VpTrack state={state} motion={motion} />
+            <Board state={state} viewer={viewer} highlights={highlights} selectedShip={selectedShip} onNodeClick={onNodeClick} onShipClick={onShipClick} motion={motion} shipsSelectable={shipsSelectable} />
+          </div>
           {viewer && !replaying && <ActionBar state={state} viewer={viewer} />}
         </div>
         <aside className="side">

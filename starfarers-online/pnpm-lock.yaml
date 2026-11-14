@@ -20,6 +20,12 @@ importers:
 
   client:
     dependencies:
+      '@fontsource/barlow':
+        specifier: 5.2.8
+        version: 5.2.8
+      '@fontsource/barlow-condensed':
+        specifier: 5.2.8
+        version: 5.2.8
       '@starfarers/shared':
         specifier: workspace:*
         version: link:../shared
@@ -544,6 +550,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource/barlow-condensed@5.2.8':
+    resolution: {integrity: sha512-cmCWNfh7oCmfarGDlhiJRkl4HOgt9aOqki7IYtDOaI3qLCeEO/8VjiZeAx/2PEPf4K36YxXDjAlOWwW/anQUZA==}
+
+  '@fontsource/barlow@5.2.8':
+    resolution: {integrity: sha512-iuFOnY4OI2cd1STrJ3NdJNzWjhcwv6JarmqfdoZzAmz9g0jTVjES86MNbuBxqVR3ydbTEjo4opEl24GXScRM7w==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1696,6 +1708,10 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@fontsource/barlow-condensed@5.2.8': {}
+
+  '@fontsource/barlow@5.2.8': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
